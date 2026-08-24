@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (iOS Simulator SDK)
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # Bluetooth doesn't work in the Simulator (see README), so this only
+      # verifies the app compiles & links — it can't exercise the BLE/FTMS/
+      # HealthKit code paths, which still need a real iPhone.
+      - name: Build for iOS Simulator
+        run: |
+          xcodebuild build \
+            -project Bahoo.xcodeproj \
+            -target Bahoo \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO

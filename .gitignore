@@ -1,0 +1,19 @@
+# XcodeGen-generated project & derived Info.plist/entitlements (see README) —
+# fully reproducible from project.yml via `xcodegen generate`.
+Bahoo.xcodeproj/
+Generated/
+
+# Build products
+build/
+DerivedData/
+
+# Xcode user-specific state
+xcuserdata/
+*.xcuserstate
+
+# Swift Package Manager
+.swiftpm/
+.build/
+
+# macOS
+.DS_Store

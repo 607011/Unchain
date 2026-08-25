@@ -252,20 +252,38 @@ providers require an account for that – one exception:
 Bluetooth doesn't work in the simulator — the app must run on a real iPhone
 (your iPhone XS is directly suitable for this).
 
-## Idea for later: online elevation lookup for GPX tracks without `<ele>`
+## Idea for later: elevation lookup for GPX tracks without `<ele>`
 
 GPX-route riding (see Status above) is deliberately offline-only for now: a
 track missing elevation data is rejected rather than filled in from the
 internet. If that turns out to be too limiting in practice:
 
 - Plain OpenStreetMap has *no* elevation data itself (it's a vector map, not
-  a DEM) — an SRTM-based service like
+  a DEM), so this needs an actual elevation dataset. The best option found so
+  far is **[Copernicus DEM
+  GLO-30](https://registry.opendata.aws/copernicus-dem/)** — 30 m
+  resolution, near-global coverage, distributed as ready-to-use
+  Cloud-Optimized GeoTIFF tiles directly on AWS S3 (AWS's Open Data
+  Sponsorship Program: no login, no cost, [freely
+  licensed](https://docs.sentinel-hub.com/api/latest/static/files/data/dem/resources/license/License-COPDEM-30.pdf)).
+- Rather than a live per-point API call, the nicer fit for this app's
+  offline-first design is a **one-time regional tile download**: fetch the
+  1°×1° GeoTIFF tile(s) covering a track's bounding box once, cache them
+  on-device, and do the elevation lookup locally against the cached raster
+  afterwards. Every later GPX import in that region then needs no network at
+  all — including out on a ride with no signal — which a live lookup
+  wouldn't give you. iOS has no built-in GeoTIFF/COG reader (no
+  MapKit/CoreLocation support for this), but a point lookup via the raster's
+  own geotransform only needs a small, purpose-built parser, not a general
+  raster library.
+- Fallback if that turns out to be impractical: a live SRTM-based API like
   [Open-Elevation](https://www.open-elevation.com/) or
-  [Open Topo Data](https://www.opentopodata.org/) would be needed instead
-  (both open-source, self-hostable).
-- This would be the first feature needing network access at all — the app has
-  been Bluetooth/HealthKit/local-file-only until now, worth flagging
-  explicitly to the user rather than adding quietly.
+  [Open Topo Data](https://www.opentopodata.org/) (both open-source,
+  self-hostable) — simpler to integrate, but back to a network call on every
+  import, indefinitely, not just the first one per region.
+- Either way, this would be the first feature needing network access at all —
+  the app has been Bluetooth/HealthKit/local-file-only until now, worth
+  flagging explicitly to the user rather than adding quietly.
 - Not every trainer supports Indoor Bike Simulation — check via the feature
   overlay (ℹ️ next to the trainer name, look for "Indoor Bike Simulation
   (Grade)" under Adjustable Targets) before relying on it; a graceful

@@ -1,4 +1,4 @@
-# Build/install/run/debug Bahoo entirely from the command line, no Xcode.app
+# Build/install/run/debug Unchain entirely from the command line, no Xcode.app
 # window ever needed. See README.md "Generating the project" for the
 # underlying commands this wraps.
 #
@@ -13,9 +13,9 @@
 # so every build below uses `-target`/`-sdk` instead of `-scheme`/
 # `-destination`, which works reliably (see README).
 
-TARGET        := Bahoo
+TARGET        := Unchain
 CONFIGURATION := Debug
-BUNDLE_ID     := com.oliverlau.bahoo
+BUNDLE_ID     := net.ersatzworld.unchain
 DEVICE        ?= Fourteen
 BUILD_DIR     := build
 APP_PATH      := $(BUILD_DIR)/$(CONFIGURATION)-iphoneos/$(TARGET).app
@@ -23,13 +23,13 @@ LAUNCH_JSON   := $(BUILD_DIR)/devicectl-launch.json
 
 .PHONY: generate build install run debug clean
 
-# Regenerates Bahoo.xcodeproj/ from project.yml (XcodeGen) – cheap, so this
+# Regenerates Unchain.xcodeproj/ from project.yml (XcodeGen) – cheap, so this
 # always runs rather than trying to guess whether project.yml changed.
 generate:
 	xcodegen generate
 
 build: generate
-	xcodebuild -target $(TARGET) -sdk iphoneos -configuration $(CONFIGURATION) build
+	xcodebuild -target $(TARGET) -sdk iphoneos -configuration $(CONFIGURATION) -allowProvisioningUpdates build
 
 install: build
 	xcrun devicectl device install app --device $(DEVICE) $(APP_PATH)
@@ -56,4 +56,4 @@ debug: install
 	xcrun lldb -o "device select $(DEVICE)" -o "device process attach -p $$pid"
 
 clean:
-	rm -rf $(BUILD_DIR) Bahoo.xcodeproj
+	rm -rf $(BUILD_DIR) Unchain.xcodeproj

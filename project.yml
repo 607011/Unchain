@@ -1,6 +1,6 @@
-name: Bahoo
+name: Unchain
 options:
-  bundleIdPrefix: com.oliverlau
+  bundleIdPrefix: net.ersatzworld
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
@@ -8,12 +8,12 @@ configs:
   Debug: debug
   Release: release
 targets:
-  Bahoo:
+  Unchain:
     type: application
     platform: iOS
     deploymentTarget: "16.0"
     sources:
-      - path: Bahoo
+      - path: Unchain
     info:
       path: Generated/Info.plist
       properties:
@@ -26,18 +26,18 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSBluetoothAlwaysUsageDescription: "Bahoo needs Bluetooth to find and control your smart trainer and, optionally, a heart rate strap."
-        NSHealthUpdateUsageDescription: "Bahoo uses this to save your completed indoor workouts, including calories and heart rate, to the Health app."
-        NSHealthShareUsageDescription: "Bahoo reads your most recent body weight to estimate calories burned during walk/run workouts, and your date of birth to estimate a max heart rate for the in-app heart rate zones."
+        NSBluetoothAlwaysUsageDescription: "Unchain needs Bluetooth to find and control your smart trainer and, optionally, a heart rate strap."
+        NSHealthUpdateUsageDescription: "Unchain uses this to save your completed indoor workouts, including calories and heart rate, to the Health app."
+        NSHealthShareUsageDescription: "Unchain reads your most recent body weight to estimate calories burned during walk/run workouts, and your date of birth to estimate a max heart rate for the in-app heart rate zones."
         # Deliberately NO UIBackgroundModes entry: the app is only meant to run in the foreground.
     entitlements:
-      path: Generated/Bahoo.entitlements
+      path: Generated/Unchain.entitlements
       properties:
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access: []
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.oliverlau.bahoo
+        PRODUCT_BUNDLE_IDENTIFIER: net.ersatzworld.unchain
         TARGETED_DEVICE_FAMILY: "1,2" # iPhone + iPad
         SWIFT_VERSION: "5.0"
         IPHONEOS_DEPLOYMENT_TARGET: "16.0"

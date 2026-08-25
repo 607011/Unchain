@@ -61,7 +61,7 @@ struct WorkoutSummary: Identifiable {
     /// Health as `HKMetadataKeyWorkoutBrandName`, shown as a subtitle under
     /// the workout type in the Fitness app.
     let programName: String?
-    /// Seconds spent in each heart rate zone – see `HeartRateZone`. Bahoo-only,
+    /// Seconds spent in each heart rate zone – see `HeartRateZone`. Unchain-only,
     /// not written to Health (there's no HealthKit type for it), but shown
     /// live during the workout and again in the post-save summary.
     let heartRateZoneSeconds: [HeartRateZone: Int]

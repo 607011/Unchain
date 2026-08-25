@@ -1,6 +1,6 @@
-<img src="Bahoo/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png" width="96" align="right" alt="Bahoo app icon">
+<img src="Unchain/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png" width="96" align="right" alt="Unchain app icon">
 
-# Bahoo
+# Unchain
 
 Lean iOS app for controlling smart trainers (Kickr & co.) via the open
 **FTMS** Bluetooth standard (Fitness Machine Service) — not a Wahoo-proprietary
@@ -58,7 +58,7 @@ protocol, so it works in principle with any FTMS-capable trainer.
       device — the Fitness app's own zone breakdown turns out to be exclusive
       to Apple Watch-recorded workouts, not derived after the fact from
       heart rate samples a third-party app writes. So this is entirely a
-      Bahoo-side computation, not synced to Health. Max heart rate is the
+      Unchain-side computation, not synced to Health. Max heart rate is the
       crude 220−age formula from the date of birth in Health (read once,
       via `NSHealthShareUsageDescription`) — no settings screen for it
 
@@ -187,7 +187,7 @@ protocol, so it works in principle with any FTMS-capable trainer.
       routes don't have this (grade changes continuously with distance, no
       discrete entries to reach)
 - [x] Interval Sound: a short procedurally-generated beep
-      (`Bahoo/Resources/Sounds/IntervalBeep.wav`, `AVAudioPlayer`) plays
+      (`Unchain/Resources/Sounds/IntervalBeep.wav`, `AVAudioPlayer`) plays
       alongside the vibration above, at a configurable **volume** (0–100 %,
       silent at 0 by default) and **type** — **Single Beep** just beeps once
       on arrival; **Countdown** adds one more beep a second for the four
@@ -211,7 +211,7 @@ The Xcode project itself isn't kept in the repo; it's generated from
 brew install xcodegen
 cd /Users/olau/Workspace/bahoo-kickass
 xcodegen generate
-open Bahoo.xcodeproj
+open Unchain.xcodeproj
 ```
 
 Then, in Xcode, select your own team under *Signing & Capabilities*.

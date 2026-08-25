@@ -4,7 +4,7 @@ import Foundation
 /// estimated max heart rate (Zone 1: 50–60 %, Zone 2: 60–70 %, … Zone 5:
 /// 90 %+). Below 50 % of max HR isn't counted in any zone (resting/warm-up).
 /// There's no HealthKit write API for "time in zone" — this is purely a
-/// Bahoo-side computation, shown in-app (live and after saving), not synced
+/// Unchain-side computation, shown in-app (live and after saving), not synced
 /// to Health.
 enum HeartRateZone: Int, CaseIterable, Identifiable {
     case one = 1

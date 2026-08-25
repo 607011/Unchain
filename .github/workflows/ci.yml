@@ -28,8 +28,8 @@ jobs:
       - name: Build for iOS Simulator
         run: |
           xcodebuild build \
-            -project Bahoo.xcodeproj \
-            -target Bahoo \
+            -project Unchain.xcodeproj \
+            -target Unchain \
             -sdk iphonesimulator \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \

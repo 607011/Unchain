@@ -465,7 +465,7 @@ struct ControlView: View {
         if supportsResistanceTarget { extensions.append(".mrc") }
         if supportsIndoorBikeSimulation { extensions.append(".gpx") }
         guard !extensions.isEmpty else {
-            return "This trainer doesn't report support for any target type Bahoo can drive from a file."
+            return "This trainer doesn't report support for any target type Unchain can drive from a file."
         }
         return "Load a \(extensions.joined(separator: ", ")) file to follow a structured workout or route automatically."
     }

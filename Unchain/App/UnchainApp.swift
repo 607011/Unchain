@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct BahooApp: App {
+struct UnchainApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {

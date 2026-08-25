@@ -9,7 +9,7 @@ enum HealthKitError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unavailable: return "Health data isn't available on this device."
-        case .authorizationDenied: return "Bahoo isn't allowed to save workouts to Health."
+        case .authorizationDenied: return "Unchain isn't allowed to save workouts to Health."
         case .saveFailed: return "The workout couldn't be saved."
         }
     }

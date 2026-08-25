@@ -19,7 +19,7 @@ enum GPXParseError: LocalizedError {
         case .noTrackpoints:
             return "No track points found in this GPX file."
         case .missingElevation:
-            return "This GPX track is missing elevation data (<ele>) for at least one point. Bahoo needs elevation in the file itself to derive a grade profile – it doesn't look elevation up online."
+            return "This GPX track is missing elevation data (<ele>) for at least one point. Unchain needs elevation in the file itself to derive a grade profile – it doesn't look elevation up online."
         }
     }
 }

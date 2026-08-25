@@ -6,3 +6,11 @@ extension ClosedRange where Bound == Int {
         Swift.min(Swift.max(value, lowerBound), upperBound)
     }
 }
+
+extension ClosedRange where Bound == Double {
+    /// Clamps `value` to this range (e.g. a physically plausible grade %,
+    /// as a safety margin against GPS/elevation noise even after smoothing).
+    func clamp(_ value: Double) -> Double {
+        Swift.min(Swift.max(value, lowerBound), upperBound)
+    }
+}

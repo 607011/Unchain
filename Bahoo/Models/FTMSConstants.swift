@@ -27,6 +27,7 @@ enum FTMS {
         case setTargetPower = 0x05
         case startOrResume = 0x07
         case stopOrPause = 0x08
+        case setIndoorBikeSimulationParameters = 0x11
         case responseCode = 0x80
     }
 
@@ -43,5 +44,17 @@ enum FTMS {
     enum StopPauseControlParameter: UInt8 {
         case stop = 0x01
         case pause = 0x02
+    }
+
+    /// Fixed physical defaults sent with every "Set Indoor Bike Simulation
+    /// Parameters" command (0x11) alongside the actual grade – this app has
+    /// no wind or bike/tire model, so it always simulates a windless ride on
+    /// a typical road bike. Same ballpark values commonly used by other
+    /// trainer apps.
+    enum SimulationDefaults {
+        /// Raw UInt8, resolution 0.0001 → ~0.0040, a typical road tire.
+        static let rollingResistanceCoefficientRaw: UInt8 = 40
+        /// Raw UInt8, resolution 0.01 kg/m → ~0.51 kg/m, a seated road rider.
+        static let windResistanceCoefficientRaw: UInt8 = 51
     }
 }

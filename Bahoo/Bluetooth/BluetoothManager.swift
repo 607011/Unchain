@@ -68,6 +68,16 @@ final class BluetoothManager: NSObject, ObservableObject {
         currentConnection?.disconnect()
     }
 
+    /// Reconnects the same `TrainerConnection` (e.g. after the trainer went out of
+    /// range and dropped the link) instead of tearing it down and going back to
+    /// the device list. Reuses the existing peripheral reference — `connect()`
+    /// simply stays pending until the device is reachable again.
+    func reconnectCurrent() {
+        guard let connection = currentConnection else { return }
+        connection.prepareForReconnect()
+        central.connect(connection.peripheral, options: nil)
+    }
+
     /// Resets the active trainer connection, e.g. when the user returns to the device list.
     func clearConnection() {
         currentConnection = nil
@@ -131,8 +141,16 @@ extension BluetoothManager: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         if peripheral.identifier == currentConnection?.peripheral.identifier {
             currentConnection?.handleDisconnected(error: error)
-        } else if peripheral.identifier == currentHeartRateConnection?.peripheral.identifier {
-            currentHeartRateConnection?.handleDisconnected(error: error)
+        } else if let heartRate = currentHeartRateConnection, peripheral.identifier == heartRate.peripheral.identifier {
+            heartRate.handleDisconnected(error: error)
+            // A deliberate disconnect (tapping the row in the device list)
+            // already clears `currentHeartRateConnection` before this callback
+            // fires, so reaching here means the strap dropped out unexpectedly
+            // (out of range, low battery, …) — retry automatically instead of
+            // making the user notice and reconnect by hand, since there's no
+            // "Reconnect" button for the HR strap.
+            heartRate.prepareForReconnect()
+            central.connect(peripheral, options: nil)
         }
     }
 }

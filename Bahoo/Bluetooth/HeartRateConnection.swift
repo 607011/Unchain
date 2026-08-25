@@ -47,6 +47,14 @@ final class HeartRateConnection: NSObject, ObservableObject {
     func disconnect() {
         central?.cancelPeripheralConnection(peripheral)
     }
+
+    /// Called by `BluetoothManager` right before issuing a fresh `connect()`
+    /// call after an unexpected drop, so the UI reflects "Connecting …"
+    /// instead of lingering on "Disconnected" while waiting for the strap to
+    /// come back into range.
+    func prepareForReconnect() {
+        state = .connecting
+    }
 }
 
 extension HeartRateConnection: CBPeripheralDelegate {

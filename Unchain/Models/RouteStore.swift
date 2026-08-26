@@ -40,4 +40,13 @@ enum RouteStore {
         guard let data = try? JSONEncoder().encode(recents) else { return }
         UserDefaults.standard.set(data, forKey: key)
     }
+
+    /// Removes one entry (e.g. a swipe-to-delete in `RecentWorkoutsView`) –
+    /// a no-op if `id` isn't present.
+    static func removeRecent(withID id: UUID) {
+        var recents = loadRecents()
+        recents.removeAll { $0.id == id }
+        guard let data = try? JSONEncoder().encode(recents) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
 }

@@ -20,6 +20,13 @@ enum IntervalSoundType: String, CaseIterable, Identifiable {
     }
 }
 
+/// One second-resolution reading of actual power output – see
+/// `WorkoutSession.powerHistory`.
+struct PowerSample {
+    let timeSeconds: TimeInterval
+    let watts: Int
+}
+
 enum WorkoutState: Equatable {
     case idle
     case running
@@ -129,6 +136,31 @@ final class WorkoutSession: ObservableObject {
     /// the final `WorkoutSummary`) so a route's live progress can be shown
     /// against `GradeProfile.totalDistanceMeters` while riding.
     @Published private(set) var distanceMeters: Double = 0
+    /// One sample per elapsed second of actual power output, so
+    /// `ControlView`'s `WorkoutProgramChart` can plot it alongside the
+    /// planned target curve – a power-kind Program's whole point is
+    /// comparing the two. At most one entry per second regardless of how
+    /// often `refreshWorkoutState` itself fires (see the class doc comment).
+    @Published private(set) var powerHistory: [PowerSample] = []
+    /// Session-local nudge to a Program's target values, e.g. "+5" means
+    /// every target is sent (and shown) at 105 % of what the file/shorthand
+    /// actually says – lets the rider scale a loaded workout up/down live
+    /// without touching their stored FTP, which only resolves `%FTP` at
+    /// *load* time (see `WorkoutProgramParser`/`ShorthandWorkoutParser`) and
+    /// can't retroactively rescale an already-loaded program anyway. Not
+    /// persisted, and reset back to 0 whenever a program is (re)loaded –
+    /// see `loadProgram(_:)`/`loadRoute(_:)`/`reset()` – so every fresh
+    /// attempt starts neutral rather than carrying over an old adjustment.
+    @Published private(set) var intensityAdjustmentPercent: Int = 0
+    /// No upper bound – unlike going lower (where -50 % already gets most
+    /// targets close to nothing, so more headroom below isn't that useful),
+    /// there's no equivalent ceiling on how much *more* a rider might
+    /// reasonably want to push, and the trainer connection itself already
+    /// clamps whatever this produces to its own reported range before
+    /// anything is actually sent (`TrainerConnection.setTargetPower`/
+    /// `setTargetResistancePercent`), so this doesn't need to be the thing
+    /// guarding against an unsafe value reaching the trainer.
+    private let minIntensityAdjustmentPercent = -50
 
     /// The last loaded `.erg`/`.mrc`/GPX file, if any. Stays loaded across
     /// `reset()` so the same workout can be re-run without picking the file
@@ -222,6 +254,7 @@ final class WorkoutSession: ObservableObject {
         guard state == .idle else { return }
         activeWorkout = .program(program)
         isProgramFinished = false
+        intensityAdjustmentPercent = 0
     }
 
     /// Loads a GPX-derived grade profile. Same rules as `loadProgram(_:)`.
@@ -229,6 +262,35 @@ final class WorkoutSession: ObservableObject {
         guard state == .idle else { return }
         activeWorkout = .route(route)
         isProgramFinished = false
+        intensityAdjustmentPercent = 0
+    }
+
+    /// Nudges `intensityAdjustmentPercent` by `delta` (1 per +/- tap),
+    /// floored at `minIntensityAdjustmentPercent` but with no ceiling.
+    /// Kind-agnostic – works the same for a power-kind or resistance-kind
+    /// Program, both just scale the resolved target value (see
+    /// `adjustedTargetValue(_:)`).
+    func adjustIntensity(byPercent delta: Int) {
+        intensityAdjustmentPercent = Swift.max(minIntensityAdjustmentPercent, intensityAdjustmentPercent + delta)
+    }
+
+    /// Applies `intensityAdjustmentPercent` to a raw target/breakpoint
+    /// value – what's actually sent to the trainer
+    /// (`sendCurrentWorkoutTarget`) and the live number in `ControlView` both
+    /// go through this.
+    func adjustedTargetValue(_ rawValue: Int) -> Int {
+        Self.adjustedValue(rawValue, byPercent: intensityAdjustmentPercent)
+    }
+
+    /// The actual math behind `adjustedTargetValue(_:)`, factored out as a
+    /// `static` so `WorkoutProgramChart` (which only gets a plain
+    /// `Int` percent, not a `WorkoutSession` reference) can apply the exact
+    /// same formula to the chart's target curve – one formula, so the
+    /// number, the trainer, and the chart can never drift apart. Floored at
+    /// 0 – a negative watt/percent target isn't meaningful.
+    static func adjustedValue(_ rawValue: Int, byPercent percent: Int) -> Int {
+        let scaled = Double(rawValue) * (1 + Double(percent) / 100)
+        return Swift.max(0, Int(scaled.rounded()))
     }
 
     func setMaxHeartRateBPM(_ bpm: Int?) {
@@ -299,6 +361,7 @@ final class WorkoutSession: ObservableObject {
         state = .idle
         elapsedSeconds = 0
         distanceMeters = 0
+        powerHistory.removeAll()
         workDoneJoules = 0
         heartRateSamples.removeAll()
         startDate = nil
@@ -309,6 +372,7 @@ final class WorkoutSession: ObservableObject {
         stateBeforeStop = nil
         isDrivenByProgram = false
         isProgramFinished = false
+        intensityAdjustmentPercent = 0
         lastProgramBreakpointIndex = nil
         powerStats = LiveStat()
         cadenceStats = LiveStat()
@@ -389,6 +453,12 @@ final class WorkoutSession: ObservableObject {
         if let power = metrics.instantaneousPowerWatts {
             workDoneJoules += Double(power) * sampleDuration // that many joules over sampleDuration seconds
             powerStats.record(Double(power))
+            // At most one entry per elapsed second – refreshes can fire more
+            // often than that (see the class doc comment), which would
+            // otherwise pile up multiple points on the same second.
+            if powerHistory.last?.timeSeconds != TimeInterval(elapsedSeconds) {
+                powerHistory.append(PowerSample(timeSeconds: TimeInterval(elapsedSeconds), watts: power))
+            }
         }
         if let cadence = metrics.instantaneousCadenceRPM {
             cadenceStats.record(cadence)
@@ -430,7 +500,7 @@ final class WorkoutSession: ObservableObject {
         case .program(let program):
             let elapsed = TimeInterval(elapsedSeconds)
             if let target = program.target(atElapsedSeconds: elapsed) {
-                sendProgramTarget(target, kind: program.targetKind)
+                sendProgramTarget(adjustedTargetValue(target), kind: program.targetKind)
                 if let index = program.breakpointIndex(atElapsedSeconds: elapsed) {
                     let didReachNewEntry = lastProgramBreakpointIndex != nil && index != lastProgramBreakpointIndex
                     if didReachNewEntry {

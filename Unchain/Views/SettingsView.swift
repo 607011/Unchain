@@ -8,7 +8,12 @@ import SwiftUI
 /// for files that don't declare one). More settings are expected to land
 /// here over time.
 struct SettingsView: View {
-    @AppStorage("userFTPWatts") private var ftpWatts: Int = 188
+    /// `UserDefaults` key for the rider's FTP – shared here since
+    /// `CreateWorkoutView`'s shorthand workout notation (`%FTP` targets) also
+    /// needs to read it, not just this settings screen.
+    static let ftpWattsKey = "userFTPWatts"
+
+    @AppStorage(ftpWattsKey) private var ftpWatts: Int = 188
     @AppStorage(WorkoutSession.vibrationEnabledKey) private var isVibrationEnabled = false
     @AppStorage(WorkoutSession.intervalSoundTypeKey) private var intervalSoundType = IntervalSoundType.single
     @AppStorage(WorkoutSession.intervalSoundVolumeKey) private var intervalSoundVolumePercent: Int = 0

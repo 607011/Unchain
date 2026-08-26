@@ -95,8 +95,14 @@ protocol, so it works in principle with any FTMS-capable trainer.
       sensitive). A "Recent" button next to "Load from File" opens an overlay
       listing the last 8 used programs (most recent first, each tagged
       **Power**/**Resistance** so the target type is obvious without opening
-      the file) — tap one to load it without going back to Files. The list
-      only shows programs compatible with the *currently connected* machine —
+      the file) — tap one to load it without going back to Files, or swipe
+      left to delete an entry (`WorkoutProgramStore`/`RouteStore
+      .removeRecent(withID:)`) — persisted immediately, while the sheet's
+      own list (a local, mutable copy of what was passed in, not something
+      it observes live) removes the row itself right away too, so deleting
+      doesn't wait on `ControlView` to re-render before it looks deleted.
+      The list only shows programs compatible with the *currently connected*
+      machine —
       today that means the button is disabled entirely while connected to a
       treadmill, since `.erg`/`.mrc` are both cycling-trainer formats
       (`setTargetPower`/`setTargetResistancePercent`); a treadmill would need
@@ -173,7 +179,10 @@ protocol, so it works in principle with any FTMS-capable trainer.
       instead, since popping in a moment later beats appearing and then
       vanishing. If the selected tab becomes unavailable (feature read
       completes with a "no"), it falls back automatically rather than leaving
-      the picker stuck on a hidden case
+      the picker stuck on a hidden case. Tab order: **Power, Grade, Program,
+      Resistance** (each still only shown when supported) — deliberately not
+      declaration order in `ControlMode`, so `availableModes` builds the list
+      itself rather than via `.allCases`
 - [x] Settings sheet (gear icon in the toolbar, own `SettingsView`) — for now
       the rider's **FTP** (defaults to 188 W) and a **Vibration** toggle
       (off by default), both persisted via `@AppStorage`. Settings are
@@ -224,6 +233,117 @@ protocol, so it works in principle with any FTMS-capable trainer.
       it — surviving that would need CoreBluetooth state restoration
       (`CBCentralManagerOptionRestoreIdentifierKey`), which isn't
       implemented
+- [x] **Create** button next to Load from File/Recent: types a workout
+      directly in the app via a compact shorthand notation
+      (`ShorthandWorkoutParser`) instead of needing an actual `.erg`/`.mrc`
+      file – e.g. `10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP), 10min
+      55%FTP`, with `%FTP` resolved against the FTP set in Settings, `->` for
+      a ramp within one step (`20min 100W->300W`), and arbitrarily nested
+      `Nx(...)` repeat groups. Parses live with an inline preview chart and a
+      specific error message (missing FTP, a malformed step, …) rather than
+      a generic failure. Entirely offline – no network call, unlike a true
+      free-form AI-generated workout would need (see "Idea for later" below)
+      – deliberately power-only, since there's no %-of-resistance-range
+      equivalent that would mean anything portable. Saving runs through the
+      exact same `loadProgramIntoSession(_:)` every other load path already
+      uses, so it lands in "Recent" like any other program, no separate
+      storage needed
+- [x] **Export…** next to a loaded Program: the reverse of loading one –
+      `WorkoutProgram.fileContents()` serializes back to the `.erg`/`.mrc`
+      text format (`.erg`/`WATTS` for a power target, `.mrc`/`PERCENT` for
+      resistance, matching whichever the program already is), offered via
+      `.fileExporter` so the user picks the destination themselves (iCloud
+      Drive, On My iPhone, any other provider) — the same native picker
+      `.fileImporter` already uses for loading, just the write side. Not
+      Unchain-specific storage: the result is a plain, portable file other
+      apps can read too, and re-importing it resolves to the exact same
+      program (round-trip tested). Works for *any* currently loaded Program,
+      not just ones created via Create — a file loaded from Files, tweaked
+      by re-typing, could be re-exported the same way. Routes (GPX) aren't
+      covered, no serializer for those
+- [x] Feedback from an actual 45-minute ride, in one pass:
+  - **FTP reference line** on a power-kind Program chart — a dashed
+    `RuleMark` at the FTP set in Settings, labeled, so the target profile can
+    be read against it at a glance without doing the math
+  - **Actual power curve** plotted alongside the planned one, from a new
+    `WorkoutSession.powerHistory` (one sample a second, deduplicated
+    regardless of how often a refresh actually fires — see the backgrounding
+    entry above). Power-kind Programs only – a resistance-kind program's
+    y-axis is 0–100 % of the trainer's own range, not watts, so an actual-W
+    line there would be a different unit on the same axis. Target, Actual,
+    and FTP all tag their marks with `.foregroundStyle(by:)`, so all three
+    show up in an automatic legend (`.chartForegroundStyleScale`) rather than
+    FTP being just an unlabeled dashed line
+  - **Y-axis scale**: three attempts to get this right. Leaving it to Swift
+    Charts' automatic domain fit meant a single real power spike dragged the
+    *whole* axis with it (200 W → 600 W from one moment above target);
+    clamping the domain to just the plan fixed that but revealed a second
+    issue – Swift Charts' automatic tick *labels* don't necessarily reach the
+    domain's own upper bound, so FTP could end up drawn above the highest
+    labeled gridline; forcing explicit, evenly-spaced ticks
+    (`AxisMarks(values: .stride(by:))`) fixed *that* but could overlap once
+    the chart was too short to fit as many ticks as the step demanded.
+    Landed on: leave tick placement to Swift Charts after all (it has the
+    actual rendered height to work with, this code doesn't), but let
+    **`chartHeight` itself grow** with the ceiling instead of stretching a
+    fixed-size box – deliberately, so genuinely exceeding the plan shows up
+    as a taller chart (rewarding), not the same-size chart with the target
+    line now looking smaller (deflating). The ceiling is still the smallest
+    multiple of a fixed step (50 W for power, 25 % for resistance) at or
+    above the largest of the plan's own max, FTP, and the highest *actual*
+    reading so far (`session.powerStats.maxValue`), and height is a fixed
+    points-per-watt multiple of that ceiling – chosen so a plan-only ceiling
+    (no overshoot yet) lands close to the chart's original fixed height.
+    Resistance-kind programs keep that original fixed height outright – no
+    FTP/actual-power concept there for the ceiling to ever exceed the plan
+  - **Min/avg/max tap-to-toggle**: showing it as a permanent line under the
+    live reading meant the metric tiles (Watt/RPM/km/h/bpm) grew taller the
+    moment a workout started collecting samples, shifting everything below –
+    and the text had to stay tiny (10 pt) to fit alongside the live value.
+    Now a tap toggles the *same* line between the live reading and a
+    "↓min Øavg ↑max" summary, both sharing one `lineLimit(1)` +
+    `minimumScaleFactor` text at the same font ceiling as the live value –
+    same height either way (nothing shifts, ever), and the summary renders as
+    large as the tile's width actually allows instead of a fixed tiny size
+- [x] Live **intensity adjustment** for a running Program, +/- in 1 %
+      steps (same `RepeatingStepButton` the manual Power/Resistance tabs
+      already use), flanking the big target number. Deliberately *not* the
+      same thing as changing FTP in Settings — FTP only ever resolves
+      `%FTP` at *load* time (a `.mrc`'s own header, or the shorthand
+      notation), so a live Settings change can't retroactively rescale an
+      already-loaded program's baked-in watt values; this instead applies a
+      session-local `WorkoutSession.intensityAdjustmentPercent`
+      (floored at -50 %, no ceiling — the trainer connection itself already
+      clamps whatever this produces to its own reported range before
+      sending anything, so this doesn't need to be the safety net too; not
+      persisted, reset to 0 whenever a program/route is
+      (re)loaded) live to every resolved target, both what's actually sent
+      to the trainer and everything displaying it — the live number, and
+      the chart's Target curve/y-axis ceiling (`WorkoutSession
+      .adjustedValue(_:byPercent:)`, one `static` formula shared by both, so
+      they can never drift apart). Kind-agnostic – scales a resistance-kind
+      program's percent target exactly the same way. The percentage (e.g.
+      "+5 %", or "±0 %" when neutral) sits in a fixed-width slot *between*
+      the two buttons rather than a separate line below — always shown, not
+      just once adjusted, and at a constant width regardless of digit count
+      or sign, so the buttons themselves never shift position either way
+- [x] Fixed: `RepeatingStepButton` (the +/- press-and-hold control used
+      everywhere – Power/Resistance/Grade, and now Intensity) could
+      sometimes keep auto-repeating on its own, with no way to stop it
+      short of leaving the screen. Root cause: plain `DragGesture` has no
+      `.onCancel` – if the system ever cancels the gesture rather than
+      ending it normally (a re-render mid-press, e.g. from the once-a-second
+      workout updates this sits right next to, is the likely trigger)
+      `.onEnded` simply never fires, leaving the repeat `Timer` running on
+      the run loop, fully orphaned from the view, and `isPressing` stuck
+      `true` so a fresh press can't even start a new (correctly-behaving)
+      one. Three layers: `.simultaneousGesture` instead of `.gesture`, so a
+      nearby gesture (the screen's own `ScrollView`, the chart's
+      double-tap-to-zoom) can't claim the touch exclusively and cancel this
+      one; `.onDisappear` stops the repeat if the view is ever genuinely
+      removed mid-press; and a hard 20 s cap on one continuous repeat
+      regardless of anything else, so even if both of those somehow fail
+      too, it self-terminates rather than running indefinitely
 
 Deployment target: **iOS 16.0** · Target devices: **iPhone XS** (max. iOS 18 on
 this model) and iPad · iPhone portrait-only, iPad portrait + landscape.
@@ -276,8 +396,7 @@ providers require an account for that – one exception:
 
 ## Running
 
-Bluetooth doesn't work in the simulator — the app must run on a real iPhone
-(your iPhone XS is directly suitable for this).
+Bluetooth doesn't work in the simulator — the app must run on a real iPhone.
 
 ## Idea for later: elevation lookup for GPX tracks without `<ele>`
 
@@ -318,3 +437,27 @@ internet. If that turns out to be too limiting in practice:
   implemented, since FTMS doesn't guarantee a fixed, predictable relationship
   between resistance level and felt difficulty (see the resistance-mapping
   fix earlier in this project's history) the way it does for grade simulation.
+
+## Idea for later: a true free-form "describe your workout" prompt
+
+The shorthand notation behind **Create** (see Status above) is deliberately a
+small, fixed grammar — offline, no account, no ongoing cost. A genuinely
+free-form prompt ("give me a hard 45-minute FTP-builder") needs an actual
+LLM to turn intent into structure, which is a different, bigger feature:
+
+- Notably, this doesn't need any new code *today* to get real value: `.erg`
+  is a simple, documented text format any capable general-purpose LLM can
+  already produce directly (this session generated several by hand) — ask
+  one for an `.erg` file with the numbers you want, save it, "Load from
+  File". TrainerDay's own AI integration works similarly at its core: rather
+  than running a proprietary model, they expose their workout/calendar API
+  as MCP tools to the user's *own* ChatGPT/Gemini subscription, which does
+  the actual reasoning.
+- An in-app version of that would need: a network call (the first one purely
+  for a *prompt*, distinct from the elevation idea above), an API key (the
+  user's own, to avoid ongoing cost/liability on this app's side), and
+  critically, the model should return **structured JSON** matching
+  `WorkoutProgramBreakpoint`'s shape rather than talking to FTMS or inventing
+  free text — reusing the exact same parsing/clamping path a shorthand or
+  file-loaded program already goes through, so a hallucinated response can't
+  reach the trainer with implausible values unchecked.

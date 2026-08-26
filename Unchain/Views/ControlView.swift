@@ -36,6 +36,8 @@ struct ControlView: View {
     @State private var isShowingSettings = false
     @State private var isShowingFileImporter = false
     @State private var isShowingRecentWorkouts = false
+    @State private var isShowingCreateWorkout = false
+    @State private var isShowingExporter = false
     @State private var loadError: LoadErrorAlert?
     /// True while an async HealthKit save is in flight — guards the
     /// confirmation dialog's dismiss handler from mistaking the dialog closing
@@ -79,9 +81,9 @@ struct ControlView: View {
     private var availableModes: [ControlMode] {
         var modes: [ControlMode] = []
         if supportsPowerTarget { modes.append(.power) }
-        if supportsResistanceTarget { modes.append(.resistance) }
-        modes.append(.program)
         if supportsIndoorBikeSimulation { modes.append(.grade) }
+        modes.append(.program)
+        if supportsResistanceTarget { modes.append(.resistance) }
         return modes
     }
 
@@ -170,7 +172,10 @@ struct ControlView: View {
             TrainerFeaturesView(deviceName: connection.deviceName, features: connection.supportedFeatures)
         }
         .sheet(isPresented: $isShowingRecentWorkouts) {
-            RecentWorkoutsView(recents: compatibleRecents, onSelect: loadRecentEntry)
+            RecentWorkoutsView(recents: compatibleRecents, onSelect: loadRecentEntry, onDelete: deleteRecentEntry)
+        }
+        .sheet(isPresented: $isShowingCreateWorkout) {
+            CreateWorkoutView(onSave: loadProgramIntoSession)
         }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView()
@@ -246,6 +251,16 @@ struct ControlView: View {
         .alert(item: $loadError) { error in
             Alert(title: Text("Couldn't Load Workout"), message: Text(error.message), dismissButton: .default(Text("OK")))
         }
+        .fileExporter(
+            isPresented: $isShowingExporter,
+            document: exportDocument,
+            contentType: exportContentType,
+            defaultFilename: exportDefaultFilename
+        ) { result in
+            if case .failure(let error) = result {
+                loadError = LoadErrorAlert(message: "Couldn't export the file: \(error.localizedDescription)")
+            }
+        }
     }
 
     private var isHeartRateConnected: Bool { bluetooth.currentHeartRateConnection != nil }
@@ -293,22 +308,13 @@ struct ControlView: View {
 
     private var metricsRow: some View {
         HStack(spacing: 24) {
-            metricTile(title: "Watt", value: connection.metrics.instantaneousPowerWatts.map { "\($0)" } ?? "–", stat: session.powerStats)
-            metricTile(title: "RPM", value: connection.metrics.instantaneousCadenceRPM.map { String(format: "%.0f", $0) } ?? "–", stat: session.cadenceStats)
-            metricTile(title: "km/h", value: connection.metrics.instantaneousSpeedKmh.map { String(format: "%.1f", $0) } ?? "–", stat: session.speedStats)
+            MetricTile(title: "Watt", value: connection.metrics.instantaneousPowerWatts.map { "\($0)" } ?? "–", stat: session.powerStats)
+            MetricTile(title: "RPM", value: connection.metrics.instantaneousCadenceRPM.map { String(format: "%.0f", $0) } ?? "–", stat: session.cadenceStats)
+            MetricTile(title: "km/h", value: connection.metrics.instantaneousSpeedKmh.map { String(format: "%.1f", $0) } ?? "–", stat: session.speedStats)
             if let heartRate = bluetooth.currentHeartRateConnection {
                 HeartRateTile(connection: heartRate, stat: session.heartRateStats)
             }
         }
-    }
-
-    private func metricTile(title: String, value: String, stat: LiveStat) -> some View {
-        VStack(spacing: 2) {
-            Text(value).font(.system(size: isRegularWidth ? 44 : 28, weight: .semibold, design: .rounded))
-            Text(title).font(isRegularWidth ? .title3 : .caption).foregroundStyle(.secondary)
-            statSummaryText(stat, isRegularWidth: isRegularWidth)
-        }
-        .frame(maxWidth: .infinity)
     }
 
     private var workoutControls: some View {
@@ -393,8 +399,26 @@ struct ControlView: View {
                     .font(.system(size: isRegularWidth ? 72 : 48, weight: .bold, design: .rounded))
                     .monospacedDigit()
 
-                WorkoutProgramChart(program: program, elapsedSeconds: session.elapsedSeconds)
-                    .frame(height: isRegularWidth ? 260 : 140)
+                // Session-local nudge, independent of the rider's stored
+                // FTP – see `WorkoutSession.intensityAdjustmentPercent`.
+                // Always shown (as "±0 %" when neutral, not hidden), in a
+                // fixed-width slot between the buttons, so neither the
+                // buttons appearing/vanishing text nor a digit-count change
+                // (0 vs. -15 vs. +50) ever shifts the buttons sideways.
+                HStack(spacing: 16) {
+                    stepButton(systemImage: "minus.circle.fill") { adjustProgramIntensity(-1) }
+                    Text(intensityAdjustmentLabel)
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(session.intensityAdjustmentPercent == 0 ? Color.secondary : Color.orange)
+                        .frame(width: 64)
+                    stepButton(systemImage: "plus.circle.fill") { adjustProgramIntensity(1) }
+                }
+
+                // No external `.frame(height:)` here – `WorkoutProgramChart`
+                // sizes itself, since its height is meant to grow with the
+                // y-axis ceiling (see `chartHeight`), not stay a fixed box.
+                WorkoutProgramChart(program: program, elapsedSeconds: session.elapsedSeconds, powerHistory: session.powerHistory, maxActualWatts: session.powerStats.maxValue, intensityAdjustmentPercent: session.intensityAdjustmentPercent)
                     .padding(.horizontal)
 
                 Text("\(elapsedTimeLabel) / \(formattedDuration(program.duration))")
@@ -408,7 +432,10 @@ struct ControlView: View {
                         .foregroundStyle(.green)
                 }
 
-                loadFromFileButtons
+                workoutSourceButtons
+                Button("Export…") { isShowingExporter = true }
+                    .buttonStyle(.bordered)
+                    .disabled(session.state == .running || session.state == .paused)
             }
         case .route(let route):
             VStack(spacing: 12) {
@@ -435,7 +462,7 @@ struct ControlView: View {
                         .foregroundStyle(.green)
                 }
 
-                loadFromFileButtons
+                workoutSourceButtons
             }
         case nil:
             VStack(spacing: 12) {
@@ -444,7 +471,7 @@ struct ControlView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
-                loadFromFileButtons
+                workoutSourceButtons
                 if supportsPowerTarget {
                     Button("Load Sample Ramp Test (100–700 W)") { loadSampleRampTest() }
                         .buttonStyle(.bordered)
@@ -453,7 +480,7 @@ struct ControlView: View {
         }
     }
 
-    private var loadFromFileButtons: some View {
+    private var workoutSourceButtons: some View {
         HStack(spacing: 12) {
             Button("Load from File") { isShowingFileImporter = true }
                 .buttonStyle(.bordered)
@@ -461,6 +488,12 @@ struct ControlView: View {
             Button("Recent") { isShowingRecentWorkouts = true }
                 .buttonStyle(.bordered)
                 .disabled(compatibleRecents.isEmpty)
+            // The shorthand notation only ever produces a power-kind
+            // program (no %-of-resistance-range target), so this needs
+            // Power Target support the same way ".erg" does.
+            Button("Create") { isShowingCreateWorkout = true }
+                .buttonStyle(.bordered)
+                .disabled(!supportsPowerTarget)
         }
         .disabled(session.state == .running || session.state == .paused)
     }
@@ -474,6 +507,28 @@ struct ControlView: View {
         if supportsResistanceTarget, let mrc = WorkoutProgramParser.mrcContentType { types.append(mrc) }
         if supportsIndoorBikeSimulation { types.append(contentsOf: GPXParser.supportedContentTypes) }
         return types
+    }
+
+    /// The currently loaded Program (not a GPX route – there's no route
+    /// serializer, only `WorkoutProgram.fileContents()`), for "Export…".
+    private var currentExportableProgram: WorkoutProgram? {
+        if case .program(let program) = session.activeWorkout { return program }
+        return nil
+    }
+
+    private var exportDocument: WorkoutProgramDocument? {
+        currentExportableProgram.map { WorkoutProgramDocument(text: $0.fileContents()) }
+    }
+
+    private var exportContentType: UTType {
+        switch currentExportableProgram?.targetKind {
+        case .power, nil: return WorkoutProgramParser.ergContentType ?? .plainText
+        case .resistance: return WorkoutProgramParser.mrcContentType ?? .plainText
+        }
+    }
+
+    private var exportDefaultFilename: String? {
+        currentExportableProgram?.suggestedFileName
     }
 
     private var emptyWorkoutStateDescription: String {
@@ -530,10 +585,29 @@ struct ControlView: View {
         guard let target = program.target(atElapsedSeconds: TimeInterval(session.elapsedSeconds)) else {
             return "–"
         }
+        let adjusted = session.adjustedTargetValue(target)
         switch program.targetKind {
-        case .power: return "\(target) W"
-        case .resistance: return "\(target) %"
+        case .power: return "\(adjusted) W"
+        case .resistance: return "\(adjusted) %"
         }
+    }
+
+    /// +/- one intensity percentage point (see `WorkoutSession
+    /// .adjustIntensity(byPercent:)`), then forces one immediate refresh so
+    /// a running session's on-screen number and the value actually sent to
+    /// the trainer update right away instead of waiting for the next tick –
+    /// a no-op while not running.
+    private func adjustProgramIntensity(_ delta: Int) {
+        session.adjustIntensity(byPercent: delta)
+        session.refreshNow()
+    }
+
+    /// "±0 %" when neutral (rather than hiding the label entirely) so its
+    /// fixed-width slot never appears/disappears – only its content changes.
+    private var intensityAdjustmentLabel: String {
+        let percent = session.intensityAdjustmentPercent
+        if percent == 0 { return "±0 %" }
+        return percent > 0 ? "+\(percent) %" : "\(percent) %" // negative already carries its own "-"
     }
 
     private func routeTargetLabel(for route: GradeProfile) -> String {
@@ -582,6 +656,13 @@ struct ControlView: View {
         switch entry.kind {
         case .program(let program): loadProgramIntoSession(program)
         case .route(let route): loadRouteIntoSession(route)
+        }
+    }
+
+    private func deleteRecentEntry(_ entry: CombinedRecentEntry) {
+        switch entry.kind {
+        case .program: WorkoutProgramStore.removeRecent(withID: entry.id)
+        case .route: RouteStore.removeRecent(withID: entry.id)
         }
     }
 
@@ -785,6 +866,33 @@ private struct LoadErrorAlert: Identifiable {
     let message: String
 }
 
+/// Plain-text `.erg`/`.mrc` file wrapper for `.fileExporter` – the save-side
+/// counterpart of `WorkoutProgramParser.parse`, backed by
+/// `WorkoutProgram.fileContents()`. Export-only: `init(configuration:)` is
+/// never actually exercised since this type is never passed as a
+/// `.fileImporter`'s content type, only ever constructed in-app and handed
+/// to `.fileExporter`.
+private struct WorkoutProgramDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [] }
+    static var writableContentTypes: [UTType] {
+        [WorkoutProgramParser.ergContentType, WorkoutProgramParser.mrcContentType].compactMap { $0 }
+    }
+
+    let text: String
+
+    init(text: String) {
+        self.text = text
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        throw CocoaError(.fileReadUnsupportedScheme)
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: Data(text.utf8))
+    }
+}
+
 /// Overlay listing recently used, machine-compatible programs (see
 /// `ControlView.compatibleRecents`). Each row shows whether the file targets
 /// power or resistance, since that's not otherwise obvious from the name.
@@ -808,29 +916,58 @@ private struct CombinedRecentEntry: Identifiable {
 /// (see `ControlView.compatibleRecents`). Each row is tagged with what kind
 /// of target it drives, since that's not otherwise obvious from the name.
 private struct RecentWorkoutsView: View {
-    let recents: [CombinedRecentEntry]
     let onSelect: (CombinedRecentEntry) -> Void
+    /// Actually persists the removal (`WorkoutProgramStore`/`RouteStore`) –
+    /// `recents` below is a local, mutable copy so a swipe-to-delete
+    /// animates and updates this list immediately, without waiting on
+    /// `ControlView`'s own `compatibleRecents` (a plain computed property,
+    /// not something this sheet observes live) to catch up.
+    let onDelete: (CombinedRecentEntry) -> Void
+    @State private var recents: [CombinedRecentEntry]
     @Environment(\.dismiss) private var dismiss
+
+    init(recents: [CombinedRecentEntry], onSelect: @escaping (CombinedRecentEntry) -> Void, onDelete: @escaping (CombinedRecentEntry) -> Void) {
+        self._recents = State(initialValue: recents)
+        self.onSelect = onSelect
+        self.onDelete = onDelete
+    }
 
     var body: some View {
         NavigationStack {
-            List(recents) { recent in
-                Button {
-                    onSelect(recent)
-                    dismiss()
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(recent.name)
-                                .font(.headline)
-                                .lineLimit(1)
-                                .foregroundStyle(.primary)
-                            Text(recent.lastUsedDate, style: .relative)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+            Group {
+                if recents.isEmpty {
+                    Text("No recent workouts")
+                        .foregroundStyle(.secondary)
+                } else {
+                    List(recents) { recent in
+                        Button {
+                            onSelect(recent)
+                            dismiss()
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(recent.name)
+                                        .font(.headline)
+                                        .lineLimit(1)
+                                        .foregroundStyle(.primary)
+                                    Text(recent.lastUsedDate, style: .relative)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                badge(for: recent.kind)
+                            }
                         }
-                        Spacer()
-                        badge(for: recent.kind)
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                withAnimation {
+                                    recents.removeAll { $0.id == recent.id }
+                                }
+                                onDelete(recent)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                     }
                 }
             }
@@ -872,6 +1009,24 @@ private struct RecentWorkoutsView: View {
 private struct WorkoutProgramChart: View {
     let program: WorkoutProgram
     let elapsedSeconds: Int
+    /// Actual power output, one point per second – only plotted (and only
+    /// meaningful) alongside a power-kind program, whose y-axis is already
+    /// in watts; a resistance-kind program's axis is a 0–100 % of the
+    /// trainer's own range, a different unit entirely.
+    let powerHistory: [PowerSample]
+    /// Highest actual power seen so far this workout (`session.powerStats
+    /// .maxValue`) – kept as a running max rather than rescanning
+    /// `powerHistory`, and used to grow the y-axis ceiling by a clean step
+    /// if a live reading exceeds it (see `yCeiling`), instead of either
+    /// stretching to fit the exact value or clipping it off invisibly.
+    let maxActualWatts: Double?
+    /// See `WorkoutSession.intensityAdjustmentPercent` – the Target curve
+    /// plotted here is the *adjusted* one (via `WorkoutSession
+    /// .adjustedValue(_:byPercent:)`, the same formula that decides what's
+    /// actually sent to the trainer), not the raw file/shorthand values, so
+    /// the chart never shows a different plan than what's really happening.
+    let intensityAdjustmentPercent: Int
+    @AppStorage(SettingsView.ftpWattsKey) private var ftpWatts: Int = 188
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     /// Window widths (minutes) to cycle through on double-tap, narrowest
@@ -880,6 +1035,7 @@ private struct WorkoutProgramChart: View {
     private static let zoomWindowsMinutes: [Double?] = [nil, 10, 3]
     @State private var zoomLevelIndex = 0
     private var isRegularWidth: Bool { horizontalSizeClass == .regular }
+    private var showsActualPower: Bool { program.targetKind == .power }
 
     var body: some View {
         VStack(spacing: 2) {
@@ -887,14 +1043,37 @@ private struct WorkoutProgramChart: View {
                 ForEach(Array(program.breakpoints.enumerated()), id: \.offset) { _, point in
                     LineMark(
                         x: .value("Minutes", point.timeSeconds / 60),
-                        y: .value(unitLabel, point.value)
+                        y: .value(unitLabel, WorkoutSession.adjustedValue(point.value, byPercent: intensityAdjustmentPercent))
                     )
                     .interpolationMethod(.linear)
+                    .foregroundStyle(by: .value("Series", "Target"))
+                }
+                if showsActualPower {
+                    ForEach(powerHistory, id: \.timeSeconds) { sample in
+                        LineMark(
+                            x: .value("Minutes", sample.timeSeconds / 60),
+                            y: .value(unitLabel, sample.watts)
+                        )
+                        .interpolationMethod(.linear)
+                        .foregroundStyle(by: .value("Series", "Actual"))
+                    }
                 }
                 RuleMark(x: .value("Elapsed", Double(elapsedSeconds) / 60))
                     .foregroundStyle(.red)
+                if showsActualPower, ftpWatts > 0 {
+                    RuleMark(y: .value("FTP", ftpWatts))
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                        .foregroundStyle(by: .value("Series", "FTP"))
+                        .annotation(position: .top, alignment: .leading) {
+                            Text("FTP")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                        }
+                }
             }
+            .chartForegroundStyleScale(["Target": Color.blue, "Actual": Color.green, "FTP": Color.orange])
             .chartXScale(domain: xDomainMinutes)
+            .chartYScale(domain: yDomain)
             .chartXAxisLabel("Minutes")
             .chartYAxisLabel(unitLabel)
             // `.chartXScale(domain:)` alone only remaps the scale – it doesn't
@@ -907,6 +1086,8 @@ private struct WorkoutProgramChart: View {
             .onTapGesture(count: 2) {
                 zoomLevelIndex = (zoomLevelIndex + 1) % Self.zoomWindowsMinutes.count
             }
+            .frame(height: chartHeight)
+            .animation(.easeOut(duration: 0.35), value: yCeiling)
 
             Text(zoomLabel)
                 .font(isRegularWidth ? .footnote : .caption2)
@@ -937,6 +1118,63 @@ private struct WorkoutProgramChart: View {
             return "Full workout · double-tap to zoom"
         }
         return "\(Int(window)) min window · double-tap to zoom"
+    }
+
+    /// Ceiling step – 50 W for a power-kind program (the FTP-driven case),
+    /// 25 % for a resistance-kind one (0–100 % is already a narrow, natural
+    /// range). Axis *tick labels* are left to Swift Charts' own automatic
+    /// placement (an explicit `AxisMarks(values: .stride(by:))` at this same
+    /// step overlapped once the chart was short enough to need more ticks
+    /// than it had room for) – this step now only drives `yCeiling` and, via
+    /// that, `chartHeight`.
+    private var yAxisStep: Double {
+        showsActualPower ? 50 : 25
+    }
+
+    /// Smallest multiple of `yAxisStep` at or above the largest of: the
+    /// *adjusted* target's own max (`intensityAdjustmentPercent` applied –
+    /// dialing the whole plan up should grow the chart too, same reasoning
+    /// as the next point), FTP (so its line is never clipped or stuck flush
+    /// against the top edge), and the highest *actual* reading seen so far
+    /// this workout. That last one is what makes the axis grow –
+    /// deliberately in clean, fixed steps, not to the exact spike value –
+    /// if live power exceeds the current ceiling, rather than either
+    /// ignoring it (clipped off-chart) or the original bug (any outlier
+    /// stretching the domain arbitrarily, e.g. 200 W → 600 W from one
+    /// moment above target).
+    private var yCeiling: Double {
+        var maxValue = program.breakpoints
+            .map { Double(WorkoutSession.adjustedValue($0.value, byPercent: intensityAdjustmentPercent)) }
+            .max() ?? 0
+        if showsActualPower {
+            if ftpWatts > 0 { maxValue = Swift.max(maxValue, Double(ftpWatts)) }
+            if let maxActualWatts { maxValue = Swift.max(maxValue, maxActualWatts) }
+        }
+        guard maxValue > 0 else { return yAxisStep }
+        return (maxValue / yAxisStep).rounded(.up) * yAxisStep
+    }
+
+    /// Zero-based – a power/percent chart is more honest read against a true
+    /// zero than a tight-fit floor (which can visually exaggerate small
+    /// differences), and it keeps the 50 W/25 % ceiling landing on the same
+    /// clean grid every time regardless of what's actually loaded.
+    private var yDomain: ClosedRange<Double> {
+        0...yCeiling
+    }
+
+    /// Chart height scales with `yCeiling` at a fixed points-per-watt ratio,
+    /// rather than staying a fixed box that just gets rescaled – deliberate:
+    /// genuinely exceeding the plan should show up as a taller chart, not
+    /// the same-size chart with the target line now looking smaller. The
+    /// ratio is chosen so a plan-only ceiling (no overshoot yet) lands
+    /// close to the height this chart always had. Resistance-kind programs
+    /// don't have this – `yCeiling` never grows past the plan there (no
+    /// FTP/actual-power concept to exceed), so they keep the original fixed
+    /// height.
+    private var chartHeight: CGFloat {
+        guard showsActualPower else { return isRegularWidth ? 260 : 140 }
+        let pointsPerWatt: CGFloat = isRegularWidth ? 1.3 : 0.7
+        return CGFloat(yCeiling) * pointsPerWatt
     }
 }
 
@@ -1108,21 +1346,59 @@ private struct SavedWorkoutSummaryView: View {
 
 /// Dedicated subview so that live heart rate updates (a separate
 /// ObservableObject) redraw the tile without observing the whole ControlView.
+/// Thin wrapper around `MetricTile` that just derives the live value from an
+/// observed `HeartRateConnection` – `@ObservedObject` needs a concrete type
+/// with the connection itself, unlike the other tiles which are handed an
+/// already-formatted string.
 private struct HeartRateTile: View {
     @ObservedObject var connection: HeartRateConnection
     let stat: LiveStat
+
+    var body: some View {
+        MetricTile(title: "♥ bpm", value: connection.bpm.map { "\($0)" } ?? "–", stat: stat)
+    }
+}
+
+/// One live-metric tile (Watt/RPM/km/h/bpm). Tapping toggles between the
+/// current reading and a "↓min Øavg ↑max" summary *in the same slot*, rather
+/// than showing the summary as an extra line underneath – that used to make
+/// the tile taller only once a workout had collected samples, shifting
+/// everything below it the moment one started, and the summary text had to
+/// stay tiny to fit alongside the current value. Both states are a single
+/// line at the same font ceiling, auto-shrunk to fit no matter which is
+/// showing, so the tile's height never changes and the summary can be as
+/// large as the tile's width actually allows.
+private struct MetricTile: View {
+    let title: String
+    let value: String
+    let stat: LiveStat
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var showsSummary = false
 
     private var isRegularWidth: Bool { horizontalSizeClass == .regular }
 
     var body: some View {
         VStack(spacing: 2) {
-            Text(connection.bpm.map { "\($0)" } ?? "–")
-                .font(.system(size: isRegularWidth ? 44 : 28, weight: .semibold, design: .rounded))
-            Text("♥ bpm").font(isRegularWidth ? .title3 : .caption).foregroundStyle(.secondary)
-            statSummaryText(stat, isRegularWidth: isRegularWidth)
+            Group {
+                if showsSummary, stat.count > 0 {
+                    Text("↓\(formatStatValue(stat.minValue)) Ø\(formatStatValue(stat.average)) ↑\(formatStatValue(stat.maxValue))")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(value)
+                }
+            }
+            .font(.system(size: isRegularWidth ? 44 : 28, weight: .semibold, design: .rounded))
+            .lineLimit(1)
+            .minimumScaleFactor(0.4)
+            .monospacedDigit()
+            Text(title).font(isRegularWidth ? .title3 : .caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard stat.count > 0 else { return } // nothing to show yet – ignore the tap
+            showsSummary.toggle()
+        }
     }
 }
 
@@ -1142,17 +1418,38 @@ private struct RepeatingStepButton: View {
     /// Delay before holding starts repeating, and the interval once it does.
     private let initialDelay: TimeInterval = 0.4
     private let repeatInterval: TimeInterval = 0.08
+    /// Hard cap on one continuous repeat, regardless of anything else. Plain
+    /// `DragGesture` has no `.onCancel` – if the system ever cancels the
+    /// gesture instead of ending it normally (observed occasionally; a
+    /// re-render mid-press, e.g. from the once-a-second workout updates
+    /// this sits next to, is the likely trigger) `.onEnded` simply never
+    /// fires, and `repeatTimer` – a plain `Timer` on the run loop, not tied
+    /// to this view's lifecycle once orphaned – would otherwise keep
+    /// calling `action` forever with no way to stop it from the UI at all
+    /// (a fresh press can't even start a new one, since `isPressing` is
+    /// still stuck `true`). 20 s is generous enough for any real hold-to-
+    /// traverse-the-full-range press to finish on its own first.
+    private let maxRepeatDuration: TimeInterval = 20
 
     var body: some View {
         Image(systemName: systemImage)
             .font(.system(size: 56))
             .foregroundStyle(isDisabled ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.tint))
             .contentShape(Rectangle())
-            .gesture(
+            // `.simultaneousGesture` rather than `.gesture` – this sits
+            // inside a `ScrollView` (the whole screen) right next to the
+            // chart's own double-tap-to-zoom gesture, and `.gesture` alone
+            // lets an ancestor/sibling claim the touch exclusively, which
+            // cancels this one before `.onEnded` ever fires.
+            .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in beginPressIfNeeded() }
                     .onEnded { _ in endPress() }
             )
+            // Second line of defense against the same failure mode – if
+            // this view is ever actually removed from the hierarchy
+            // mid-press, stop the repeat rather than leaving it orphaned.
+            .onDisappear { endPress() }
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { action() }
     }
@@ -1161,9 +1458,15 @@ private struct RepeatingStepButton: View {
         guard !isDisabled, !isPressing else { return }
         isPressing = true
         action()
+        let pressStartedAt = Date()
         DispatchQueue.main.asyncAfter(deadline: .now() + initialDelay) {
             guard isPressing else { return }
-            repeatTimer = Timer.scheduledTimer(withTimeInterval: repeatInterval, repeats: true) { _ in
+            repeatTimer = Timer.scheduledTimer(withTimeInterval: repeatInterval, repeats: true) { timer in
+                guard Date().timeIntervalSince(pressStartedAt) < maxRepeatDuration else {
+                    timer.invalidate()
+                    isPressing = false
+                    return
+                }
                 action()
             }
         }
@@ -1173,23 +1476,6 @@ private struct RepeatingStepButton: View {
         isPressing = false
         repeatTimer?.invalidate()
         repeatTimer = nil
-    }
-}
-
-/// Small "↓min Øavg ↑max" line shown under a metric tile once a workout has
-/// collected at least one sample; hidden before that to avoid a row of dashes.
-/// Takes `isRegularWidth` as a parameter rather than reading
-/// `@Environment(\.horizontalSizeClass)` itself, since a free function (as
-/// opposed to a `View`-conforming struct) can't declare `@Environment`.
-@ViewBuilder
-private func statSummaryText(_ stat: LiveStat, isRegularWidth: Bool) -> some View {
-    if stat.count > 0 {
-        let min = formatStatValue(stat.minValue)
-        let avg = formatStatValue(stat.average)
-        let max = formatStatValue(stat.maxValue)
-        Text("↓\(min) Ø\(avg) ↑\(max)")
-            .font(.system(size: isRegularWidth ? 16 : 10))
-            .foregroundStyle(.tertiary)
     }
 }
 

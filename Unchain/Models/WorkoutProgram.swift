@@ -102,6 +102,42 @@ struct WorkoutProgram: Codable, Equatable {
         let value = Double(lower.value) + fraction * Double(upper.value - lower.value)
         return Int(value.rounded())
     }
+
+    /// Serializes back to the `.erg`/`.mrc` text format `WorkoutProgramParser`
+    /// reads – the inverse operation, so a workout built from the shorthand
+    /// notation (see `ShorthandWorkoutParser`), or just the currently loaded
+    /// one, can be saved as a portable, plain-text file other apps can read
+    /// too, not just kept inside Unchain's own "Recent" list. Always writes
+    /// absolute values (`WATTS` for `.power`, literal `PERCENT` for
+    /// `.resistance` – never an `FTP =` header), so re-parsing this output
+    /// resolves to the same `targetKind` it started as.
+    func fileContents() -> String {
+        let columnLabel = targetKind == .power ? "WATTS" : "PERCENT"
+        var lines = [
+            "[COURSE HEADER]",
+            "VERSION = 2",
+            "UNITS = ENGLISH",
+            "DESCRIPTION = \(name)",
+            "MINUTES\t\(columnLabel)",
+            "[END COURSE HEADER]",
+            "[COURSE DATA]",
+        ]
+        for breakpoint in breakpoints {
+            let minutes = breakpoint.timeSeconds / 60
+            lines.append("\(String(format: "%.2f", minutes))\t\(breakpoint.value)")
+        }
+        lines.append("[END COURSE DATA]")
+        return lines.joined(separator: "\n")
+    }
+
+    /// Suggested filename for exporting `fileContents()` – `.erg` for a
+    /// power target, `.mrc` for resistance, matching how
+    /// `WorkoutProgramParser` would interpret the extension on re-import.
+    var suggestedFileName: String {
+        let sanitized = name.components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|")).joined()
+        let fileExtension = targetKind == .power ? "erg" : "mrc"
+        return "\(sanitized.isEmpty ? "Workout" : sanitized).\(fileExtension)"
+    }
 }
 
 enum WorkoutProgramParseError: LocalizedError {

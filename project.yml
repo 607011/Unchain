@@ -4,6 +4,11 @@ options:
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
+  # English source, German added via Localizable.xcstrings/InfoPlist.xcstrings
+  # (see Unchain/Resources) – the String Catalogs themselves declare which
+  # languages they carry, this is just the project's own "Development
+  # Language" setting.
+  developmentLanguage: en
 configs:
   Debug: debug
   Release: release

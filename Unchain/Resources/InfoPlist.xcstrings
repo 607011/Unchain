@@ -1,0 +1,36 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Unchain needs Bluetooth to find and control your smart trainer and, optionally, a heart rate strap.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unchain benötigt Bluetooth, um deinen Smart-Trainer und optional einen Herzfrequenz-Brustgurt zu finden und zu steuern."
+          }
+        }
+      }
+    },
+    "Unchain uses this to save your completed indoor workouts, including calories and heart rate, to the Health app.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unchain nutzt dies, um deine abgeschlossenen Indoor-Workouts inklusive Kalorien und Herzfrequenz in der Health-App zu speichern."
+          }
+        }
+      }
+    },
+    "Unchain reads your most recent body weight to estimate calories burned during walk/run workouts, and your date of birth to estimate a max heart rate for the in-app heart rate zones.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unchain liest dein zuletzt erfasstes Körpergewicht, um den Kalorienverbrauch bei Geh-/Lauf-Workouts zu schätzen, sowie dein Geburtsdatum, um eine maximale Herzfrequenz für die Herzfrequenz-Zonen in der App zu schätzen."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.1"
+}

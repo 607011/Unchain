@@ -186,11 +186,11 @@ private struct ConnectedHeartRateRow: View {
 
     private var statusText: String {
         switch connection.state {
-        case .connecting: return "Connecting …"
-        case .discoveringServices: return "Reading device data …"
-        case .ready: return connection.bpm.map { "\($0) bpm – tap to disconnect" } ?? "Connected – tap to disconnect"
+        case .connecting: return String(localized: "Connecting …")
+        case .discoveringServices: return String(localized: "Reading device data …")
+        case .ready: return connection.bpm.map { String(localized: "\($0) bpm – tap to disconnect") } ?? String(localized: "Connected – tap to disconnect")
         case .failed(let message): return message
-        case .disconnected: return "Disconnected"
+        case .disconnected: return String(localized: "Disconnected")
         }
     }
 }

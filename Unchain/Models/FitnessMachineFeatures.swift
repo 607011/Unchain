@@ -45,6 +45,13 @@ struct FitnessMachineFeatures: Equatable {
             | (UInt32(bytes[offset + 3]) << 24)
     }
 
+    // Deliberately not localized (see `Localizable.xcstrings`, which
+    // otherwise covers the whole app): these are the FTMS spec's own field
+    // names verbatim, shown in the diagnostic "Trainer features" overlay –
+    // translating them would make that overlay *less* useful for cross-
+    // referencing against the spec itself or another app's feature list,
+    // not more.
+    //
     // Bit positions per FTMS spec, table 4.3 ("Fitness Machine Features Field").
     private static let dataFeatureNames: [(bit: Int, name: String)] = [
         (0, "Average Speed"),

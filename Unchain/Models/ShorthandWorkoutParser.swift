@@ -67,15 +67,15 @@ enum ShorthandParseError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .emptyInput:
-            return "Type a workout, e.g. \"10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP), 10min 55%FTP\"."
+            return String(localized: "Type a workout, e.g. \"10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP), 10min 55%FTP\".")
         case .invalidSegment(let text):
-            return "Couldn't understand \"\(text)\" – expected something like \"5min 250W\" or \"3x(...)\"."
+            return String(localized: "Couldn't understand \"\(text)\" – expected something like \"5min 250W\" or \"3x(...)\".")
         case .invalidDuration(let text):
-            return "Couldn't understand the duration \"\(text)\" – use e.g. \"10min\" or \"90s\"."
+            return String(localized: "Couldn't understand the duration \"\(text)\" – use e.g. \"10min\" or \"90s\".")
         case .invalidTarget(let text):
-            return "Couldn't understand the target \"\(text)\" – use e.g. \"250W\" or \"75%FTP\"."
+            return String(localized: "Couldn't understand the target \"\(text)\" – use e.g. \"250W\" or \"75%FTP\".")
         case .missingFTP:
-            return "This workout uses %FTP, but no FTP is set – add one in Settings first."
+            return String(localized: "This workout uses %FTP, but no FTP is set – add one in Settings first.")
         }
     }
 }

@@ -15,11 +15,11 @@ enum GPXParseError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unreadable:
-            return "The file couldn't be parsed as GPX."
+            return String(localized: "The file couldn't be parsed as GPX.")
         case .noTrackpoints:
-            return "No track points found in this GPX file."
+            return String(localized: "No track points found in this GPX file.")
         case .missingElevation:
-            return "This GPX track is missing elevation data (<ele>) for at least one point. Unchain needs elevation in the file itself to derive a grade profile – it doesn't look elevation up online."
+            return String(localized: "This GPX track is missing elevation data (<ele>) for at least one point. Unchain needs elevation in the file itself to derive a grade profile – it doesn't look elevation up online.")
         }
     }
 }

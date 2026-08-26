@@ -124,7 +124,13 @@ struct WorkoutProgram: Codable, Equatable {
         ]
         for breakpoint in breakpoints {
             let minutes = breakpoint.timeSeconds / 60
-            lines.append("\(String(format: "%.2f", minutes))\t\(breakpoint.value)")
+            // A machine-readable file format, not UI text – always ".", not
+            // the device locale's decimal separator (e.g. German ","),
+            // since this is what `WorkoutProgramParser`'s own `Double(...)`
+            // and other apps reading the file both expect regardless of
+            // what locale produced it.
+            let minutesText = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), minutes)
+            lines.append("\(minutesText)\t\(breakpoint.value)")
         }
         lines.append("[END COURSE DATA]")
         return lines.joined(separator: "\n")
@@ -136,7 +142,7 @@ struct WorkoutProgram: Codable, Equatable {
     var suggestedFileName: String {
         let sanitized = name.components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|")).joined()
         let fileExtension = targetKind == .power ? "erg" : "mrc"
-        return "\(sanitized.isEmpty ? "Workout" : sanitized).\(fileExtension)"
+        return "\(sanitized.isEmpty ? String(localized: "Workout") : sanitized).\(fileExtension)"
     }
 }
 
@@ -146,8 +152,8 @@ enum WorkoutProgramParseError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unreadable: return "The file couldn't be read as text."
-        case .noCourseData: return "No [COURSE DATA] section found – is this really an .erg/.mrc file?"
+        case .unreadable: return String(localized: "The file couldn't be read as text.")
+        case .noCourseData: return String(localized: "No [COURSE DATA] section found – is this really an .erg/.mrc file?")
         }
     }
 }
@@ -174,7 +180,7 @@ enum WorkoutProgramParser {
     /// column has no FTP declared does this fall back to treating the number
     /// as a literal resistance percentage, for files that genuinely mean that.
     static func parse(text: String, fileExtension: String) -> Result<WorkoutProgram, Error> {
-        var name = fileExtension.isEmpty ? "Workout" : "Workout (.\(fileExtension))"
+        var name = fileExtension.isEmpty ? String(localized: "Workout") : String(localized: "Workout (.\(fileExtension))")
         var isPercentColumn = fileExtension.lowercased() == "mrc"
         var ftp: Double?
         var targetKind: ProgramTargetKind = .power

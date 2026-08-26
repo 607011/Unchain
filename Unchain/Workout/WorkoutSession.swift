@@ -14,8 +14,8 @@ enum IntervalSoundType: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .single: return "Single Beep"
-        case .countdown: return "Countdown"
+        case .single: return String(localized: "Single Beep")
+        case .countdown: return String(localized: "Countdown")
         }
     }
 }

@@ -118,7 +118,7 @@ struct ControlView: View {
 
                 Picker("Mode", selection: $mode) {
                     ForEach(availableModes) { mode in
-                        Text(mode.rawValue).tag(mode)
+                        Text(mode.displayName).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -258,7 +258,7 @@ struct ControlView: View {
             defaultFilename: exportDefaultFilename
         ) { result in
             if case .failure(let error) = result {
-                loadError = LoadErrorAlert(message: "Couldn't export the file: \(error.localizedDescription)")
+                loadError = LoadErrorAlert(message: String(localized: "Couldn't export the file: \(error.localizedDescription)"))
             }
         }
     }
@@ -309,8 +309,8 @@ struct ControlView: View {
     private var metricsRow: some View {
         HStack(spacing: 24) {
             MetricTile(title: "Watt", value: connection.metrics.instantaneousPowerWatts.map { "\($0)" } ?? "–", stat: session.powerStats)
-            MetricTile(title: "RPM", value: connection.metrics.instantaneousCadenceRPM.map { String(format: "%.0f", $0) } ?? "–", stat: session.cadenceStats)
-            MetricTile(title: "km/h", value: connection.metrics.instantaneousSpeedKmh.map { String(format: "%.1f", $0) } ?? "–", stat: session.speedStats)
+            MetricTile(title: "RPM", value: connection.metrics.instantaneousCadenceRPM.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: session.cadenceStats)
+            MetricTile(title: "km/h", value: connection.metrics.instantaneousSpeedKmh.map { String(format: "%.1f", locale: .current, $0) } ?? "–", stat: session.speedStats)
             if let heartRate = bluetooth.currentHeartRateConnection {
                 HeartRateTile(connection: heartRate, stat: session.heartRateStats)
             }
@@ -537,9 +537,9 @@ struct ControlView: View {
         if supportsResistanceTarget { extensions.append(".mrc") }
         if supportsIndoorBikeSimulation { extensions.append(".gpx") }
         guard !extensions.isEmpty else {
-            return "This trainer doesn't report support for any target type Unchain can drive from a file."
+            return String(localized: "This trainer doesn't report support for any target type Unchain can drive from a file.")
         }
-        return "Load a \(extensions.joined(separator: ", ")) file to follow a structured workout or route automatically."
+        return String(localized: "Load a \(extensions.joined(separator: ", ")) file to follow a structured workout or route automatically.")
     }
 
     private func isProgramSupported(_ program: WorkoutProgram) -> Bool {
@@ -612,7 +612,7 @@ struct ControlView: View {
 
     private func routeTargetLabel(for route: GradeProfile) -> String {
         guard let grade = route.grade(atDistanceMeters: session.distanceMeters) else { return "–" }
-        return String(format: "%.1f %%", grade)
+        return String(format: "%.1f %%", locale: .current, grade)
     }
 
     private func formattedDuration(_ seconds: TimeInterval) -> String {
@@ -621,7 +621,7 @@ struct ControlView: View {
     }
 
     private func formattedDistance(_ meters: Double) -> String {
-        meters >= 1000 ? String(format: "%.2f km", meters / 1000) : String(format: "%.0f m", meters)
+        meters >= 1000 ? String(format: "%.2f km", locale: .current, meters / 1000) : String(format: "%.0f m", locale: .current, meters)
     }
 
     /// Called once when the screen first appears: if a workout is already
@@ -682,7 +682,7 @@ struct ControlView: View {
 
     private func loadSampleRampTest() {
         guard let url = Bundle.main.url(forResource: "RampTest_100-700W", withExtension: "erg") else {
-            loadError = LoadErrorAlert(message: "The bundled sample ramp test is missing.")
+            loadError = LoadErrorAlert(message: String(localized: "The bundled sample ramp test is missing."))
             return
         }
         loadWorkout(contentsOf: url)
@@ -690,7 +690,7 @@ struct ControlView: View {
 
     private func loadWorkout(fromSecurityScoped url: URL) {
         guard url.startAccessingSecurityScopedResource() else {
-            loadError = LoadErrorAlert(message: "Couldn't access the selected file.")
+            loadError = LoadErrorAlert(message: String(localized: "Couldn't access the selected file."))
             return
         }
         defer { url.stopAccessingSecurityScopedResource() }
@@ -717,8 +717,8 @@ struct ControlView: View {
                 // types, but this also covers the bundled sample and a
                 // restored-from-storage program used with a different trainer.
                 guard isProgramSupported(program) else {
-                    let targetName = program.targetKind == .power ? "power" : "resistance"
-                    loadError = LoadErrorAlert(message: "This trainer doesn't support \(targetName) targets.")
+                    let targetName = program.targetKind == .power ? String(localized: "power") : String(localized: "resistance")
+                    loadError = LoadErrorAlert(message: String(localized: "This trainer doesn't support \(targetName) targets."))
                     return
                 }
                 loadProgramIntoSession(program)
@@ -726,13 +726,13 @@ struct ControlView: View {
                 loadError = LoadErrorAlert(message: error.localizedDescription)
             }
         } catch {
-            loadError = LoadErrorAlert(message: "Couldn't read the file: \(error.localizedDescription)")
+            loadError = LoadErrorAlert(message: String(localized: "Couldn't read the file: \(error.localizedDescription)"))
         }
     }
 
     private func loadRoute(fromGPXContentsOf url: URL) {
         guard supportsIndoorBikeSimulation else {
-            loadError = LoadErrorAlert(message: "This trainer doesn't support Indoor Bike Simulation (Grade), so GPX routes can't be used.")
+            loadError = LoadErrorAlert(message: String(localized: "This trainer doesn't support Indoor Bike Simulation (Grade), so GPX routes can't be used."))
             return
         }
         do {
@@ -741,7 +741,7 @@ struct ControlView: View {
             case .success(let points):
                 let name = url.deletingPathExtension().lastPathComponent
                 guard let route = GradeProfileBuilder.build(name: name, points: points) else {
-                    loadError = LoadErrorAlert(message: "Couldn't derive a grade profile from this track.")
+                    loadError = LoadErrorAlert(message: String(localized: "Couldn't derive a grade profile from this track."))
                     return
                 }
                 loadRouteIntoSession(route)
@@ -749,18 +749,18 @@ struct ControlView: View {
                 loadError = LoadErrorAlert(message: error.localizedDescription)
             }
         } catch {
-            loadError = LoadErrorAlert(message: "Couldn't read the file: \(error.localizedDescription)")
+            loadError = LoadErrorAlert(message: String(localized: "Couldn't read the file: \(error.localizedDescription)"))
         }
     }
 
     private var formattedResistanceLevel: String {
-        String(format: "%.1f", Double(connection.rawResistanceLevel(forPercent: targetResistance)) / 10)
+        String(format: "%.1f", locale: .current, Double(connection.rawResistanceLevel(forPercent: targetResistance)) / 10)
     }
 
     private var formattedResistanceRange: String {
         let lower = Double(connection.resistanceRangeRaw.lowerBound) / 10
         let upper = Double(connection.resistanceRangeRaw.upperBound) / 10
-        return String(format: "%.1f–%.1f", lower, upper)
+        return String(format: "%.1f–%.1f", locale: .current, lower, upper)
     }
 
     /// Only shown from `manualControls`, i.e. never while `mode == .program`.
@@ -768,7 +768,7 @@ struct ControlView: View {
         switch mode {
         case .power: return "\(targetPower) W"
         case .resistance: return "\(targetResistance) %"
-        case .grade: return String(format: "%.1f %%", targetGrade)
+        case .grade: return String(format: "%.1f %%", locale: .current, targetGrade)
         case .program: return ""
         }
     }
@@ -848,7 +848,7 @@ struct ControlView: View {
             case .success:
                 savedSummary = summary
             case .failure(let error):
-                saveResult = SaveResultAlert(title: "Not Saved", message: error.localizedDescription)
+                saveResult = SaveResultAlert(title: String(localized: "Not Saved"), message: error.localizedDescription)
             }
             session.reset()
         }
@@ -1045,7 +1045,21 @@ private struct WorkoutProgramChart: View {
     private var isRegularWidth: Bool { horizontalSizeClass == .regular }
     private var showsActualPower: Bool { program.targetKind == .power }
 
+    // Swift Charts' automatic legend displays whatever `String` is passed to
+    // `.value("Series", …)`/`.chartForegroundStyleScale` verbatim – unlike
+    // `Text`, that's a plain `String` parameter, not a `LocalizedStringKey`,
+    // so a literal there does *not* auto-localize (see README's L10N
+    // section). Resolved once per render into `let`s instead, and reused at
+    // every site below, so the legend's keys and the marks' series names are
+    // guaranteed to still match after translation.
+    private var targetSeriesLabel: String { String(localized: "Target") }
+    private var actualSeriesLabel: String { String(localized: "Actual") }
+    private var ftpSeriesLabel: String { String(localized: "FTP") }
+
     var body: some View {
+        let targetSeriesLabel = targetSeriesLabel
+        let actualSeriesLabel = actualSeriesLabel
+        let ftpSeriesLabel = ftpSeriesLabel
         VStack(spacing: 2) {
             Chart {
                 if let index = selectedBreakpointIndex, index + 1 < program.breakpoints.count {
@@ -1061,7 +1075,7 @@ private struct WorkoutProgramChart: View {
                         y: .value(unitLabel, WorkoutSession.adjustedValue(point.value, byPercent: intensityAdjustmentPercent))
                     )
                     .interpolationMethod(.linear)
-                    .foregroundStyle(by: .value("Series", "Target"))
+                    .foregroundStyle(by: .value("Series", targetSeriesLabel))
                 }
                 if showsActualPower {
                     ForEach(powerHistory, id: \.timeSeconds) { sample in
@@ -1070,23 +1084,23 @@ private struct WorkoutProgramChart: View {
                             y: .value(unitLabel, sample.watts)
                         )
                         .interpolationMethod(.linear)
-                        .foregroundStyle(by: .value("Series", "Actual"))
+                        .foregroundStyle(by: .value("Series", actualSeriesLabel))
                     }
                 }
                 RuleMark(x: .value("Elapsed", Double(elapsedSeconds) / 60))
                     .foregroundStyle(.red)
                 if showsActualPower, ftpWatts > 0 {
-                    RuleMark(y: .value("FTP", ftpWatts))
+                    RuleMark(y: .value(ftpSeriesLabel, ftpWatts))
                         .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
-                        .foregroundStyle(by: .value("Series", "FTP"))
+                        .foregroundStyle(by: .value("Series", ftpSeriesLabel))
                         .annotation(position: .top, alignment: .leading) {
-                            Text("FTP")
+                            Text(ftpSeriesLabel)
                                 .font(.caption2)
                                 .foregroundStyle(.orange)
                         }
                 }
             }
-            .chartForegroundStyleScale(["Target": Color.blue, "Actual": Color.green, "FTP": Color.orange])
+            .chartForegroundStyleScale([targetSeriesLabel: Color.blue, actualSeriesLabel: Color.green, ftpSeriesLabel: Color.orange])
             .chartXScale(domain: xDomainMinutes)
             .chartYScale(domain: yDomain)
             .chartXAxisLabel("Minutes")
@@ -1193,7 +1207,11 @@ private struct WorkoutProgramChart: View {
     }
 
     private var unitLabel: String {
-        program.targetKind == .power ? "Watts" : "Percent"
+        // Passed to `.chartYAxisLabel(_:)` as a `String`, not a literal, so
+        // it needs the explicit wrap – unlike a literal argument there
+        // (see the other `.chartXAxisLabel("Minutes")`-style calls), a
+        // `String` variable doesn't auto-localize.
+        program.targetKind == .power ? String(localized: "Watts") : String(localized: "Percent")
     }
 
     /// Centered on the current playback position while zoomed in, so the
@@ -1212,9 +1230,9 @@ private struct WorkoutProgramChart: View {
 
     private var zoomLabel: String {
         guard let window = Self.zoomWindowsMinutes[zoomLevelIndex] else {
-            return "Full workout · double-tap to zoom"
+            return String(localized: "Full workout · double-tap to zoom")
         }
-        return "\(Int(window)) min window · double-tap to zoom"
+        return String(localized: "\(Int(window)) min window · double-tap to zoom")
     }
 
     /// Ceiling step – 50 W for a power-kind program (the FTP-driven case),
@@ -1396,13 +1414,13 @@ private struct GradeProfileChart: View {
         let spanMeters = end.distanceMeters - start.distanceMeters
         guard spanMeters > 0 else { return nil }
         let gradeText = start.gradePercent == end.gradePercent
-            ? String(format: "%.1f %%", start.gradePercent)
-            : String(format: "%.1f–%.1f %%", start.gradePercent, end.gradePercent)
+            ? String(format: "%.1f %%", locale: .current, start.gradePercent)
+            : String(format: "%.1f–%.1f %%", locale: .current, start.gradePercent, end.gradePercent)
         return "\(formattedSpan(spanMeters)) · \(gradeText)"
     }
 
     private func formattedSpan(_ meters: Double) -> String {
-        meters >= 1000 ? String(format: "%.2f km", meters / 1000) : String(format: "%.0f m", meters)
+        meters >= 1000 ? String(format: "%.2f km", locale: .current, meters / 1000) : String(format: "%.0f m", locale: .current, meters)
     }
 
     /// Centered on the current position while zoomed in, so the window
@@ -1421,9 +1439,9 @@ private struct GradeProfileChart: View {
 
     private var zoomLabel: String {
         guard let window = Self.zoomWindowsKm[zoomLevelIndex] else {
-            return "Full route · double-tap to zoom"
+            return String(localized: "Full route · double-tap to zoom")
         }
-        return "\(Int(window)) km window · double-tap to zoom"
+        return String(localized: "\(Int(window)) km window · double-tap to zoom")
     }
 }
 
@@ -1549,7 +1567,12 @@ private struct HeartRateTile: View {
 /// showing, so the tile's height never changes and the summary can be as
 /// large as the tile's width actually allows.
 private struct MetricTile: View {
-    let title: String
+    /// `LocalizedStringKey`, not `String` – unlike passing a literal
+    /// straight to `Text(...)`, a literal flowing through a plain `String`
+    /// property first (the shape this had before) does *not* auto-localize;
+    /// the call sites already pass literals ("Watt", "RPM", …), so this
+    /// change needed no call-site updates, just the type here.
+    let title: LocalizedStringKey
     let value: String
     let stat: LiveStat
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -1660,5 +1683,5 @@ private struct RepeatingStepButton: View {
 }
 
 private func formatStatValue(_ value: Double?) -> String {
-    value.map { String(format: "%.0f", $0) } ?? "–"
+    value.map { String(format: "%.0f", locale: .current, $0) } ?? "–"
 }

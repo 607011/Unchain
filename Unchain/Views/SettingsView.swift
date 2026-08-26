@@ -1,12 +1,14 @@
 import SwiftUI
 
 /// App-wide settings, not tied to any particular trainer connection – opened
-/// via the gear icon in `ControlView`'s toolbar. Currently just the rider's
-/// FTP, used to interpret %FTP-based workout files (see
-/// `WorkoutProgramParser.parse`, which already reads FTP from a file's own
-/// header when present – this is for the app's own reference instead, e.g.
-/// for files that don't declare one). More settings are expected to land
-/// here over time.
+/// via the gear icon in `ControlView`'s toolbar. The rider's FTP, used to
+/// interpret %FTP-based workout files (see `WorkoutProgramParser.parse`,
+/// which already reads FTP from a file's own header when present – this is
+/// for the app's own reference instead, e.g. for files that don't declare
+/// one); Vibration/Interval Sound for Program workouts; and an explicit
+/// Language override (see `LanguageManager`), which defaults to following
+/// the device's own Language & Region setting. More settings are expected to
+/// land here over time.
 struct SettingsView: View {
     /// `UserDefaults` key for the rider's FTP – shared here since
     /// `CreateWorkoutView`'s shorthand workout notation (`%FTP` targets) also
@@ -17,6 +19,7 @@ struct SettingsView: View {
     @AppStorage(WorkoutSession.vibrationEnabledKey) private var isVibrationEnabled = false
     @AppStorage(WorkoutSession.intervalSoundTypeKey) private var intervalSoundType = IntervalSoundType.single
     @AppStorage(WorkoutSession.intervalSoundVolumeKey) private var intervalSoundVolumePercent: Int = 0
+    @AppStorage(LanguageManager.storageKey) private var languageOverride = AppLanguage.system.rawValue
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -54,6 +57,15 @@ struct SettingsView: View {
                     Text("Interval Sound")
                 } footer: {
                     Text("Plays alongside Vibration when a Program workout reaches its next scheduled entry. Volume 0 % stays silent. \"Countdown\" adds one beep a second for the four seconds before, on top of the one for the entry itself.")
+                }
+                Section {
+                    Picker("Language", selection: $languageOverride) {
+                        ForEach(AppLanguage.allCases) { language in
+                            Text(language.displayName).tag(language.rawValue)
+                        }
+                    }
+                } footer: {
+                    Text("Applies immediately, no restart needed. \"System\" follows your device's own Language & Region setting.")
                 }
             }
             .navigationTitle("Settings")

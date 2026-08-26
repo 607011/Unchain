@@ -1,0 +1,1256 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Start Workout": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workout starten"
+          }
+        }
+      }
+    },
+    "Pause": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause"
+          }
+        }
+      }
+    },
+    "Stop": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopp"
+          }
+        }
+      }
+    },
+    "Resume": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsetzen"
+          }
+        }
+      }
+    },
+    "Cancel": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbrechen"
+          }
+        }
+      }
+    },
+    "Close": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließen"
+          }
+        }
+      }
+    },
+    "Done": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertig"
+          }
+        }
+      }
+    },
+    "Save": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speichern"
+          }
+        }
+      }
+    },
+    "Discard": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwerfen"
+          }
+        }
+      }
+    },
+    "Delete": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Löschen"
+          }
+        }
+      }
+    },
+    "OK": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "Disconnect": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trennen"
+          }
+        }
+      }
+    },
+    "Reconnect": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neu verbinden"
+          }
+        }
+      }
+    },
+    "Settings": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen"
+          }
+        }
+      }
+    },
+    "Devices": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geräte"
+          }
+        }
+      }
+    },
+    "Load from File": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus Datei laden"
+          }
+        }
+      }
+    },
+    "Recent": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt"
+          }
+        }
+      }
+    },
+    "Recent Workouts": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt verwendet"
+          }
+        }
+      }
+    },
+    "Create": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstellen"
+          }
+        }
+      }
+    },
+    "Create Workout": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workout erstellen"
+          }
+        }
+      }
+    },
+    "Export…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportieren …"
+          }
+        }
+      }
+    },
+    "Save Workout": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workout speichern"
+          }
+        }
+      }
+    },
+    "Save as Indoor Cycling": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Indoor-Radfahren speichern"
+          }
+        }
+      }
+    },
+    "Save as Indoor Run": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Indoor-Lauf speichern"
+          }
+        }
+      }
+    },
+    "Save as Indoor Walk": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Indoor-Gehen speichern"
+          }
+        }
+      }
+    },
+    "Load Sample Ramp Test (100–700 W)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispiel-Rampentest laden (100–700 W)"
+          }
+        }
+      }
+    },
+    "Cancel search": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suche abbrechen"
+          }
+        }
+      }
+    },
+    "Search again": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut suchen"
+          }
+        }
+      }
+    },
+    "Trainer features": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trainer-Funktionen"
+          }
+        }
+      }
+    },
+    "Power": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leistung"
+          }
+        }
+      }
+    },
+    "Resistance": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widerstand"
+          }
+        }
+      }
+    },
+    "Program": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Programm"
+          }
+        }
+      }
+    },
+    "Grade": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steigung"
+          }
+        }
+      }
+    },
+    "Name": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        }
+      }
+    },
+    "Duration": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dauer"
+          }
+        }
+      }
+    },
+    "Preview": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau"
+          }
+        }
+      }
+    },
+    "Volume": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lautstärke"
+          }
+        }
+      }
+    },
+    "Interval Sound": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intervallton"
+          }
+        }
+      }
+    },
+    "Mode": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modus"
+          }
+        }
+      }
+    },
+    "Sound Type": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tonart"
+          }
+        }
+      }
+    },
+    "Vibration": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibration"
+          }
+        }
+      }
+    },
+    "FTP": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FTP"
+          }
+        }
+      }
+    },
+    "FTP (Watts)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FTP (Watt)"
+          }
+        }
+      }
+    },
+    "Reports": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meldungen"
+          }
+        }
+      }
+    },
+    "Adjustable Targets": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellbare Zielwerte"
+          }
+        }
+      }
+    },
+    "Smart Trainer": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smart-Trainer"
+          }
+        }
+      }
+    },
+    "Heart Rate Strap": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herzfrequenz-Brustgurt"
+          }
+        }
+      }
+    },
+    "Time in Heart Rate Zones": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeit in Herzfrequenz-Zonen"
+          }
+        }
+      }
+    },
+    "Custom Workout": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigenes Workout"
+          }
+        }
+      }
+    },
+    "e.g. 250": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. 250"
+          }
+        }
+      }
+    },
+    "Workout": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workout"
+          }
+        }
+      }
+    },
+    "Workout (.%@)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workout (.%@)"
+          }
+        }
+      }
+    },
+    "Connected": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden"
+          }
+        }
+      }
+    },
+    "Disconnected": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getrennt"
+          }
+        }
+      }
+    },
+    "Connecting …": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde …"
+          }
+        }
+      }
+    },
+    "Reading device data …": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lese Gerätedaten …"
+          }
+        }
+      }
+    },
+    "Searching for trainers & HR straps …": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suche nach Trainern & Brustgurten …"
+          }
+        }
+      }
+    },
+    "No devices found": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Geräte gefunden"
+          }
+        }
+      }
+    },
+    "No trainer found": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keinen Trainer gefunden"
+          }
+        }
+      }
+    },
+    "No strap found": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keinen Brustgurt gefunden"
+          }
+        }
+      }
+    },
+    "No recent workouts": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine kürzlich verwendeten Workouts"
+          }
+        }
+      }
+    },
+    "No Feature Data": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Funktionsdaten"
+          }
+        }
+      }
+    },
+    "This trainer hasn't reported its supported features yet.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Trainer hat seine unterstützten Funktionen noch nicht gemeldet."
+          }
+        }
+      }
+    },
+    "Control not possible": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steuerung nicht möglich"
+          }
+        }
+      }
+    },
+    "Bluetooth unavailable": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bluetooth nicht verfügbar"
+          }
+        }
+      }
+    },
+    "Please enable Bluetooth in Settings.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bitte aktiviere Bluetooth in den Einstellungen."
+          }
+        }
+      }
+    },
+    "Workout complete": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workout abgeschlossen"
+          }
+        }
+      }
+    },
+    "Route complete": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strecke abgeschlossen"
+          }
+        }
+      }
+    },
+    "Saved to Apple Health": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Apple Health gespeichert"
+          }
+        }
+      }
+    },
+    "Not Saved": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht gespeichert"
+          }
+        }
+      }
+    },
+    "Couldn't Load Workout": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workout konnte nicht geladen werden"
+          }
+        }
+      }
+    },
+    "Minutes": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minuten"
+          }
+        }
+      }
+    },
+    "Watts": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Watt"
+          }
+        }
+      }
+    },
+    "Percent": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozent"
+          }
+        }
+      }
+    },
+    "Grade %": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steigung %"
+          }
+        }
+      }
+    },
+    "Time (s)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeit (s)"
+          }
+        }
+      }
+    },
+    "km": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "km"
+          }
+        }
+      }
+    },
+    "RPM": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U/min"
+          }
+        }
+      }
+    },
+    "Your Functional Threshold Power.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Functional Threshold Power."
+          }
+        }
+      }
+    },
+    "Briefly vibrates whenever a Program workout (.erg/.mrc) reaches its next scheduled entry.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vibriert kurz, sobald ein Programm-Workout (.erg/.mrc) den nächsten geplanten Eintrag erreicht."
+          }
+        }
+      }
+    },
+    "Plays alongside Vibration when a Program workout reaches its next scheduled entry. Volume 0 % stays silent. \"Countdown\" adds one beep a second for the four seconds before, on top of the one for the entry itself.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielt zusätzlich zur Vibration, sobald ein Programm-Workout den nächsten geplanten Eintrag erreicht. Bei 0 % Lautstärke bleibt es still. „Countdown“ fügt in den vier Sekunden davor je einen Piepton pro Sekunde hinzu, zusätzlich zu dem für den Eintrag selbst."
+          }
+        }
+      }
+    },
+    "Type a workout, e.g. \"10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP), 10min 55%FTP\".": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workout eingeben, z. B. „10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP), 10min 55%FTP“."
+          }
+        }
+      }
+    },
+    "e.g. \"10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP), 10min 55%FTP\". Durations: min or s. Targets: %FTP or W. A ramp within one step: \"20min 100W->300W\".": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. „10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP), 10min 55%FTP“. Dauer: min oder s. Zielwerte: %FTP oder W. Eine Rampe innerhalb eines Schritts: „20min 100W->300W“."
+          }
+        }
+      }
+    },
+    "Single Beep": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einzelner Piepton"
+          }
+        }
+      }
+    },
+    "Countdown": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Countdown"
+          }
+        }
+      }
+    },
+    "Device level %@ of %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerätestufe %1$@ von %2$@"
+          }
+        }
+      }
+    },
+    "RSSI %@ dBm": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RSSI %@ dBm"
+          }
+        }
+      }
+    },
+    "%@ / %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ / %2$@"
+          }
+        }
+      }
+    },
+    "%@ %%": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %%"
+          }
+        }
+      }
+    },
+    "%@ %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@"
+          }
+        }
+      }
+    },
+    "↓%@ Ø%@ ↑%@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↓%1$@ Ø%2$@ ↑%3$@"
+          }
+        }
+      }
+    },
+    "%@ bpm – tap to disconnect": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bpm – zum Trennen tippen"
+          }
+        }
+      }
+    },
+    "Connected – tap to disconnect": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden – zum Trennen tippen"
+          }
+        }
+      }
+    },
+    "The file couldn't be parsed as GPX.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Datei konnte nicht als GPX gelesen werden."
+          }
+        }
+      }
+    },
+    "No track points found in this GPX file.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Track-Punkte in dieser GPX-Datei gefunden."
+          }
+        }
+      }
+    },
+    "This GPX track is missing elevation data (<ele>) for at least one point. Unchain needs elevation in the file itself to derive a grade profile – it doesn't look elevation up online.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesem GPX-Track fehlen bei mindestens einem Punkt Höhendaten (<ele>). Unchain braucht die Höhe in der Datei selbst, um ein Steigungsprofil zu berechnen – sie wird nicht online nachgeschlagen."
+          }
+        }
+      }
+    },
+    "Health data isn't available on this device.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Health-Daten sind auf diesem Gerät nicht verfügbar."
+          }
+        }
+      }
+    },
+    "Unchain isn't allowed to save workouts to Health.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unchain darf keine Workouts in Health speichern."
+          }
+        }
+      }
+    },
+    "The workout couldn't be saved.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Workout konnte nicht gespeichert werden."
+          }
+        }
+      }
+    },
+    "The file couldn't be read as text.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Datei konnte nicht als Text gelesen werden."
+          }
+        }
+      }
+    },
+    "No [COURSE DATA] section found – is this really an .erg/.mrc file?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein [COURSE DATA]-Abschnitt gefunden – ist das wirklich eine .erg-/.mrc-Datei?"
+          }
+        }
+      }
+    },
+    "Couldn't understand \"%@\" – expected something like \"5min 250W\" or \"3x(...)\".": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ konnte nicht verstanden werden – erwartet wurde z. B. „5min 250W“ oder „3x(...)“."
+          }
+        }
+      }
+    },
+    "Couldn't understand the duration \"%@\" – use e.g. \"10min\" or \"90s\".": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Dauer „%@“ konnte nicht verstanden werden – nutze z. B. „10min“ oder „90s“."
+          }
+        }
+      }
+    },
+    "Couldn't understand the target \"%@\" – use e.g. \"250W\" or \"75%%FTP\".": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Zielwert „%@“ konnte nicht verstanden werden – nutze z. B. „250W“ oder „75%%FTP“."
+          }
+        }
+      }
+    },
+    "This workout uses %FTP, but no FTP is set – add one in Settings first.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Workout nutzt %FTP, aber es ist keine FTP eingetragen – trage zuerst eine in den Einstellungen ein."
+          }
+        }
+      }
+    },
+    "The bundled sample ramp test is missing.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der mitgelieferte Beispiel-Rampentest fehlt."
+          }
+        }
+      }
+    },
+    "Couldn't access the selected file.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf die ausgewählte Datei konnte nicht zugegriffen werden."
+          }
+        }
+      }
+    },
+    "This trainer doesn't support %@ targets.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Trainer unterstützt keine %@-Zielwerte."
+          }
+        }
+      }
+    },
+    "power": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leistungs"
+          }
+        }
+      }
+    },
+    "resistance": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widerstands"
+          }
+        }
+      }
+    },
+    "Couldn't read the file: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Datei konnte nicht gelesen werden: %@"
+          }
+        }
+      }
+    },
+    "This trainer doesn't support Indoor Bike Simulation (Grade), so GPX routes can't be used.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Trainer unterstützt kein Indoor Bike Simulation (Grade), GPX-Strecken können daher nicht genutzt werden."
+          }
+        }
+      }
+    },
+    "Couldn't derive a grade profile from this track.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus diesem Track konnte kein Steigungsprofil berechnet werden."
+          }
+        }
+      }
+    },
+    "Couldn't export the file: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Datei konnte nicht exportiert werden: %@"
+          }
+        }
+      }
+    },
+    "This trainer doesn't report support for any target type Unchain can drive from a file.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Trainer meldet keine Unterstützung für einen Zielwert-Typ, den Unchain aus einer Datei ansteuern kann."
+          }
+        }
+      }
+    },
+    "Load a %@ file to follow a structured workout or route automatically.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lade eine %@-Datei, um automatisch einem strukturierten Workout oder einer Strecke zu folgen."
+          }
+        }
+      }
+    },
+    "Full workout · double-tap to zoom": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesamtes Workout · Doppeltipp zum Zoomen"
+          }
+        }
+      }
+    },
+    "%@ min window · double-tap to zoom": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@-Min-Fenster · Doppeltipp zum Zoomen"
+          }
+        }
+      }
+    },
+    "Full route · double-tap to zoom": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesamte Strecke · Doppeltipp zum Zoomen"
+          }
+        }
+      }
+    },
+    "%@ km window · double-tap to zoom": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@-km-Fenster · Doppeltipp zum Zoomen"
+          }
+        }
+      }
+    },
+    "Language": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprache"
+          }
+        }
+      }
+    },
+    "System": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        }
+      }
+    },
+    "Applies immediately, no restart needed. \"System\" follows your device's own Language & Region setting.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird sofort angewendet, kein Neustart nötig. „System“ folgt der Sprach- und Regionseinstellung deines Geräts."
+          }
+        }
+      }
+    },
+    "Target": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soll"
+          }
+        }
+      }
+    },
+    "Actual": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ist"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.1"
+}

@@ -375,9 +375,69 @@ protocol, so it works in principle with any FTMS-capable trainer.
       removed mid-press; and a hard 20 s cap on one continuous repeat
       regardless of anything else, so even if both of those somehow fail
       too, it self-terminates rather than running indefinitely
-
-Deployment target: **iOS 16.0** · Target devices: **iPhone XS** (max. iOS 18 on
-this model) and iPad · iPhone portrait-only, iPad portrait + landscape.
+- [x] **Localization: German**, alongside the English source language. Uses
+      Xcode 15+ String Catalogs (`Unchain/Resources/Localizable.xcstrings` for
+      UI text, `InfoPlist.xcstrings` for the three `NSUsageDescription`
+      Bluetooth/Health strings) rather than old-style `.strings` files – no
+      new dependency, and it's what `xcodegen`/Xcode now generate by default.
+      Every user-facing string literal (`Text`, `Button`, `Label`, `Toggle`,
+      `Picker`, alert titles/messages, error descriptions, axis/unit labels,
+      …) either auto-localizes via `LocalizedStringKey` (plain string
+      literals passed directly to a SwiftUI view) or is wrapped in
+      `String(localized:)` for anything computed/interpolated first. Two
+      related bug classes turned up and got fixed while auditing for this:
+      a `String` *variable* built from a literal and then handed to `Text` or
+      a chart axis-label modifier does **not** auto-localize (only a literal
+      at the call site does) – found and fixed in `MetricTile`'s title,
+      `DeviceListView`'s status text, both workout charts' zoom-window
+      labels, and `IntervalSoundType`'s display name; and `ControlMode`'s
+      `rawValue` is both the on-screen tab label *and* the
+      `@AppStorage("lastActiveMode")` persistence key, so it stays English/
+      unlocalized on purpose and gained a separate, translated `displayName`
+      instead – translating `rawValue` itself would silently reset (or worse,
+      keep an unrelated) remembered tab after a locale change. `String(format:
+      locale: .current, …)` was added to every locale-sensitive numeric
+      formatter (so e.g. a German device shows "1,5" not "1.5"), *except* the
+      handful of mm:ss time formatters (no decimal point to localize) and the
+      `.erg`/`.mrc` file serializer, which deliberately keeps
+      `Locale(identifier: "en_US_POSIX")` – it's a machine-readable file
+      format read back in by this app and others regardless of what locale
+      wrote it, so it must never follow the device locale. The FTMS spec's
+      own field names (shown verbatim in the diagnostic "Trainer features"
+      overlay, see `FitnessMachineFeatures`) are deliberately left
+      untranslated – translating them would make that overlay less useful for
+      cross-referencing against the spec or another app, not more. Verified
+      by inspecting the actual built `.app` bundle: `de.lproj/
+      Localizable.strings` and `de.lproj/InfoPlist.strings` both compile in
+      with all entries present, correct positional format specifiers for
+      multi-argument strings (e.g. `"Device level %@ of %@"` →
+      `"Gerätestufe %1$@ von %2$@"`), and no `en.lproj` needed (English is the
+      source language, baked in directly). Spanish/French were discussed and
+      deliberately deferred – German only for now
+- [x] **Explicit language override**, in Settings, on top of the above –
+      defaults to **System** (the device's own Language & Region setting,
+      unchanged from before), but "English"/"Deutsch" can be picked
+      explicitly and take effect immediately, no app restart needed. iOS has
+      no supported API to switch `Text`/`String(localized:)`'s resolved
+      locale at runtime; `LanguageManager` uses the standard workaround –
+      swizzling `Bundle.main`'s class so its `localizedString(forKey:value:
+      table:)` (what both ultimately resolve through, String Catalogs
+      included) reads from a specific `.lproj` bundle instead of letting the
+      OS pick one. Picking "System" again just clears the override, falling
+      back to the OS's own resolution. `UnchainApp` re-applies the stored
+      override at launch and forces a full content-view rebuild
+      (`.id(languageOverride)`) whenever it changes, so every already-
+      rendered label picks up the new language immediately rather than
+      waiting for unrelated state to trigger its own next redraw – the one
+      trade-off being that changing the language while the Settings sheet is
+      open closes that sheet along with the rest of the tree it's part of.
+      Known limitation: this overrides string *lookup* only, not
+      `Locale.current` itself, so the app's own locale-aware
+      `String(format:)` calls (e.g. FTP-derived decimal values) still follow
+      the true device locale, not this override. The two language names in
+      the picker ("English"/"Deutsch") are deliberately *not* translated –
+      shown in their own language regardless of which is currently active,
+      the same convention every OS/app language picker uses
 
 ## Generating the project
 

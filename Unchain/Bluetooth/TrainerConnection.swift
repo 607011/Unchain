@@ -10,6 +10,20 @@ enum ControlMode: String, CaseIterable, Identifiable {
     /// `FitnessMachineFeatures.supportsIndoorBikeSimulation`).
     case grade = "Grade"
     var id: String { rawValue }
+
+    /// `rawValue` itself stays English and unlocalized – it's the
+    /// `@AppStorage("lastActiveMode")` persistence key (via `ControlMode`'s
+    /// `RawRepresentable` conformance), so changing it with the user's
+    /// locale would silently lose their remembered tab on a locale change.
+    /// This is the display-only counterpart the picker actually shows.
+    var displayName: String {
+        switch self {
+        case .power: return String(localized: "Power")
+        case .resistance: return String(localized: "Resistance")
+        case .program: return String(localized: "Program")
+        case .grade: return String(localized: "Grade")
+        }
+    }
 }
 
 enum ConnectionState: Equatable {

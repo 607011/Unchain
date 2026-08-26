@@ -461,3 +461,25 @@ LLM to turn intent into structure, which is a different, bigger feature:
   free text — reusing the exact same parsing/clamping path a shorthand or
   file-loaded program already goes through, so a hallucinated response can't
   reach the trainer with implausible values unchecked.
+
+## Considered and rejected: an HR+-style heart-rate-locked control mode
+
+TrainerDay has an "HR+" mode: set a target heart rate, and it continuously
+adjusts the *power* sent to the trainer to hold you there — a closed-loop
+controller, unlike anything else in this app (Power/Resistance/Grade/Program
+are all either manual or a fixed, pre-planned schedule; nothing else reacts
+live to a sensor's own noisy signal). Deliberately not building this:
+heart rate is a poor *control* input, however useful it is as a *monitoring*
+one (which is exactly what `HeartRateZone` already covers – live and
+post-workout, never driving anything). It's confounded by too much that has
+nothing to do with the current training stimulus – riding position, sleep,
+heat, caffeine, daily form, cardiac drift even at genuinely constant power
+over time – so a controller reacting to it in real time would be reacting to
+noise as much as signal, and heart rate's own lag behind a power change
+(tens of seconds, more at low fitness) makes naive proportional control
+(raise power while HR is below target) prone to overshoot: it keeps pushing
+power up while HR is still catching up, then over-corrects down once it
+finally arrives. Power and Grade are already exactly the two *direct,
+unconfounded* control variables a trainer can hit precisely — there's
+nothing an HR-based layer on top would add that either doesn't already
+provide more reliably.

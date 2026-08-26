@@ -150,6 +150,29 @@ protocol, so it works in principle with any FTMS-capable trainer.
       points that the full-route view alone is too fine-grained to read.
       The zoomed window is centered on and scrolls with the current playback
       position rather than staying fixed on wherever it was double-tapped
+- [x] Tap an interval on the Program chart (single tap, not the double-tap
+      above) to see its duration and target — "3:00 · 150 W" for a flat
+      block, "5:00 · 100–150 W" for a ramp — same as tapping an interval in
+      TrainerDay's own workout chart. A translucent band highlights the
+      selected interval's time span on the chart itself; tapping it again
+      (or tapping outside any interval) clears the selection. Values shown
+      already reflect the live intensity adjustment, matching what the
+      Target curve itself is currently drawing — this doesn't have its own
+      separate notion of "the plan". Single- and double-tap live on the
+      same `.chartOverlay` gesture, `.exclusively(before:)`-chained with the
+      double-tap listed first — that's what makes SwiftUI hold off firing
+      the single-tap handler until it's sure a second tap isn't coming,
+      rather than the first tap of a double-tap also firing it
+- [x] Same tap-to-inspect on the Route chart – tap a smoothed window to see
+      its span and grade, e.g. "50 m · 8.2 %" (`GradeProfile
+      .breakpointIndex(atDistanceMeters:)`, the distance-keyed counterpart
+      to the Program chart's time-keyed one, both mirroring the same
+      boundary rule: landing exactly on a window edge already reads as the
+      new window). A window's grade is flat by construction
+      (`GradeProfileBuilder` holds it constant across each smoothing
+      window), so this only ever shows a single value in practice, not a
+      range – the label still falls back to one if it ever didn't, same
+      as the Program chart's ramp case
 - [x] Universal — runs on iPad too (`TARGETED_DEVICE_FAMILY: "1,2"`), with a
       larger type scale for the metric tiles, their min/avg/max caption, the
       big target/elapsed numbers, and the heart rate zone bar, plus taller

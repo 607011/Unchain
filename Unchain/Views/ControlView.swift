@@ -1034,12 +1034,24 @@ private struct WorkoutProgramChart: View {
     /// TrainerDay has on its workout chart.
     private static let zoomWindowsMinutes: [Double?] = [nil, 10, 3]
     @State private var zoomLevelIndex = 0
+    /// Which file entry (see `WorkoutProgram.breakpointIndex(atElapsedSeconds:)`)
+    /// a single tap last selected, for the TrainerDay-style "tap an interval
+    /// to see its duration and target" inspector below. `nil` when nothing's
+    /// selected; tapping the same interval again toggles it back off.
+    @State private var selectedBreakpointIndex: Int?
     private var isRegularWidth: Bool { horizontalSizeClass == .regular }
     private var showsActualPower: Bool { program.targetKind == .power }
 
     var body: some View {
         VStack(spacing: 2) {
             Chart {
+                if let index = selectedBreakpointIndex, index + 1 < program.breakpoints.count {
+                    RectangleMark(
+                        xStart: .value("Start", program.breakpoints[index].timeSeconds / 60),
+                        xEnd: .value("End", program.breakpoints[index + 1].timeSeconds / 60)
+                    )
+                    .foregroundStyle(.gray.opacity(0.25))
+                }
                 ForEach(Array(program.breakpoints.enumerated()), id: \.offset) { _, point in
                     LineMark(
                         x: .value("Minutes", point.timeSeconds / 60),
@@ -1083,16 +1095,84 @@ private struct WorkoutProgramChart: View {
             .chartPlotStyle { plotArea in
                 plotArea.clipped()
             }
-            .onTapGesture(count: 2) {
-                zoomLevelIndex = (zoomLevelIndex + 1) % Self.zoomWindowsMinutes.count
+            // Double-tap (zoom) and single-tap (select an interval, below)
+            // both live here, as one `.exclusively(before:)` chain, rather
+            // than a separate plain `.onTapGesture(count: 2)` – that let a
+            // double-tap's *first* tap already fire the single-tap handler
+            // before SwiftUI could tell the two apart. Listing the
+            // double-tap gesture first is what makes SwiftUI hold off on
+            // the single-tap one until it's actually sure it isn't part of
+            // a double-tap.
+            .chartOverlay { proxy in
+                GeometryReader { geometry in
+                    Rectangle()
+                        .fill(.clear)
+                        .contentShape(Rectangle())
+                        .gesture(
+                            SpatialTapGesture(count: 2)
+                                .onEnded { _ in
+                                    zoomLevelIndex = (zoomLevelIndex + 1) % Self.zoomWindowsMinutes.count
+                                }
+                                .exclusively(before: SpatialTapGesture(count: 1)
+                                    .onEnded { tap in
+                                        selectInterval(atTapLocation: tap.location, proxy: proxy, geometry: geometry)
+                                    }
+                                )
+                        )
+                }
             }
             .frame(height: chartHeight)
             .animation(.easeOut(duration: 0.35), value: yCeiling)
+
+            if let selectedIntervalLabel {
+                Text(selectedIntervalLabel)
+                    .font(isRegularWidth ? .subheadline.weight(.semibold) : .caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+            }
 
             Text(zoomLabel)
                 .font(isRegularWidth ? .footnote : .caption2)
                 .foregroundStyle(.tertiary)
         }
+    }
+
+    /// Maps a raw tap location (from `SpatialTapGesture`, in the chart
+    /// view's own coordinate space) to a time via `ChartProxy`, then to
+    /// which file entry contains that time – same "which entry is this"
+    /// question `WorkoutSession` already answers for the vibration/interval
+    /// sound feature, just triggered by a tap instead of live playback.
+    /// Tapping the already-selected interval again deselects it; tapping
+    /// outside any interval (e.g. past the end) also clears the selection.
+    private func selectInterval(atTapLocation location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
+        let plotAreaFrame = geometry[proxy.plotAreaFrame]
+        let xPosition = location.x - plotAreaFrame.origin.x
+        guard let minutes: Double = proxy.value(atX: xPosition),
+              let index = program.breakpointIndex(atElapsedSeconds: minutes * 60) else {
+            selectedBreakpointIndex = nil
+            return
+        }
+        selectedBreakpointIndex = (selectedBreakpointIndex == index) ? nil : index
+    }
+
+    /// "3:00 · 150 W" for a flat interval, "3:00 · 100–180 W" for a ramp –
+    /// values already reflect the live intensity adjustment, matching what
+    /// the Target curve itself shows (see `intensityAdjustmentPercent`).
+    private var selectedIntervalLabel: String? {
+        guard let index = selectedBreakpointIndex, index + 1 < program.breakpoints.count else { return nil }
+        let start = program.breakpoints[index]
+        let end = program.breakpoints[index + 1]
+        let durationSeconds = end.timeSeconds - start.timeSeconds
+        guard durationSeconds > 0 else { return nil }
+        let startValue = WorkoutSession.adjustedValue(start.value, byPercent: intensityAdjustmentPercent)
+        let endValue = WorkoutSession.adjustedValue(end.value, byPercent: intensityAdjustmentPercent)
+        let unit = program.targetKind == .power ? "W" : "%"
+        let valueText = startValue == endValue ? "\(startValue) \(unit)" : "\(startValue)–\(endValue) \(unit)"
+        return "\(formattedIntervalDuration(durationSeconds)) · \(valueText)"
+    }
+
+    private func formattedIntervalDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 
     private var unitLabel: String {
@@ -1191,11 +1271,23 @@ private struct GradeProfileChart: View {
     /// TrainerDay has on its workout chart.
     private static let zoomWindowsKm: [Double?] = [nil, 8, 2]
     @State private var zoomLevelIndex = 0
+    /// Which smoothed window (see `GradeProfile.breakpointIndex(atDistanceMeters:)`)
+    /// a single tap last selected – the GPX-route counterpart to
+    /// `WorkoutProgramChart`'s tap-to-inspect. `nil` when nothing's
+    /// selected; tapping the same window again toggles it back off.
+    @State private var selectedBreakpointIndex: Int?
     private var isRegularWidth: Bool { horizontalSizeClass == .regular }
 
     var body: some View {
         VStack(spacing: 2) {
             Chart {
+                if let index = selectedBreakpointIndex, index + 1 < route.breakpoints.count {
+                    RectangleMark(
+                        xStart: .value("Start", route.breakpoints[index].distanceMeters / 1000),
+                        xEnd: .value("End", route.breakpoints[index + 1].distanceMeters / 1000)
+                    )
+                    .foregroundStyle(.gray.opacity(0.25))
+                }
                 ForEach(Array(route.breakpoints.enumerated()), id: \.offset) { _, point in
                     LineMark(
                         x: .value("Distance", point.distanceMeters / 1000),
@@ -1215,14 +1307,71 @@ private struct GradeProfileChart: View {
             .chartPlotStyle { plotArea in
                 plotArea.clipped()
             }
-            .onTapGesture(count: 2) {
-                zoomLevelIndex = (zoomLevelIndex + 1) % Self.zoomWindowsKm.count
+            // See the equivalent comment in `WorkoutProgramChart` for why
+            // both gestures live in one `.chartOverlay`, `.exclusively
+            // (before:)`-chained with the double-tap listed first.
+            .chartOverlay { proxy in
+                GeometryReader { geometry in
+                    Rectangle()
+                        .fill(.clear)
+                        .contentShape(Rectangle())
+                        .gesture(
+                            SpatialTapGesture(count: 2)
+                                .onEnded { _ in
+                                    zoomLevelIndex = (zoomLevelIndex + 1) % Self.zoomWindowsKm.count
+                                }
+                                .exclusively(before: SpatialTapGesture(count: 1)
+                                    .onEnded { tap in
+                                        selectInterval(atTapLocation: tap.location, proxy: proxy, geometry: geometry)
+                                    }
+                                )
+                        )
+                }
+            }
+
+            if let selectedIntervalLabel {
+                Text(selectedIntervalLabel)
+                    .font(isRegularWidth ? .subheadline.weight(.semibold) : .caption.weight(.semibold))
+                    .foregroundStyle(.primary)
             }
 
             Text(zoomLabel)
                 .font(isRegularWidth ? .footnote : .caption2)
                 .foregroundStyle(.tertiary)
         }
+    }
+
+    /// The `GradeProfile`/distance counterpart to `WorkoutProgramChart
+    /// .selectInterval(atTapLocation:proxy:geometry:)`.
+    private func selectInterval(atTapLocation location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
+        let plotAreaFrame = geometry[proxy.plotAreaFrame]
+        let xPosition = location.x - plotAreaFrame.origin.x
+        guard let km: Double = proxy.value(atX: xPosition),
+              let index = route.breakpointIndex(atDistanceMeters: km * 1000) else {
+            selectedBreakpointIndex = nil
+            return
+        }
+        selectedBreakpointIndex = (selectedBreakpointIndex == index) ? nil : index
+    }
+
+    /// "50 m · 8.2 %" for a window (every window's grade is flat by
+    /// construction – see `GradeProfileBuilder` – so start/end always
+    /// match in practice, but this still falls back to a range if they
+    /// ever don't, same as `WorkoutProgramChart`'s equivalent).
+    private var selectedIntervalLabel: String? {
+        guard let index = selectedBreakpointIndex, index + 1 < route.breakpoints.count else { return nil }
+        let start = route.breakpoints[index]
+        let end = route.breakpoints[index + 1]
+        let spanMeters = end.distanceMeters - start.distanceMeters
+        guard spanMeters > 0 else { return nil }
+        let gradeText = start.gradePercent == end.gradePercent
+            ? String(format: "%.1f %%", start.gradePercent)
+            : String(format: "%.1f–%.1f %%", start.gradePercent, end.gradePercent)
+        return "\(formattedSpan(spanMeters)) · \(gradeText)"
+    }
+
+    private func formattedSpan(_ meters: Double) -> String {
+        meters >= 1000 ? String(format: "%.2f km", meters / 1000) : String(format: "%.0f m", meters)
     }
 
     /// Centered on the current position while zoomed in, so the window

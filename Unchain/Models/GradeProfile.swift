@@ -21,16 +21,32 @@ struct GradeProfile: Codable, Equatable {
     /// Indoor Bike Simulation is, as the name says, a bike-only FTMS feature.
     var compatibleMachineKind: MachineKind { .bike }
 
+    /// Index of the *last* breakpoint at or before `distance` – mirrors
+    /// `WorkoutProgram.breakpointIndex(atElapsedSeconds:)`: a step between
+    /// two smoothed windows is encoded the same way (two breakpoints at the
+    /// same distance, different grade), so picking the last one here means
+    /// landing exactly on a window boundary already reads as the new
+    /// window, not the old one. Exposed (rather than kept private to
+    /// `grade(atDistanceMeters:)`, which uses it too) so a caller – see
+    /// `GradeProfileChart`'s tap-to-inspect – can tell which window a
+    /// distance falls into. `nil` before the first breakpoint or past the
+    /// route's end.
+    func breakpointIndex(atDistanceMeters distance: Double) -> Int? {
+        guard let first = breakpoints.first, distance >= first.distanceMeters, distance <= totalDistanceMeters else { return nil }
+        var lowerIndex = 0
+        for index in breakpoints.indices where breakpoints[index].distanceMeters <= distance {
+            lowerIndex = index
+        }
+        return lowerIndex
+    }
+
     /// Linearly interpolated grade % at `distance` meters into the route;
     /// `nil` once the route's full length has been covered.
     func grade(atDistanceMeters distance: Double) -> Double? {
         guard let first = breakpoints.first, distance <= totalDistanceMeters else { return nil }
         guard distance >= first.distanceMeters else { return first.gradePercent }
+        guard let lowerIndex = breakpointIndex(atDistanceMeters: distance) else { return first.gradePercent }
 
-        var lowerIndex = 0
-        for index in breakpoints.indices where breakpoints[index].distanceMeters <= distance {
-            lowerIndex = index
-        }
         let lower = breakpoints[lowerIndex]
         guard lowerIndex + 1 < breakpoints.count else { return lower.gradePercent }
         let upper = breakpoints[lowerIndex + 1]

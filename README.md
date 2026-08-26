@@ -6,6 +6,8 @@ Lean iOS app for controlling smart trainers (Kickr & co.) via the open
 **FTMS** Bluetooth standard (Fitness Machine Service) — not a Wahoo-proprietary
 protocol, so it works in principle with any FTMS-capable trainer.
 
+[MIT licensed](LICENSE).
+
 ## Status (MVP, Phase 1)
 
 - [x] BLE scan for FTMS devices

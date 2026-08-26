@@ -1,6 +1,6 @@
-<img src="Unchain/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png" width="96" align="right" alt="Unchain app icon">
-
 # Unchain
+
+<img src="Unchain/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png" width="96" alt="Unchain app icon">
 
 Lean iOS app for controlling smart trainers (Kickr & co.) via the open
 **FTMS** Bluetooth standard (Fitness Machine Service) — not a Wahoo-proprietary

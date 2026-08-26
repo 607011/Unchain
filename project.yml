@@ -7,6 +7,17 @@ options:
 configs:
   Debug: debug
   Release: release
+# Project-level settings the target inherits rather than overrides – exactly
+# what Xcode's own "Update to Recommended Settings" prompt asks for
+# (DEVELOPMENT_TEAM here instead of duplicated per-target; sandboxed script
+# build phases; String Catalog symbol generation, currently a no-op since
+# there are no `.xcstrings` files yet, but keeps Xcode from nagging about it
+# once there are).
+settings:
+  base:
+    DEVELOPMENT_TEAM: 64627RE2QD
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    STRING_CATALOG_GENERATE_SYMBOLS: YES
 targets:
   Unchain:
     type: application
@@ -19,11 +30,18 @@ targets:
       properties:
         UILaunchScreen: {}
         # iPhone: portrait-only, as before. `~ipad` overrides this just for
-        # iPad, which also allows landscape.
+        # iPad, which also allows landscape – all *four* orientations
+        # (including upside-down), since Apple requires that on iPad unless
+        # the app opts out of Split View/Slide Over/Stage Manager via
+        # `UIRequiresFullScreen` (which this app deliberately doesn't, so it
+        # can be used in Split View) – omitting one, as before, is a build
+        # warning ("All interface orientations must be supported unless the
+        # app requires full screen"), not just a style nit.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         NSBluetoothAlwaysUsageDescription: "Unchain needs Bluetooth to find and control your smart trainer and, optionally, a heart rate strap."
@@ -55,4 +73,3 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: "16.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: 64627RE2QD

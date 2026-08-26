@@ -162,7 +162,13 @@ protocol, so it works in principle with any FTMS-capable trainer.
       same `.chartOverlay` gesture, `.exclusively(before:)`-chained with the
       double-tap listed first — that's what makes SwiftUI hold off firing
       the single-tap handler until it's sure a second tap isn't coming,
-      rather than the first tap of a double-tap also firing it
+      rather than the first tap of a double-tap also firing it. The
+      selection also clears itself automatically 5 s after being made
+      (`.task(id: selectedBreakpointIndex)` — cancels and restarts on every
+      change, so re-tapping always resets the clock instead of an earlier
+      selection's timer wiping out a newer one) and the moment the workout
+      (re)starts (`.onChange(of: workoutState)`), so a stale selection
+      never lingers into the ride itself
 - [x] Same tap-to-inspect on the Route chart – tap a smoothed window to see
       its span and grade, e.g. "50 m · 8.2 %" (`GradeProfile
       .breakpointIndex(atDistanceMeters:)`, the distance-keyed counterpart

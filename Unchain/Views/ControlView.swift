@@ -418,7 +418,7 @@ struct ControlView: View {
                 // No external `.frame(height:)` here – `WorkoutProgramChart`
                 // sizes itself, since its height is meant to grow with the
                 // y-axis ceiling (see `chartHeight`), not stay a fixed box.
-                WorkoutProgramChart(program: program, elapsedSeconds: session.elapsedSeconds, powerHistory: session.powerHistory, maxActualWatts: session.powerStats.maxValue, intensityAdjustmentPercent: session.intensityAdjustmentPercent)
+                WorkoutProgramChart(program: program, elapsedSeconds: session.elapsedSeconds, powerHistory: session.powerHistory, maxActualWatts: session.powerStats.maxValue, intensityAdjustmentPercent: session.intensityAdjustmentPercent, workoutState: session.state)
                     .padding(.horizontal)
 
                 Text("\(elapsedTimeLabel) / \(formattedDuration(program.duration))")
@@ -447,7 +447,7 @@ struct ControlView: View {
                     .font(.system(size: isRegularWidth ? 72 : 48, weight: .bold, design: .rounded))
                     .monospacedDigit()
 
-                GradeProfileChart(route: route, distanceMeters: session.distanceMeters)
+                GradeProfileChart(route: route, distanceMeters: session.distanceMeters, workoutState: session.state)
                     .frame(height: isRegularWidth ? 260 : 140)
                     .padding(.horizontal)
 
@@ -1026,6 +1026,9 @@ private struct WorkoutProgramChart: View {
     /// actually sent to the trainer), not the raw file/shorthand values, so
     /// the chart never shows a different plan than what's really happening.
     let intensityAdjustmentPercent: Int
+    /// Clears the tap-to-inspect selection the moment a workout (re)starts
+    /// – see the `.onChange` below.
+    let workoutState: WorkoutState
     @AppStorage(SettingsView.ftpWattsKey) private var ftpWatts: Int = 188
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -1123,6 +1126,20 @@ private struct WorkoutProgramChart: View {
             }
             .frame(height: chartHeight)
             .animation(.easeOut(duration: 0.35), value: yCeiling)
+            .onChange(of: workoutState) { newState in
+                if newState == .running { selectedBreakpointIndex = nil }
+            }
+            // Auto-clears 5 s after a selection – `.task(id:)` cancels and
+            // restarts this on every change to `selectedBreakpointIndex`,
+            // so re-tapping (a new selection, or toggling one off) always
+            // resets the clock rather than an earlier selection's timer
+            // wiping out a newer one.
+            .task(id: selectedBreakpointIndex) {
+                guard selectedBreakpointIndex != nil else { return }
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard !Task.isCancelled else { return }
+                selectedBreakpointIndex = nil
+            }
 
             if let selectedIntervalLabel {
                 Text(selectedIntervalLabel)
@@ -1264,6 +1281,9 @@ private struct WorkoutProgramChart: View {
 private struct GradeProfileChart: View {
     let route: GradeProfile
     let distanceMeters: Double
+    /// Clears the tap-to-inspect selection the moment a workout (re)starts
+    /// – see the `.onChange` below.
+    let workoutState: WorkoutState
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     /// Window widths (km) to cycle through on double-tap, narrowest last;
@@ -1327,6 +1347,17 @@ private struct GradeProfileChart: View {
                                 )
                         )
                 }
+            }
+            .onChange(of: workoutState) { newState in
+                if newState == .running { selectedBreakpointIndex = nil }
+            }
+            // See the equivalent comment in `WorkoutProgramChart` for why
+            // `.task(id:)` rather than a plain scheduled timer.
+            .task(id: selectedBreakpointIndex) {
+                guard selectedBreakpointIndex != nil else { return }
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard !Task.isCancelled else { return }
+                selectedBreakpointIndex = nil
             }
 
             if let selectedIntervalLabel {

@@ -11,8 +11,20 @@ struct ControlView: View {
     /// iPhone — used instead of `UIDevice.userInterfaceIdiom` so a narrow
     /// iPad Split View correctly falls back to the iPhone-sized layout too.
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    /// Used only to force an immediate `session.refreshNow()` on return from
+    /// the background – see the `onChange` below and `WorkoutSession`'s class
+    /// doc comment for why the workout itself doesn't need this to stay
+    /// correct, just to look caught-up right away instead of for up to a
+    /// second.
+    @Environment(\.scenePhase) private var scenePhase
 
-    @State private var mode: ControlMode = .power
+    /// Restored from the last run, same as the target values below — picking
+    /// up right where you left off (Power vs. Program vs. …) beats always
+    /// reopening on Power. `ensureModeIsAvailable()` already handles a
+    /// restored mode the *currently connected* machine doesn't support (e.g.
+    /// last time was Grade on a different trainer) by falling back, so this
+    /// needs no extra guarding beyond that existing check.
+    @AppStorage("lastActiveMode") private var mode: ControlMode = .power
     /// Restored from the last run, and kept up to date as the user steps
     /// them, so they survive an app restart.
     @AppStorage("lastTargetPowerWatts") private var targetPower: Int = 100
@@ -174,6 +186,11 @@ struct ControlView: View {
             // previous session).
             if newState == .ready {
                 sendCurrentTarget()
+            }
+        }
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase == .active {
+                session.refreshNow()
             }
         }
         .onAppear {

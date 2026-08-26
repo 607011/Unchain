@@ -103,7 +103,12 @@ protocol, so it works in principle with any FTMS-capable trainer.
       Set Target Speed/Inclination instead, which this app doesn't drive.
       On a genuinely first-ever run, with nothing saved yet, the bundled ramp
       test is loaded automatically so Program mode isn't empty-handed. Manual
-      power/resistance targets are restored the same way, via `@AppStorage`
+      power/resistance targets are restored the same way, via `@AppStorage`,
+      as is the active tab itself (Power/Resistance/Program/Grade) — reopens
+      on whichever one was last selected rather than always defaulting back
+      to Power. If that tab isn't available on the machine it reconnects to
+      (see `availableModes`/`ensureModeIsAvailable()`), it falls back exactly
+      like an in-session feature-support change would
 - [x] A Program run's file `DESCRIPTION` is saved to Health as
       `HKMetadataKeyWorkoutBrandName` (repurposed – it's documented for
       studio/instructor names, but it's the metadata key the Fitness app
@@ -197,6 +202,28 @@ protocol, so it works in principle with any FTMS-capable trainer.
       just notice of it after the fact. The audio session uses `.playback` +
       `.mixWithOthers` so beeps layer over music/a podcast instead of pausing
       it, and aren't silenced by the mute switch
+- [x] A running workout now survives being backgrounded (switching to another
+      app, screen lock) instead of silently freezing — see
+      `UIBackgroundModes` (`bluetooth-central`, `audio`) in `project.yml`.
+      `WorkoutSession` derives elapsed time from `Date()` rather than
+      counting `Timer` ticks, so a gap (the app suspended, no ticks fired at
+      all) reads correctly the moment the next update arrives instead of
+      silently losing that time; distance/work/heart-rate-zone time are
+      integrated over the *actual* real time since the last update for the
+      same reason, rather than assuming exactly one second between them.
+      Progress itself is driven by two paths: the normal once-a-second
+      `Timer` while the app is on screen, plus a subscription to the
+      trainer's live BLE metrics, which keeps arriving in the background with
+      `bluetooth-central` declared — so a Program/Route target still gets
+      re-sent to the trainer, not just the on-screen numbers frozen at
+      whatever they were when the app was left. On returning to the
+      foreground, `ControlView` forces one immediate refresh (via
+      `scenePhase`) so the UI shows caught-up numbers right away rather than
+      stale ones for up to a second. Not covered: the OS fully terminating
+      the process (e.g. under memory pressure) rather than just suspending
+      it — surviving that would need CoreBluetooth state restoration
+      (`CBCentralManagerOptionRestoreIdentifierKey`), which isn't
+      implemented
 
 Deployment target: **iOS 16.0** · Target devices: **iPhone XS** (max. iOS 18 on
 this model) and iPad · iPhone portrait-only, iPad portrait + landscape.

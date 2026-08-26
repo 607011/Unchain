@@ -29,7 +29,19 @@ targets:
         NSBluetoothAlwaysUsageDescription: "Unchain needs Bluetooth to find and control your smart trainer and, optionally, a heart rate strap."
         NSHealthUpdateUsageDescription: "Unchain uses this to save your completed indoor workouts, including calories and heart rate, to the Health app."
         NSHealthShareUsageDescription: "Unchain reads your most recent body weight to estimate calories burned during walk/run workouts, and your date of birth to estimate a max heart rate for the in-app heart rate zones."
-        # Deliberately NO UIBackgroundModes entry: the app is only meant to run in the foreground.
+        # `bluetooth-central`: keeps delivering the connected trainer's/HR
+        # strap's characteristic notifications while the app is backgrounded
+        # instead of suspending them immediately, which is what lets a
+        # running workout keep progressing (see `WorkoutSession`) if the
+        # rider switches to another app mid-ride. `audio`: lets the interval
+        # beep (see "Interval Sound" in Settings) actually play while
+        # backgrounded/screen-locked instead of being silenced. Neither
+        # covers the OS fully terminating the process under memory pressure
+        # rather than just suspending it – that would need CoreBluetooth
+        # state restoration on top of this, which isn't implemented.
+        UIBackgroundModes:
+          - bluetooth-central
+          - audio
     entitlements:
       path: Generated/Unchain.entitlements
       properties:

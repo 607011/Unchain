@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import AVFoundation
+import Combine
 
 /// How the interval sound (see `SettingsView`) announces a new Program file
 /// entry being reached – `.single` just beeps once on arrival, `.countdown`
@@ -74,6 +75,21 @@ struct WorkoutSummary: Identifiable {
 /// strap. Also forwards Start/Resume/Stop/Pause commands to the trainer's FTMS
 /// control point (best-effort – most trainers don't require this to keep
 /// reporting live data, it's mainly for the machine's own display/logging).
+///
+/// Elapsed time is derived from `Date()`, not counted in ticks – see
+/// `currentElapsedSeconds(at:)` – so it reads correctly even if updates
+/// arrive irregularly, which they do once the app is backgrounded: a plain
+/// `Timer` stops firing the moment the app is suspended (see
+/// `project.yml`'s `UIBackgroundModes`), but with `bluetooth-central`
+/// declared there, the trainer's characteristic notifications keep arriving
+/// regardless, and `startTracking()` subscribes to those too, so a running
+/// workout keeps progressing – elapsed time, distance, and the Program/Route
+/// target sent to the trainer – for as long as the connection survives in
+/// the background, not just while the app is on screen. What this doesn't
+/// cover: the OS fully terminating the process (e.g. under memory pressure)
+/// rather than just suspending it – surviving that would need CoreBluetooth
+/// state restoration (`CBCentralManagerOptionRestoreIdentifierKey`), which
+/// isn't implemented.
 final class WorkoutSession: ObservableObject {
     /// `UserDefaults` key for the "Vibration" setting in `SettingsView` –
     /// shared here since `WorkoutSession`, not the settings screen, is what
@@ -125,8 +141,30 @@ final class WorkoutSession: ObservableObject {
     private let heartRateProvider: () -> HeartRateConnection?
 
     private var timer: Timer?
+    private var metricsCancellable: AnyCancellable?
     private var startDate: Date?
+    /// Set whenever tracking stops (`pause()`, `stop()`) to the moment it
+    /// stopped; cleared (and folded into `totalPausedDuration`) the moment it
+    /// resumes (`start()`, `resume()`, or `cancelStop()` restoring `.running`)
+    /// – see `startTracking()`/`stopTracking()`. Together with
+    /// `totalPausedDuration` this is what makes `currentElapsedSeconds(at:)`
+    /// pause-aware without needing a continuously-running timer to track it.
+    private var pauseDate: Date?
+    private var totalPausedDuration: TimeInterval = 0
+    /// When live metrics (speed, power) were last integrated into
+    /// `distanceMeters`/`workDoneJoules` – used to scale each integration
+    /// step by the *actual* real time since the last one, since updates can
+    /// now arrive at irregular intervals (see the class doc comment), not
+    /// reliably once a second the way a foreground-only `Timer` guaranteed.
+    private var lastMetricsSampleDate: Date?
     private var workDoneJoules: Double = 0
+    /// Fractional-second accumulator backing the published, whole-second
+    /// `heartRateZoneSeconds` – refreshes can now arrive faster than once a
+    /// second (a trainer's BLE notifications, not just the foreground
+    /// `Timer`), so each individual `sampleDuration` is often under half a
+    /// second; rounding *that* to the nearest second before accumulating
+    /// would silently discard most of it instead of it adding up correctly.
+    private var heartRateZoneSecondsAccumulator: [HeartRateZone: Double] = [:]
     private var heartRateSamples: [(date: Date, bpm: Int)] = []
     private var lastSampledBPM: Int?
     /// Remembers what state a workout was in before `stop()`, so `cancelStop()`
@@ -169,7 +207,7 @@ final class WorkoutSession: ObservableObject {
         connection.startOrResumeWorkout()
         startDate = Date()
         state = .running
-        startTimer()
+        startTracking()
         // Send the starting target immediately rather than waiting for the
         // first tick a second later.
         if isDrivenByProgram, let workout = activeWorkout {
@@ -200,22 +238,24 @@ final class WorkoutSession: ObservableObject {
     func pause() {
         guard state == .running else { return }
         connection.pauseWorkout()
+        elapsedSeconds = currentElapsedSeconds() // freeze at the moment Pause was tapped, not the last refresh
         state = .paused
-        stopTimer()
+        stopTracking()
     }
 
     func resume() {
         guard state == .paused else { return }
         connection.startOrResumeWorkout()
         state = .running
-        startTimer()
+        startTracking()
     }
 
     func stop() {
         guard state == .running || state == .paused else { return }
         stateBeforeStop = state
         connection.stopWorkout()
-        stopTimer()
+        elapsedSeconds = currentElapsedSeconds() // freeze at the moment Stop was tapped, not the last refresh
+        stopTracking()
         let end = Date()
         pendingSummary = WorkoutSummary(
             machineKind: connection.machineKind,
@@ -245,7 +285,7 @@ final class WorkoutSession: ObservableObject {
         state = restoredState
         if restoredState == .running {
             connection.startOrResumeWorkout()
-            startTimer()
+            startTracking()
         } else {
             connection.pauseWorkout()
         }
@@ -262,6 +302,9 @@ final class WorkoutSession: ObservableObject {
         workDoneJoules = 0
         heartRateSamples.removeAll()
         startDate = nil
+        pauseDate = nil
+        totalPausedDuration = 0
+        lastMetricsSampleDate = nil
         lastSampledBPM = nil
         stateBeforeStop = nil
         isDrivenByProgram = false
@@ -272,49 +315,109 @@ final class WorkoutSession: ObservableObject {
         speedStats = LiveStat()
         heartRateStats = LiveStat()
         heartRateZoneSeconds = [:]
+        heartRateZoneSecondsAccumulator = [:]
     }
 
-    private func startTimer() {
+    /// Elapsed *active* seconds at `now` – total time since `startDate`,
+    /// minus every paused interval (completed ones already folded into
+    /// `totalPausedDuration`, plus the one currently in progress if
+    /// `pauseDate` is set). Recomputing from `Date()` on every refresh,
+    /// rather than counting ticks, means a gap between refreshes – whether
+    /// from the foreground `Timer` being coalesced or the app having been
+    /// backgrounded entirely – reads correctly the moment the next refresh
+    /// happens instead of silently losing that time.
+    private func currentElapsedSeconds(at now: Date = Date()) -> Int {
+        guard let startDate else { return 0 }
+        let pausedSoFar = totalPausedDuration + (pauseDate.map { now.timeIntervalSince($0) } ?? 0)
+        return max(0, Int((now.timeIntervalSince(startDate) - pausedSoFar).rounded(.down)))
+    }
+
+    /// Starts (or resumes) tracking: a foreground `Timer` for the normal
+    /// once-a-second cadence while the app is on screen, plus a subscription
+    /// to the trainer's live metrics that fires `refreshWorkoutState` on
+    /// every new BLE notification too – see the class doc comment for why
+    /// that second path matters once the app is backgrounded.
+    private func startTracking() {
+        if let pauseDate {
+            totalPausedDuration += Date().timeIntervalSince(pauseDate)
+            self.pauseDate = nil
+        }
+        lastMetricsSampleDate = Date()
+
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            self?.tick()
+            guard let self else { return }
+            self.refreshWorkoutState(metrics: self.connection.metrics)
         }
+
+        // `@Published`'s projected publisher hands the *new* value to the
+        // sink itself – used directly rather than re-reading
+        // `connection.metrics` here, which could still observe the old value
+        // for a moment (a known `@Published`/Combine timing quirk).
+        metricsCancellable = connection.$metrics
+            .dropFirst() // skip the just-subscribed replay of the current value
+            .sink { [weak self] metrics in
+                self?.refreshWorkoutState(metrics: metrics)
+            }
     }
 
-    private func stopTimer() {
+    private func stopTracking() {
         timer?.invalidate()
         timer = nil
+        metricsCancellable?.cancel()
+        metricsCancellable = nil
+        if pauseDate == nil {
+            pauseDate = Date()
+        }
     }
 
-    /// Runs once per second while `state == .running`. Distance, work, and the
-    /// live stats are only integrated here too, so pausing naturally excludes
-    /// all of them from the totals.
-    private func tick() {
-        elapsedSeconds += 1
-        if let speedKmh = connection.metrics.instantaneousSpeedKmh {
-            distanceMeters += speedKmh * 1000 / 3600 // one second at this speed
+    /// Re-derives elapsed time and integrates distance/work/heart-rate-zone
+    /// time over the real time since the last refresh (`lastMetricsSampleDate`)
+    /// rather than assuming exactly one second, since refreshes can now come
+    /// from either the once-a-second foreground `Timer` or an irregular BLE
+    /// metrics notification – see `startTracking()`.
+    private func refreshWorkoutState(metrics: TrainerMetrics) {
+        let now = Date()
+        elapsedSeconds = currentElapsedSeconds(at: now)
+        let sampleDuration = lastMetricsSampleDate.map { now.timeIntervalSince($0) } ?? 0
+        lastMetricsSampleDate = now
+
+        if let speedKmh = metrics.instantaneousSpeedKmh {
+            distanceMeters += speedKmh * 1000 / 3600 * sampleDuration
             speedStats.record(speedKmh)
         }
-        if let power = connection.metrics.instantaneousPowerWatts {
-            workDoneJoules += Double(power) // one second at this power = that many joules
+        if let power = metrics.instantaneousPowerWatts {
+            workDoneJoules += Double(power) * sampleDuration // that many joules over sampleDuration seconds
             powerStats.record(Double(power))
         }
-        if let cadence = connection.metrics.instantaneousCadenceRPM {
+        if let cadence = metrics.instantaneousCadenceRPM {
             cadenceStats.record(cadence)
         }
         if let bpm = heartRateProvider()?.bpm {
             heartRateStats.record(Double(bpm))
             if let maxHR = maxHeartRateBPM, let zone = HeartRateZone.containing(bpm: bpm, maxHeartRateBPM: maxHR) {
-                heartRateZoneSeconds[zone, default: 0] += 1
+                heartRateZoneSecondsAccumulator[zone, default: 0] += sampleDuration
+                heartRateZoneSeconds[zone] = Int(heartRateZoneSecondsAccumulator[zone, default: 0].rounded())
             }
             if bpm != lastSampledBPM {
-                heartRateSamples.append((date: Date(), bpm: bpm))
+                heartRateSamples.append((date: now, bpm: bpm))
                 lastSampledBPM = bpm
             }
         }
         if isDrivenByProgram, let workout = activeWorkout {
             sendCurrentWorkoutTarget(for: workout)
         }
+    }
+
+    /// Forces an immediate refresh using whatever metrics the connection
+    /// currently has, instead of waiting for the next `Timer` tick or BLE
+    /// notification – called when the app returns to the foreground (see
+    /// `ControlView`'s `scenePhase` handling) so the UI shows caught-up
+    /// numbers right away rather than visibly stale ones for up to a second.
+    /// A no-op while not actually running.
+    func refreshNow() {
+        guard state == .running else { return }
+        refreshWorkoutState(metrics: connection.metrics)
     }
 
     /// Looks up and sends the target for `workout` at the current position –
@@ -403,5 +506,6 @@ final class WorkoutSession: ObservableObject {
 
     deinit {
         timer?.invalidate()
+        metricsCancellable?.cancel()
     }
 }

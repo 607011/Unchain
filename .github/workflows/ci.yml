@@ -14,7 +14,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      # The macos-15 runner image comes with an `aws/tap` Homebrew tap
+      # pre-added (unrelated to this project – some other pre-installed
+      # tooling), which newer Homebrew's tap-trust check now warns about on
+      # every `brew install`. We don't use anything from it, so just drop
+      # it rather than trusting it or disabling the check outright; `|| true`
+      # keeps this a no-op on a future runner image that no longer has it.
+      - name: Remove untrusted pre-installed Homebrew tap
+        run: brew untap aws/tap || true
 
       - name: Install XcodeGen
         run: brew install xcodegen

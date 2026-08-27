@@ -781,16 +781,6 @@
         }
       }
     },
-    "Your Functional Threshold Power.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deine Functional Threshold Power."
-          }
-        }
-      }
-    },
     "Briefly vibrates whenever a Program workout (.erg/.mrc) reaches its next scheduled entry.": {
       "localizations": {
         "de": {
@@ -1251,16 +1241,6 @@
         }
       }
     },
-    "Max Heart Rate (bpm)": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maximalpuls (bpm)"
-          }
-        }
-      }
-    },
     "e.g. 185": {
       "localizations": {
         "de": {
@@ -1271,12 +1251,162 @@
         }
       }
     },
-    "Used for the live heart rate zones. Pre-filled with an age-based estimate (Tanaka formula) from your date of birth in Health – enter your own if you know it more precisely, e.g. from a lab or max-effort test.": {
+    "Zone 1 → 2": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wird für die Live-Herzfrequenzzonen genutzt. Vorbelegt mit einer altersbasierten Schätzung (Tanaka-Formel) anhand deines in Health hinterlegten Geburtsdatums – trage deinen eigenen Wert ein, wenn du ihn genauer kennst, z. B. aus einem Labor- oder Ausbelastungstest."
+            "value": "Zone 1 → 2"
+          }
+        }
+      }
+    },
+    "Zone 2 → 3": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zone 2 → 3"
+          }
+        }
+      }
+    },
+    "Zone 3 → 4": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zone 3 → 4"
+          }
+        }
+      }
+    },
+    "Zone 4 → 5": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zone 4 → 5"
+          }
+        }
+      }
+    },
+    "Heart Rate Zones": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herzfrequenzzonen"
+          }
+        }
+      }
+    },
+    "e.g. 125": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. 125"
+          }
+        }
+      }
+    },
+    "e.g. 136": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. 136"
+          }
+        }
+      }
+    },
+    "e.g. 146": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. 146"
+          }
+        }
+      }
+    },
+    "e.g. 157": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. 157"
+          }
+        }
+      }
+    },
+    "Max": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        }
+      }
+    },
+    "Resting": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruhe"
+          }
+        }
+      }
+    },
+    "Heart Rate (bpm)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herzfrequenz (bpm)"
+          }
+        }
+      }
+    },
+    "e.g. 55": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. 55"
+          }
+        }
+      }
+    },
+    "Each value is the first bpm belonging to the next zone – Zone 1 covers everything below the first value, Zone 5 everything at or above the last. Pre-filled from Max/Resting Heart Rate using the Heart Rate Reserve (Karvonen) method: resting + 60/70/80/90 % of the reserve between resting and max. Apple Watch's own zones use a different, personalized calculation (Cardio Fitness/VO2 max), so there's no way to copy them exactly – enter the same numbers Fitness already shows you here instead if these don't quite match.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder Wert ist der erste Puls, der zur nächsten Zone gehört – Zone 1 umfasst alles unterhalb des ersten Werts, Zone 5 alles ab dem letzten (einschließlich). Vorbelegt aus Max-/Ruhepuls nach der Heart-Rate-Reserve-Methode (Karvonen): Ruhepuls + 60/70/80/90 % der Reserve zwischen Ruhe- und Maximalpuls. Apples eigene Zonen werden anders berechnet, personalisiert anhand der Cardio-Fitness (VO2max) – eine exakte Übernahme ist daher nicht möglich. Trage stattdessen einfach die Werte ein, die dir Fitness bereits anzeigt, falls diese abweichen."
+          }
+        }
+      }
+    },
+    "Your Functional Threshold Power – the highest average power you can sustain for about an hour, commonly estimated as 95 % of your best 20-minute effort (a \"20-minute FTP test\"), or read off a ramp test's result. Used throughout the app: to interpret %FTP-based workout targets, both in files that declare an FTP header (e.g. TrainerDay's .mrc exports) and in the Create sheet's own shorthand notation (e.g. \"75%FTP\"), and to draw the FTP reference line on the Program workout chart.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine funktionelle Schwellenleistung (Functional Threshold Power) – die höchste Durchschnittsleistung, die du etwa eine Stunde lang halten kannst, meist geschätzt als 95 % deiner besten 20-Minuten-Leistung (ein „20-Minuten-FTP-Test“), oder abgelesen aus dem Ergebnis eines Rampentests. Wird in der ganzen App genutzt: um %FTP-basierte Workout-Zielwerte zu interpretieren, sowohl in Dateien mit FTP-Kopfzeile (z. B. .mrc-Exporte von TrainerDay) als auch in der Kurzschreibweise des Erstellen-Dialogs (z. B. „75%FTP“), sowie um die FTP-Referenzlinie im Programm-Workout-Diagramm zu zeichnen."
+          }
+        }
+      }
+    },
+    "Used for the live heart rate zones below. Max is pre-filled with an age-based estimate (Tanaka formula) from your date of birth in Health; Resting from your most recent Watch-recorded reading, or 60 bpm if Health has none on record. Enter your own values if you know them more precisely, e.g. Max from a lab or max-effort test.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird für die untenstehenden Live-Herzfrequenzzonen genutzt. Max wird mit einer altersbasierten Schätzung (Tanaka-Formel) anhand deines in Health hinterlegten Geburtsdatums vorbelegt; Ruhe mit deinem zuletzt von der Watch erfassten Wert, oder mit 60 bpm, falls Health keinen Wert kennt. Trage eigene Werte ein, wenn du sie genauer kennst, z. B. Max aus einem Labor- oder Ausbelastungstest."
           }
         }
       }

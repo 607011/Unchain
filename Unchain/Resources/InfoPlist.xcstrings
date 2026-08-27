@@ -21,12 +21,12 @@
         }
       }
     },
-    "Unchain reads your most recent body weight to estimate calories burned during walk/run workouts, and your date of birth to estimate a max heart rate for the in-app heart rate zones.": {
+    "Unchain reads your most recent body weight to estimate calories burned during walk/run workouts, and your date of birth and most recent resting heart rate to estimate the in-app heart rate zones.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unchain liest dein zuletzt erfasstes Körpergewicht, um den Kalorienverbrauch bei Geh-/Lauf-Workouts zu schätzen, sowie dein Geburtsdatum, um eine maximale Herzfrequenz für die Herzfrequenz-Zonen in der App zu schätzen."
+            "value": "Unchain liest dein zuletzt erfasstes Körpergewicht, um den Kalorienverbrauch bei Geh-/Lauf-Workouts zu schätzen, sowie dein Geburtsdatum und deinen zuletzt erfassten Ruhepuls, um die Herzfrequenz-Zonen in der App zu schätzen."
           }
         }
       }

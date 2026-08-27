@@ -2,6 +2,14 @@ import SwiftUI
 
 struct DeviceListView: View {
     @StateObject private var bluetooth = BluetoothManager()
+    /// Settings (FTP, Max/Resting Heart Rate, …) are rider profile data, not
+    /// tied to any particular trainer connection – so unlike most of
+    /// `ControlView`'s own sheets, the gear here needs to work with no
+    /// device connected at all, e.g. setting these up before the first ride
+    /// ever pairs anything. `ControlView` keeps its own copy of this same
+    /// gear button for whenever settings need adjusting mid-session instead
+    /// of backing all the way out to this screen.
+    @State private var isShowingSettings = false
 
     var body: some View {
         NavigationStack {
@@ -27,6 +35,14 @@ struct DeviceListView: View {
                         }
                     }
                 }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isShowingSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("Settings")
+                }
             }
             .navigationDestination(isPresented: Binding(
                 get: { bluetooth.currentConnection != nil },
@@ -38,6 +54,9 @@ struct DeviceListView: View {
                     ControlView(connection: connection, bluetooth: bluetooth)
                 }
             }
+        }
+        .sheet(isPresented: $isShowingSettings) {
+            SettingsView()
         }
         .onAppear { bluetooth.startScan() }
     }

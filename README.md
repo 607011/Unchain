@@ -60,17 +60,17 @@ protocol, so it works in principle with any FTMS-capable trainer.
 - [x] After (re)connecting, the currently displayed power/resistance target is
       sent to the trainer right away, so the device and the display can't
       drift out of sync
-- [x] Live heart rate zones (5-zone model, % of estimated max HR) shown as a
-      small color-coded bar with per-zone durations, both during the workout
-      and again in a summary right after saving. There's no HealthKit type for
-      "time in zone" to write, and — corrected after checking on a real
-      device — the Fitness app's own zone breakdown turns out to be exclusive
-      to Apple Watch-recorded workouts, not derived after the fact from
-      heart rate samples a third-party app writes. So this is entirely a
-      Unchain-side computation, not synced to Health. Max heart rate now
-      comes from an explicit **Max Heart Rate** field in Settings, right
-      below FTP (see "Explicit Max Heart Rate setting" further down) rather
-      than a fixed, unconfigurable Health-derived guess
+- [x] Live heart rate zones (5-zone model) shown as a small color-coded bar
+      with per-zone durations, both during the workout and again in a
+      summary right after saving. There's no HealthKit type for "time in
+      zone" to write, and — corrected after checking on a real device — the
+      Fitness app's own zone breakdown turns out to be exclusive to Apple
+      Watch-recorded workouts, not derived after the fact from heart rate
+      samples a third-party app writes. So this is entirely a Unchain-side
+      computation, not synced to Health. Zone boundaries are editable, in
+      bpm, in Settings (see "Editable Heart Rate Zones" further down) —
+      pre-filled from an explicit Max/Resting Heart Rate, also editable
+      there, rather than a fixed, unconfigurable Health-derived guess
 
 ## Status (Phase 2)
 
@@ -446,20 +446,56 @@ protocol, so it works in principle with any FTMS-capable trainer.
       the picker ("English"/"Deutsch") are deliberately *not* translated –
       shown in their own language regardless of which is currently active,
       the same convention every OS/app language picker uses
-- [x] **Explicit Max Heart Rate setting**, right below FTP in Settings —
-      same "0 shows as an empty field" `TextField` treatment as FTP. Replaces
-      the old fixed, unconfigurable Health-derived guess: the field is
-      pre-filled *once*, the first time it's shown empty, with an age-based
-      estimate from the date of birth in Health (`HealthKitManager
-      .fetchMaxHeartRateBPM`) — now using **Tanaka's formula**
-      (208 − 0.7 × age) instead of the cruder, older 220−age rule of thumb —
-      but the user can freely overwrite it, e.g. with a value from an actual
-      lab or max-effort test. `WorkoutSession` (which classifies live BPM
-      samples into heart rate zones, see `HeartRateZone`) now reads this
-      setting directly via `UserDefaults` at the point of use, the same
+- [x] **Explicit Max/Resting Heart Rate settings**, right below FTP in
+      Settings — same "0 shows as an empty field" `TextField` treatment as
+      FTP. Replaces the old fixed, unconfigurable Health-derived guess: Max
+      is pre-filled *once*, the first time it's shown empty, with an
+      age-based estimate from the date of birth in Health — **Tanaka's
+      formula** (208 − 0.7 × age), a more accurate, more recent revision of
+      the cruder, ubiquitous 220−age rule of thumb; Resting from the most
+      recent resting-heart-rate sample Health has on record (written by the
+      Watch on its own) – or a flat **60 bpm** if Health has none at all,
+      rather than leaving the Karvonen calculation below without a resting
+      heart rate entirely (see the next bullet). Both are freely
+      overwritable, e.g. with a value from an actual lab or max-effort test.
+      `WorkoutSession` (which
+      classifies live BPM samples into heart rate zones, see `HeartRateZone`)
+      reads both directly via `UserDefaults` at the point of use, the same
       pattern already used there for Vibration/Interval Sound, rather than a
-      value pushed into it once per Bluetooth heart rate strap connection —
-      so an in-Settings edit takes effect immediately, even mid-ride
+      value pushed in once per Bluetooth heart rate strap connection — so an
+      in-Settings edit takes effect immediately, even mid-ride
+- [x] **Editable Heart Rate Zones** — the 5-zone model's four boundaries
+      (Zone 1→2, 2→3, 3→4, 4→5) are now plain, editable bpm values in
+      Settings rather than a hardcoded formula. Prompted by real-ride
+      feedback: an Apple Watch-recorded outdoor ride's own zone breakdown in
+      Fitness (which Unchain can't read back — no public API exposes it) had
+      boundaries that didn't line up with what the app would have shown for
+      the same ride, because Apple's own zones are personalized using Cardio
+      Fitness (VO2 max), a calculation that isn't published as an exact
+      formula and so can't be reproduced. Letting the rider type in the same
+      numbers Fitness already shows them is the practical fix. Each boundary
+      still defaults, until explicitly set, to a formula — now **Heart Rate
+      Reserve (the Karvonen method)**: `resting + fraction × (max −
+      resting)` for fraction 60/70/80/90 %, applied to the *reserve* actually
+      available during exercise rather than max heart rate outright (closer
+      to what Apple's own zones reportedly use too), falling back further to
+      the plain %-of-max-heart-rate breakpoint whenever no resting heart
+      rate is on record. `HealthKitManager.fetchHeartRateProfile` now reads
+      both Max and Resting Heart Rate from Health in one combined call
+      (`NSHealthShareUsageDescription` updated to mention resting heart rate
+      too)
+- [x] Settings screen redesign to fit the growing list of sections: every
+      section's explanation moved from a permanent footer into a small ℹ️
+      `InfoButton` next to its header, revealed in a compact popover on tap
+      (`.presentationCompactAdaptation(.popover)` from iOS 16.4 on; a plain
+      sheet-style adaptation below that, since the deployment target is
+      16.0) — keeps the screen a reasonable height with FTP, Heart Rate,
+      Heart Rate Zones, Vibration, Interval Sound, and Language all on one
+      page
+- [x] The Settings gear now also appears on the device list (start) screen,
+      not just inside an active trainer session — rider profile data (FTP,
+      Max/Resting Heart Rate, zone boundaries) is worth setting up before
+      ever pairing anything, not just mid-ride
 
 ## Generating the project
 

@@ -19,17 +19,26 @@ enum HealthKitError: LocalizedError {
 /// workouts to Apple Health (shown in the Fitness app as "Indoor Cycling",
 /// "Indoor Walk", or "Indoor Run"), including an active-energy (calorie)
 /// estimate. What this reads back from Health: the user's most recent body
-/// weight (needed for the walk/run calorie formula) and date of birth (for an
-/// age-based max-heart-rate estimate – see `fetchMaxHeartRateBPM`, used only
-/// to pre-fill `SettingsView`'s Max Heart Rate field the first time it's
-/// shown). Both are read rather than asked for again since Health already
-/// has a dedicated place for them. Apple's own Fitness app then adds its own
-/// resting-calorie estimate on top of our active-energy figure to show a
-/// "Total" for the workout, using whatever profile (age/sex/height/weight)
-/// the user has in their Health Details – nothing this app needs to
-/// duplicate.
+/// weight (needed for the walk/run calorie formula), date of birth (for an
+/// age-based max-heart-rate estimate), and most recent resting heart rate
+/// sample (Apple Watch computes and writes this on its own) – see
+/// `fetchHeartRateProfile`, used only to pre-fill `SettingsView`'s Max/
+/// Resting Heart Rate fields the first time they're shown. All three are
+/// read rather than asked for again since Health already has a dedicated
+/// place for them. Apple's own Fitness app then adds its own resting-calorie
+/// estimate on top of our active-energy figure to show a "Total" for the
+/// workout, using whatever profile (age/sex/height/weight) the user has in
+/// their Health Details – nothing this app needs to duplicate.
 final class HealthKitManager {
     static let shared = HealthKitManager()
+
+    /// Result of `fetchHeartRateProfile` – either half can be `nil`
+    /// independently (e.g. a date of birth but no Watch-recorded resting
+    /// heart rate sample yet).
+    struct HeartRateProfile {
+        let maxBPM: Int?
+        let restingBPM: Int?
+    }
 
     private let store = HKHealthStore()
 
@@ -60,6 +69,9 @@ final class HealthKitManager {
         if let dateOfBirth = HKObjectType.characteristicType(forIdentifier: .dateOfBirth) {
             types.insert(dateOfBirth)
         }
+        if let restingHeartRate = HKObjectType.quantityType(forIdentifier: .restingHeartRate) {
+            types.insert(restingHeartRate)
+        }
         return types
     }
 
@@ -67,23 +79,28 @@ final class HealthKitManager {
     /// uses, so a later save doesn't need to prompt again) and returns an
     /// estimated max heart rate from the user's date of birth, via Tanaka's
     /// formula (208 − 0.7 × age – a more accurate, more recent revision of
-    /// the ubiquitous but cruder 220−age rule of thumb). There's no
+    /// the ubiquitous but cruder 220−age rule of thumb), alongside the most
+    /// recent resting-heart-rate sample Health has on record. Neither is
+    /// meant as more than a starting point for `SettingsView`'s Max/Resting
+    /// Heart Rate fields, which the user can override with values they know
+    /// more precisely (e.g. from a lab or max-effort test) – there's no
     /// HealthKit type for "the user's configured max heart rate" to read
-    /// instead – this is just a starting point for `SettingsView`'s Max
-    /// Heart Rate field, which the user can override with a value they know
-    /// more precisely (e.g. from a lab or max-effort test).
-    func fetchMaxHeartRateBPM(completion: @escaping (Int?) -> Void) {
+    /// instead, and a resting-heart-rate sample only exists at all once a
+    /// Watch (or another source) has actually written one.
+    func fetchHeartRateProfile(completion: @escaping (HeartRateProfile) -> Void) {
         guard isAvailable else {
-            completion(nil)
+            completion(HeartRateProfile(maxBPM: nil, restingBPM: nil))
             return
         }
         store.requestAuthorization(toShare: typesToShare, read: typesToRead) { [weak self] granted, _ in
             guard let self, granted else {
-                DispatchQueue.main.async { completion(nil) }
+                DispatchQueue.main.async { completion(HeartRateProfile(maxBPM: nil, restingBPM: nil)) }
                 return
             }
-            let maxHeartRateBPM = self.readMaxHeartRateBPM()
-            DispatchQueue.main.async { completion(maxHeartRateBPM) }
+            let maxBPM = self.readMaxHeartRateBPM()
+            self.fetchLatestRestingHeartRateBPM { restingBPM in
+                completion(HeartRateProfile(maxBPM: maxBPM, restingBPM: restingBPM))
+            }
         }
     }
 
@@ -94,6 +111,21 @@ final class HealthKitManager {
         let age = Calendar.current.component(.year, from: Date()) - birthYear
         guard age > 0 else { return nil }
         return Int((208 - 0.7 * Double(age)).rounded())
+    }
+
+    /// Same "latest sample of this type" query shape as
+    /// `fetchLatestBodyMassKg` below.
+    private func fetchLatestRestingHeartRateBPM(completion: @escaping (Int?) -> Void) {
+        guard let restingHeartRateType = HKObjectType.quantityType(forIdentifier: .restingHeartRate) else {
+            completion(nil)
+            return
+        }
+        let sortByMostRecent = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+        let query = HKSampleQuery(sampleType: restingHeartRateType, predicate: nil, limit: 1, sortDescriptors: [sortByMostRecent]) { _, samples, _ in
+            let bpm = (samples?.first as? HKQuantitySample)?.quantity.doubleValue(for: .count().unitDivided(by: .minute()))
+            DispatchQueue.main.async { completion(bpm.map { Int($0.rounded()) }) }
+        }
+        store.execute(query)
     }
 
     /// Requests authorization (if needed), estimates active energy burned, and

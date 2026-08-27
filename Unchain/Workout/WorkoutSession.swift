@@ -457,11 +457,13 @@ final class WorkoutSession: ObservableObject {
         if let bpm = heartRateProvider()?.bpm {
             heartRateStats.record(Double(bpm))
             // Read directly rather than cached in a published property: the
-            // user can edit this in Settings mid-ride, and `.containing`
-            // already treats "0/unset" as "no zone" – see
-            // `SettingsView.maxHeartRateBPMKey`.
+            // user can edit these in Settings mid-ride, and `.containing`
+            // already treats "0/unset" as "no zone" (max) or "no resting
+            // heart rate on record" (resting, falls back to plain %-of-max)
+            // – see `SettingsView.maxHeartRateBPMKey`/`restingHeartRateBPMKey`.
             let maxHR = UserDefaults.standard.integer(forKey: SettingsView.maxHeartRateBPMKey)
-            if let zone = HeartRateZone.containing(bpm: bpm, maxHeartRateBPM: maxHR) {
+            let restingHR = UserDefaults.standard.integer(forKey: SettingsView.restingHeartRateBPMKey)
+            if let zone = HeartRateZone.containing(bpm: bpm, maxHeartRateBPM: maxHR, restingHeartRateBPM: restingHR) {
                 heartRateZoneSecondsAccumulator[zone, default: 0] += sampleDuration
                 heartRateZoneSeconds[zone] = Int(heartRateZoneSecondsAccumulator[zone, default: 0].rounded())
             }

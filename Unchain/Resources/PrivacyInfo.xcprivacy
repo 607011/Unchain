@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	Apple's privacy manifest, required since 2024 for any "required reason
+	API" usage – see https://developer.apple.com/documentation/bundleresources/privacy_manifest_files/describing_use_of_required_reason_api.
+	Audited by grepping the whole app for every required-reason API category
+	Apple defines (UserDefaults, file timestamps, system boot time, disk
+	space, active keyboard): only UserDefaults/@AppStorage turned up (FTP,
+	Max/Resting Heart Rate, Heart Rate Zone boundaries, the language
+	override, Vibration/Interval Sound, the last-used mode/target values, …
+	– all app-scoped settings, see SettingsView/WorkoutSession/ControlView/
+	LanguageManager/TrainerConnection/BluetoothManager/RouteStore/
+	WorkoutProgramStore). No App Group, no extension, no widget shares any
+	of it with another app – reason CA92.1 ("access user defaults to read
+	and write information that is only accessible to the app itself") is
+	the exact fit; 1C8F.1 (its sibling reason, for App-Group-shared
+	UserDefaults) does not apply here.
+
+	This app has zero third-party SDKs, so there is nothing here whose own
+	privacy manifest would need aggregating, and no collected-data-types
+	declaration to fold in from elsewhere. `NSPrivacyCollectedDataTypes` is
+	deliberately omitted rather than guessed at – it exists mainly to feed
+	that SDK-aggregation process (and to mirror it for documentation), not
+	as a build-time requirement, and the actual, mandatory data-collection
+	disclosure (Health & Fitness data via HealthKit, Bluetooth device data)
+	belongs in App Store Connect's separate "App Privacy" questionnaire, a
+	web-based step this file doesn't substitute for.
+
+	No tracking, ever: no ads, no analytics, no cross-app/cross-site
+	identifiers, nothing phoned home to a tracking domain.
+	-->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>CA92.1</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

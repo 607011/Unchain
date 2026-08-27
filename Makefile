@@ -20,8 +20,9 @@ DEVICE        ?= Fourteen
 BUILD_DIR     := build
 APP_PATH      := $(BUILD_DIR)/$(CONFIGURATION)-iphoneos/$(TARGET).app
 LAUNCH_JSON   := $(BUILD_DIR)/devicectl-launch.json
+ARCHIVE_PATH  := $(BUILD_DIR)/$(TARGET).xcarchive
 
-.PHONY: generate build install run debug clean
+.PHONY: generate build install run debug archive clean
 
 # Regenerates Unchain.xcodeproj/ from project.yml (XcodeGen) – cheap, so this
 # always runs rather than trying to guess whether project.yml changed.
@@ -54,6 +55,22 @@ debug: install
 	fi; \
 	echo "Attaching lldb to process $$pid on $(DEVICE) ..."; \
 	xcrun lldb -o "device select $(DEVICE)" -o "device process attach -p $$pid"
+
+# A Release-configuration archive for device distribution – what App Store
+# Connect submission ultimately needs. Unlike every other target above,
+# `archive` needs `-scheme` rather than `-target`/`-sdk` (the only interface
+# `xcodebuild archive` supports at all), and it works fine here despite the
+# note up top about scheme-based builds otherwise failing on this Mac – that
+# problem is specific to the plain `build` action, not `archive`. Signs
+# automatically with whatever `DEVELOPMENT_TEAM` is baked into project.yml,
+# same as `build`/`install`/`run`/`debug` – this produces a Development-
+# signed archive (verifies the app actually compiles & links in Release,
+# catching anything the -Onone Debug builds above wouldn't), not an
+# App-Store-ready one: submitting still needs Xcode's own "Distribute App"
+# flow (or a hand-written exportOptions.plist with method: app-store) to
+# re-sign with an Apple Distribution certificate instead.
+archive: generate
+	xcodebuild archive -scheme $(TARGET) -configuration Release -archivePath $(ARCHIVE_PATH) -allowProvisioningUpdates
 
 clean:
 	rm -rf $(BUILD_DIR) Unchain.xcodeproj

@@ -497,6 +497,62 @@ protocol, so it works in principle with any FTMS-capable trainer.
       Max/Resting Heart Rate, zone boundaries) is worth setting up before
       ever pairing anything, not just mid-ride
 
+## App Store readiness
+
+Unchain has so far been built purely for personal use – sideloaded to one
+iPhone via the Makefile's `run`/`debug` targets, no App Store Connect record,
+no distribution provisioning. This tracks what's actually left before that
+would change, roughly in the order it'd need doing:
+
+- [x] **Privacy manifest** (`Unchain/Resources/PrivacyInfo.xcprivacy`,
+      required since 2024 for any "required reason API" usage). Audited by
+      grepping the whole app against every required-reason API category
+      Apple defines (UserDefaults, file timestamps, system boot time, disk
+      space, active keyboard) — only `UserDefaults`/`@AppStorage` turned up
+      (every setting: FTP, Max/Resting Heart Rate, Heart Rate Zone
+      boundaries, the language override, Vibration/Interval Sound, the
+      last-used mode/target values, …). Declares reason **CA92.1**
+      ("access user defaults to read and write information that is only
+      accessible to the app itself") — confirmed against three independent
+      sources after an initial, wrong first answer, since this app has no
+      App Group (which would need the different, easily-confused sibling
+      reason `1C8F.1` instead). `NSPrivacyTracking: false`, no tracking
+      domains – no ads, no analytics, nothing phoned home. Verified by
+      inspecting the built `.app`: the file lands at the bundle's top level
+      (`Unchain.app/PrivacyInfo.xcprivacy`), which is where Apple requires
+      it, not nested under `Resources/`. `NSPrivacyCollectedDataTypes` is
+      deliberately *not* declared here – that key exists mainly to
+      aggregate third-party SDKs' own manifests (this app has none) and
+      doesn't substitute for the actual, separate, mandatory "App Privacy"
+      questionnaire in App Store Connect (Health & Fitness data via
+      HealthKit, Bluetooth device data) – still to do
+- [ ] **Privacy Policy URL** – required for any app requesting HealthKit
+      access (App Store Review Guideline 5.1.3); needed for the App Store
+      Connect listing itself
+- [x] **Verified Release/Archive build** – a new `make archive` target
+      (`xcodebuild archive -scheme Unchain -configuration Release …`, the
+      one Makefile target that needs `-scheme` rather than `-target`/`-sdk`,
+      since that's all `archive` supports) confirms the app actually
+      compiles, links, and code-signs with full `-Os` optimization, not just
+      the `-Onone` Debug builds every other target (and CI) has exercised so
+      far. Checked past "it compiles": the produced `.xcarchive` has a
+      proper `dSYMs/Unchain.app.dSYM` (needed for crash symbolication) and
+      `PrivacyInfo.xcprivacy` still lands at the archived app's bundle root.
+      One deliberate gap left open: this signs with the automatic
+      Development identity/profile already configured for `build`/`run`, so
+      it verifies the *build* half only – actually submitting still needs
+      Xcode's own "Distribute App" flow (or a hand-written
+      `exportOptions.plist` with `method: app-store`) to re-sign with an
+      Apple Distribution certificate instead
+- [ ] **App Store Connect record** – app listing, screenshots, description,
+      keywords, support URL, a deliberately-chosen version/build number
+      scheme (currently whatever XcodeGen defaults to)
+- [ ] *(recommended, not required)* **TestFlight beta** before a public
+      release – so far only ever run against one trainer and one iPhone;
+      broader FTMS device compatibility is unverified
+- [ ] *(recommended, not required)* **Crash reporting** – zero visibility
+      into post-launch crashes otherwise
+
 ## Generating the project
 
 The Xcode project itself isn't kept in the repo; it's generated from

@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unchain – Privacy Policy</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1c1c1e;
+    --fg-muted: #6b6b70;
+    --accent: #d24726;
+    --rule: #e4e4e7;
+    --card-bg: #f7f7f8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121214;
+      --fg: #f2f2f4;
+      --fg-muted: #a3a3a8;
+      --accent: #ff7a50;
+      --rule: #2c2c30;
+      --card-bg: #1c1c1f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  main {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem 5rem;
+  }
+  h1 {
+    font-size: 1.9rem;
+    margin: 0 0 0.25rem;
+  }
+  h2 {
+    font-size: 1.3rem;
+    margin: 2.5rem 0 0.75rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+  }
+  h3 {
+    font-size: 1.05rem;
+    margin: 1.5rem 0 0.5rem;
+  }
+  p, li { color: var(--fg); }
+  .meta {
+    color: var(--fg-muted);
+    font-size: 0.95rem;
+    margin: 0 0 2rem;
+  }
+  .card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    margin: 1.25rem 0;
+  }
+  a { color: var(--accent); }
+  code {
+    background: var(--card-bg);
+    padding: 0.1em 0.4em;
+    border-radius: 5px;
+    font-size: 0.9em;
+  }
+  .lang-switch {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 2.5rem;
+    font-size: 0.95rem;
+  }
+  .lang-switch a { text-decoration: none; }
+  hr.section {
+    border: none;
+    border-top: 2px solid var(--rule);
+    margin: 4rem 0 2.5rem;
+  }
+  footer {
+    color: var(--fg-muted);
+    font-size: 0.85rem;
+    margin-top: 3rem;
+  }
+</style>
+</head>
+<body>
+<main>
+
+  <div class="lang-switch">
+    <a href="#en">English</a>
+    <span aria-hidden="true">·</span>
+    <a href="#de">Deutsch</a>
+  </div>
+
+  <section id="en">
+    <h1>Unchain – Privacy Policy</h1>
+    <p class="meta">Last updated: August 27, 2026</p>
+
+    <div class="card">
+      <strong>The short version:</strong> Unchain has no backend server and no
+      user accounts. Nothing you enter or record is ever sent to the
+      developer or to any third party. Health and Bluetooth data stay on
+      your device, governed by Apple's own permission system.
+    </div>
+
+    <h2>Who's behind this</h2>
+    <p>
+      Unchain is built and maintained by an individual developer, Oliver Lau
+      — not a company. There is no server component: the app talks directly
+      to your smart trainer/heart rate strap over Bluetooth and to Apple's
+      HealthKit on your device, and nowhere else.
+    </p>
+
+    <h2>Health data (HealthKit)</h2>
+    <p>Unchain reads, with your explicit permission:</p>
+    <ul>
+      <li><strong>Date of birth</strong> – to estimate a starting max heart
+        rate (Tanaka formula), used for live heart rate zones</li>
+      <li><strong>Resting heart rate</strong> – along with max heart rate,
+        for a more accurate Heart Rate Reserve (Karvonen) zone calculation</li>
+      <li><strong>Body weight</strong> – to estimate calories burned during
+        walk/run workouts</li>
+    </ul>
+    <p>and writes, once you choose to save a completed workout:</p>
+    <ul>
+      <li>Workout type, duration, distance, and active energy (calories)</li>
+      <li>Heart rate samples recorded during the workout</li>
+    </ul>
+    <p>
+      All of this happens directly on your device through Apple's HealthKit
+      framework. iOS shows its own permission screen the first time Unchain
+      asks; nothing is read or written without it. This data is never
+      transmitted to the developer or to any third party – it stays in your
+      Health app, subject to Apple's own Health data protections and
+      whatever iCloud/backup settings you've chosen. You can review or
+      revoke Unchain's Health access at any time under
+      <strong>Settings → Privacy &amp; Security → Health → Unchain</strong>
+      on your iPhone.
+    </p>
+
+    <h2>Bluetooth</h2>
+    <p>
+      Unchain connects over Bluetooth Low Energy only to devices you
+      explicitly choose from the in-app device list – your smart trainer and,
+      optionally, a heart rate strap – using the open Bluetooth SIG
+      standards for this (FTMS, Heart Rate Service). This connection is
+      local, directly between your iPhone and your own hardware. No data
+      from it is transmitted anywhere else.
+    </p>
+
+    <h2>Settings stored on your device</h2>
+    <p>
+      Things like your FTP, max/resting heart rate, heart rate zone
+      boundaries, language preference, and similar settings are stored
+      locally in the app's own sandboxed storage on your device. This never
+      leaves your device except as part of your own iPhone's iCloud/device
+      backups, if you have those enabled – governed by Apple's own iCloud
+      privacy terms, not by the developer.
+    </p>
+
+    <h2>No accounts, no analytics, no advertising</h2>
+    <p>
+      Unchain has no user accounts, no sign-in, no analytics or
+      crash-reporting SDKs, and no advertising. It doesn't use tracking
+      technology of any kind. No data is sold, rented, or shared with
+      third parties, because the developer doesn't collect any in the first
+      place.
+    </p>
+
+    <h2>See for yourself</h2>
+    <p>
+      Unchain is open source under the MIT license. You're welcome to read
+      exactly what the app does at
+      <a href="https://github.com/607011/Unchain">github.com/607011/Unchain</a>.
+    </p>
+
+    <h2>Children's privacy</h2>
+    <p>
+      Unchain isn't directed at children and doesn't knowingly collect data
+      from anyone, of any age – see above.
+    </p>
+
+    <h2>Changes to this policy</h2>
+    <p>
+      This policy may be updated occasionally; the "Last updated" date above
+      reflects the latest revision. Continued use of the app after a change
+      means you accept the updated policy.
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+      Questions about this policy or your data? Email
+      <a href="mailto:oliver@ersatzworld.net">oliver@ersatzworld.net</a>.
+    </p>
+  </section>
+
+  <hr class="section">
+
+  <section id="de" lang="de">
+    <h1>Unchain – Datenschutzerklärung</h1>
+    <p class="meta">Zuletzt aktualisiert: 27. August 2026</p>
+
+    <div class="card">
+      <strong>Kurz gesagt:</strong> Unchain hat keinen Server und keine
+      Nutzerkonten. Nichts, was du einträgst oder aufzeichnest, wird jemals
+      an den Entwickler oder Dritte übertragen. Gesundheits- und
+      Bluetooth-Daten bleiben auf deinem Gerät, geregelt durch Apples
+      eigenes Berechtigungssystem.
+    </div>
+
+    <h2>Wer dahintersteckt</h2>
+    <p>
+      Unchain wird von einem einzelnen Entwickler, Oliver Lau, entwickelt
+      und gepflegt – nicht von einem Unternehmen. Es gibt keine
+      Server-Komponente: Die App spricht direkt über Bluetooth mit deinem
+      Smart-Trainer/Herzfrequenz-Brustgurt sowie mit Apples HealthKit auf
+      deinem Gerät, sonst mit niemandem.
+    </p>
+
+    <h2>Gesundheitsdaten (HealthKit)</h2>
+    <p>Unchain liest, mit deiner ausdrücklichen Erlaubnis:</p>
+    <ul>
+      <li><strong>Geburtsdatum</strong> – zur Schätzung eines
+        Ausgangs-Maximalpulses (Tanaka-Formel) für die Live-Herzfrequenzzonen</li>
+      <li><strong>Ruhepuls</strong> – zusammen mit dem Maximalpuls für eine
+        genauere Zonenberechnung nach der Heart-Rate-Reserve-Methode
+        (Karvonen)</li>
+      <li><strong>Körpergewicht</strong> – zur Schätzung des
+        Kalorienverbrauchs bei Geh-/Lauf-Workouts</li>
+    </ul>
+    <p>und schreibt, sobald du ein abgeschlossenes Workout speicherst:</p>
+    <ul>
+      <li>Workout-Typ, Dauer, Strecke und aktive Energie (Kalorien)</li>
+      <li>Während des Workouts aufgezeichnete Herzfrequenz-Werte</li>
+    </ul>
+    <p>
+      All das geschieht direkt auf deinem Gerät über Apples
+      HealthKit-Framework. iOS zeigt beim ersten Zugriffsversuch von Unchain
+      seinen eigenen Berechtigungsdialog – ohne diesen wird nichts gelesen
+      oder geschrieben. Diese Daten werden niemals an den Entwickler oder
+      Dritte übertragen – sie bleiben in deiner Health-App, unterliegen
+      Apples eigenem Schutz von Gesundheitsdaten und deinen eigenen
+      iCloud-/Backup-Einstellungen. Du kannst Unchains Health-Zugriff
+      jederzeit unter <strong>Einstellungen → Datenschutz &amp; Sicherheit →
+      Health → Unchain</strong> auf deinem iPhone einsehen oder widerrufen.
+    </p>
+
+    <h2>Bluetooth</h2>
+    <p>
+      Unchain verbindet sich per Bluetooth Low Energy ausschließlich mit
+      Geräten, die du explizit aus der Geräteliste in der App auswählst –
+      deinem Smart-Trainer und optional einem Herzfrequenz-Brustgurt –, über
+      die offenen Bluetooth-SIG-Standards dafür (FTMS, Heart Rate Service).
+      Diese Verbindung ist lokal, direkt zwischen deinem iPhone und deiner
+      eigenen Hardware. Es werden dabei keine Daten an anderer Stelle
+      übertragen.
+    </p>
+
+    <h2>Auf deinem Gerät gespeicherte Einstellungen</h2>
+    <p>
+      Dinge wie deine FTP, Maximal-/Ruhepuls, Herzfrequenzzonen-Grenzen,
+      Sprachauswahl und ähnliche Einstellungen werden lokal im
+      eigenen, abgeschotteten Speicher der App auf deinem Gerät abgelegt.
+      Das verlässt dein Gerät nie, außer als Teil deiner eigenen
+      iCloud-/Geräte-Backups, falls du diese aktiviert hast – geregelt durch
+      Apples eigene iCloud-Datenschutzbestimmungen, nicht durch den
+      Entwickler.
+    </p>
+
+    <h2>Keine Konten, keine Analyse, keine Werbung</h2>
+    <p>
+      Unchain hat keine Nutzerkonten, keine Anmeldung, keine Analyse- oder
+      Absturzbericht-SDKs und keine Werbung. Es nutzt keinerlei
+      Tracking-Technologie. Es werden keine Daten verkauft, vermietet oder
+      an Dritte weitergegeben, da der Entwickler von vornherein keine
+      erhebt.
+    </p>
+
+    <h2>Selbst nachprüfen</h2>
+    <p>
+      Unchain ist Open Source unter der MIT-Lizenz. Du kannst gerne selbst
+      nachlesen, was die App genau tut:
+      <a href="https://github.com/607011/Unchain">github.com/607011/Unchain</a>.
+    </p>
+
+    <h2>Datenschutz für Kinder</h2>
+    <p>
+      Unchain richtet sich nicht an Kinder und erhebt wissentlich keine
+      Daten von niemandem, unabhängig vom Alter – siehe oben.
+    </p>
+
+    <h2>Änderungen dieser Erklärung</h2>
+    <p>
+      Diese Erklärung kann gelegentlich aktualisiert werden; das Datum
+      "Zuletzt aktualisiert" oben spiegelt die neueste Fassung wider. Die
+      weitere Nutzung der App nach einer Änderung gilt als Zustimmung zur
+      aktualisierten Erklärung.
+    </p>
+
+    <h2>Kontakt</h2>
+    <p>
+      Fragen zu dieser Erklärung oder deinen Daten? E-Mail an
+      <a href="mailto:oliver@ersatzworld.net">oliver@ersatzworld.net</a>.
+    </p>
+  </section>
+
+  <footer>
+    Unchain · <a href="https://github.com/607011/Unchain">github.com/607011/Unchain</a>
+  </footer>
+
+</main>
+</body>
+</html>

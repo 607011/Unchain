@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unchain</title>
+<meta name="description" content="Lean iOS app for controlling smart bike trainers via the open FTMS Bluetooth standard – no vendor lock-in, no subscription, no cloud.">
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1c1c1e;
+    --fg-muted: #6b6b70;
+    --accent: #1a8f52;
+    --accent-bg: #e7f7ee;
+    --rule: #e4e4e7;
+    --card-bg: #f7f7f8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121214;
+      --fg: #f2f2f4;
+      --fg-muted: #a3a3a8;
+      --accent: #4ade80;
+      --accent-bg: #163524;
+      --rule: #2c2c30;
+      --card-bg: #1c1c1f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem 5rem;
+  }
+  .home-link {
+    font-size: 0.9rem;
+  }
+  .home-link a { color: var(--fg-muted); text-decoration: none; }
+  .home-link a:hover { color: var(--accent); }
+  header.hero {
+    text-align: center;
+    margin: 2.5rem 0 3rem;
+  }
+  .hero img {
+    width: 108px;
+    height: 108px;
+    border-radius: 24px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  }
+  h1 {
+    font-size: 2.1rem;
+    margin: 1.25rem 0 0.5rem;
+  }
+  .tagline {
+    color: var(--fg-muted);
+    font-size: 1.1rem;
+    max-width: 34rem;
+    margin: 0 auto;
+  }
+  .links {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.75rem;
+  }
+  .links a {
+    display: inline-block;
+    padding: 0.55rem 1.1rem;
+    border-radius: 999px;
+    text-decoration: none;
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+  .links a.primary {
+    background: var(--accent);
+    color: #ffffff;
+  }
+  .links a.secondary {
+    background: var(--card-bg);
+    color: var(--fg);
+    border: 1px solid var(--rule);
+  }
+  h2 {
+    font-size: 1.3rem;
+    margin: 2.75rem 0 1rem;
+    padding-top: 1.75rem;
+    border-top: 1px solid var(--rule);
+  }
+  .badge {
+    display: inline-block;
+    background: var(--accent-bg);
+    color: var(--accent);
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.3rem 0.75rem;
+    border-radius: 999px;
+    margin-bottom: 1rem;
+  }
+  .features {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 0.9rem;
+  }
+  .features li {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 0.9rem 1.1rem;
+  }
+  .features strong { display: block; margin-bottom: 0.15rem; }
+  .features span { color: var(--fg-muted); font-size: 0.95rem; }
+  .req dt { font-weight: 600; margin-top: 0.75rem; }
+  .req dd { margin: 0.15rem 0 0; color: var(--fg-muted); }
+  a.inline { color: var(--accent); }
+  code {
+    background: var(--card-bg);
+    padding: 0.1em 0.4em;
+    border-radius: 5px;
+    font-size: 0.9em;
+  }
+  footer {
+    color: var(--fg-muted);
+    font-size: 0.85rem;
+    margin-top: 3.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  footer a { color: var(--fg-muted); }
+</style>
+</head>
+<body>
+<main>
+
+  <header class="hero">
+    <img src="assets/icon.png" alt="Unchain app icon – a broken chain forming an arrow">
+    <h1>Unchain</h1>
+    <p class="tagline">
+      A lean iOS/iPadOS app for controlling smart bike trainers over the
+      open <strong>FTMS</strong> Bluetooth standard (Fitness Machine
+      Service) — not a vendor-proprietary protocol, so it works, in
+      principle, with any FTMS-capable trainer (Wahoo KICKR and friends
+      included).
+    </p>
+    <div class="links">
+      <a class="primary" href="https://github.com/607011/Unchain">Source on GitHub</a>
+      <a class="secondary" href="privacy.html">Privacy Policy</a>
+      <a class="secondary" href="https://github.com/607011/Unchain/blob/main/LICENSE">MIT License</a>
+    </div>
+  </header>
+
+  <section>
+    <span class="badge">Open source · in active development</span>
+    <p>
+      Unchain isn't on the App Store yet (see the project's own
+      <a class="inline" href="https://github.com/607011/Unchain#app-store-readiness">App
+      Store readiness checklist</a>) — for now, building and running it
+      needs Xcode (or just the command line, via the repo's own
+      <code>Makefile</code>). The full, up-to-date feature list and build
+      instructions live in the
+      <a class="inline" href="https://github.com/607011/Unchain#readme">README</a>.
+    </p>
+  </section>
+
+  <section>
+    <h2>What it does</h2>
+    <ul class="features">
+      <li>
+        <strong>Manual control</strong>
+        <span>Power, resistance, or grade-simulation targets, with automatic clamping to what your trainer actually supports.</span>
+      </li>
+      <li>
+        <strong>Structured workouts</strong>
+        <span>Loads <code>.erg</code>/<code>.mrc</code> files (TrainerRoad, TrainerDay, Golden Cheetah, and others) and follows them automatically, second by second — or build one on the fly with a compact shorthand notation.</span>
+      </li>
+      <li>
+        <strong>Real routes</strong>
+        <span>Loads a <code>.gpx</code> track and turns its elevation profile into a live grade-simulation ride.</span>
+      </li>
+      <li>
+        <strong>Heart rate zones done right</strong>
+        <span>Editable, bpm-based zone boundaries, defaulting to the Heart Rate Reserve (Karvonen) method — not just a crude percentage of max heart rate.</span>
+      </li>
+      <li>
+        <strong>Apple Health integration</strong>
+        <span>Saves completed workouts — including calories and heart rate — straight to the Health app. No account, no cloud sync of your own.</span>
+      </li>
+      <li>
+        <strong>iPad-ready, two languages</strong>
+        <span>Runs in Split View on iPad; fully localized in English and German, with more planned.</span>
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Requirements</h2>
+    <dl class="req">
+      <dt>iPhone or iPad</dt>
+      <dd>iOS/iPadOS 16.0 or later</dd>
+      <dt>A smart trainer</dt>
+      <dd>Anything speaking the FTMS Bluetooth standard — most trainers made in the last several years, regardless of brand</dd>
+      <dt>A heart rate strap</dt>
+      <dd>Optional — any device speaking the standard Bluetooth Heart Rate Service</dd>
+    </dl>
+  </section>
+
+  <footer>
+    <span>© 2026 Oliver Lau · MIT licensed</span>
+    <span class="home-link"><a href="https://github.com/607011/Unchain">github.com/607011/Unchain</a></span>
+  </footer>
+
+</main>
+</body>
+</html>

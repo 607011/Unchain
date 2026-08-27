@@ -9,7 +9,7 @@
     --bg: #ffffff;
     --fg: #1c1c1e;
     --fg-muted: #6b6b70;
-    --accent: #d24726;
+    --accent: #1a8f52;
     --rule: #e4e4e7;
     --card-bg: #f7f7f8;
   }
@@ -18,7 +18,7 @@
       --bg: #121214;
       --fg: #f2f2f4;
       --fg-muted: #a3a3a8;
-      --accent: #ff7a50;
+      --accent: #4ade80;
       --rule: #2c2c30;
       --card-bg: #1c1c1f;
     }
@@ -76,6 +76,14 @@
     font-size: 0.95rem;
   }
   .lang-switch a { text-decoration: none; }
+  .home-link {
+    display: block;
+    color: var(--fg-muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+    margin-bottom: 0.75rem;
+  }
+  .home-link:hover { color: var(--accent); }
   hr.section {
     border: none;
     border-top: 2px solid var(--rule);
@@ -91,6 +99,7 @@
 <body>
 <main>
 
+  <a class="home-link" href="index.html">← Unchain</a>
   <div class="lang-switch">
     <a href="#en">English</a>
     <span aria-hidden="true">·</span>

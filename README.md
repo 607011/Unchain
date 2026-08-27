@@ -526,9 +526,16 @@ would change, roughly in the order it'd need doing:
       doesn't substitute for the actual, separate, mandatory "App Privacy"
       questionnaire in App Store Connect (Health & Fitness data via
       HealthKit, Bluetooth device data) – still to do
-- [ ] **Privacy Policy URL** – required for any app requesting HealthKit
-      access (App Store Review Guideline 5.1.3); needed for the App Store
-      Connect listing itself
+- [x] **Privacy Policy URL** – required for any app requesting HealthKit
+      access (App Store Review Guideline 5.1.3), and needed for the App
+      Store Connect listing itself. Bilingual (English/German) static page
+      at `docs/privacy.html`, served via GitHub Pages from this repo's
+      `main` branch: **https://607011.github.io/Unchain/privacy.html** –
+      states plainly, and truthfully given there's no backend at all, that
+      nothing is transmitted to the developer or any third party; Health
+      and Bluetooth data both stay on-device, governed by Apple's own
+      permission system. Links back to this repo (MIT-licensed, open
+      source) as a verifiable claim rather than just an assertion
 - [x] **Verified Release/Archive build** – a new `make archive` target
       (`xcodebuild archive -scheme Unchain -configuration Release …`, the
       one Makefile target that needs `-scheme` rather than `-target`/`-sdk`,
@@ -545,8 +552,12 @@ would change, roughly in the order it'd need doing:
       `exportOptions.plist` with `method: app-store`) to re-sign with an
       Apple Distribution certificate instead
 - [ ] **App Store Connect record** – app listing, screenshots, description,
-      keywords, support URL, a deliberately-chosen version/build number
-      scheme (currently whatever XcodeGen defaults to)
+      keywords, a deliberately-chosen version/build number scheme (currently
+      whatever XcodeGen defaults to). A **Marketing URL** (and, in a pinch,
+      **Support URL**) already has somewhere to point, though: a small
+      project landing page at `docs/index.html`, served alongside the
+      privacy policy from the same GitHub Pages site –
+      **https://607011.github.io/Unchain/**
 - [ ] *(recommended, not required)* **TestFlight beta** before a public
       release – so far only ever run against one trainer and one iPhone;
       broader FTMS device compatibility is unverified

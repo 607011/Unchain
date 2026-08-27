@@ -29,7 +29,14 @@ protocol, so it works in principle with any FTMS-capable trainer.
       connection, so it works with virtually any BLE strap (Polar, Garmin,
       Wahoo TICKR, …), not just vendor-specific devices. Reconnects
       automatically if it drops out of range — no button to press, unlike the
-      trainer
+      trainer. Also reconnects on its own to whichever strap was used last
+      the moment it's seen again during a scan (a fresh app launch, or the
+      device list's pull-to-refresh) — saves the one tap that would
+      otherwise be needed every single ride. Remembered by the strap's
+      `CBPeripheral.identifier`, which stays stable for a given device on
+      this phone; deliberately not extended to the trainer, since connecting
+      there also navigates away and requests exclusive control, a bigger
+      action than just starting to receive BPM values
 - [x] Start/Pause/Stop workout controls, sent to the trainer's FTMS control
       point. Automatically detects whether the connected FTMS device is a
       bike or a treadmill (Indoor Bike Data vs. Treadmill Data characteristic).

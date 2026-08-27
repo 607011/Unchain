@@ -24,6 +24,18 @@ struct DiscoveredDevice: Identifiable, Equatable {
 /// Currently holds exactly one active trainer connection plus, optionally,
 /// a heart rate strap connection running in parallel (MVP scope).
 final class BluetoothManager: NSObject, ObservableObject {
+    /// `UserDefaults` key for the last heart rate strap the user connected
+    /// to (`CBPeripheral.identifier`, stable across scans and app launches
+    /// for a given device on this phone – see Apple's docs on
+    /// `CBPeripheral.identifier`). Lets a strap that's been paired with
+    /// before reconnect on its own as soon as it's seen again (see
+    /// `centralManager(_:didDiscover:)`), saving the one tap that would
+    /// otherwise be needed every single time. Deliberately not extended to
+    /// the trainer too: connecting there also navigates away to
+    /// `ControlView` and requests exclusive control, a bigger, more
+    /// consequential action than just starting to receive BPM values.
+    private static let lastHeartRateStrapUUIDKey = "lastHeartRateStrapUUID"
+
     @Published private(set) var discoveredDevices: [DiscoveredDevice] = []
     @Published private(set) var isBluetoothReady = false
     @Published private(set) var isScanning = false
@@ -86,6 +98,7 @@ final class BluetoothManager: NSObject, ObservableObject {
     // MARK: - Heart rate strap
 
     func connectHeartRate(to device: DiscoveredDevice) {
+        UserDefaults.standard.set(device.id.uuidString, forKey: Self.lastHeartRateStrapUUIDKey)
         let connection = HeartRateConnection(peripheral: device.peripheral, central: central)
         currentHeartRateConnection = connection
         central.connect(device.peripheral, options: nil)
@@ -119,6 +132,17 @@ extension BluetoothManager: CBCentralManagerDelegate {
             discoveredDevices[index] = device
         } else {
             discoveredDevices.append(device)
+        }
+
+        // Reconnect a previously-used strap the moment it's seen again,
+        // rather than making the user tap it every time – see
+        // `lastHeartRateStrapUUIDKey`. `currentHeartRateConnection == nil`
+        // guards against re-triggering while already connected/connecting
+        // to it (or to some other strap the user picked instead).
+        if kind == .heartRateMonitor,
+           currentHeartRateConnection == nil,
+           device.id.uuidString == UserDefaults.standard.string(forKey: Self.lastHeartRateStrapUUIDKey) {
+            connectHeartRate(to: device)
         }
     }
 

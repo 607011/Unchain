@@ -1250,6 +1250,36 @@
           }
         }
       }
+    },
+    "Max Heart Rate (bpm)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximalpuls (bpm)"
+          }
+        }
+      }
+    },
+    "e.g. 185": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. 185"
+          }
+        }
+      }
+    },
+    "Used for the live heart rate zones. Pre-filled with an age-based estimate (Tanaka formula) from your date of birth in Health – enter your own if you know it more precisely, e.g. from a lab or max-effort test.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird für die Live-Herzfrequenzzonen genutzt. Vorbelegt mit einer altersbasierten Schätzung (Tanaka-Formel) anhand deines in Health hinterlegten Geburtsdatums – trage deinen eigenen Wert ein, wenn du ihn genauer kennst, z. B. aus einem Labor- oder Ausbelastungstest."
+          }
+        }
+      }
     }
   },
   "version": "1.1"

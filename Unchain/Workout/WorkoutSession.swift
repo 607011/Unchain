@@ -127,11 +127,6 @@ final class WorkoutSession: ObservableObject {
     @Published private(set) var speedStats = LiveStat()
     @Published private(set) var heartRateStats = LiveStat()
     @Published private(set) var heartRateZoneSeconds: [HeartRateZone: Int] = [:]
-    /// Estimated max heart rate used to classify samples into zones – see
-    /// `HealthKitManager.fetchMaxHeartRateBPM`. `nil` until fetched, or if
-    /// unavailable (e.g. no date of birth set in Health), in which case
-    /// zones just stay empty.
-    @Published private(set) var maxHeartRateBPM: Int?
     /// Distance integrated from live speed – published (not just captured in
     /// the final `WorkoutSummary`) so a route's live progress can be shown
     /// against `GradeProfile.totalDistanceMeters` while riding.
@@ -291,10 +286,6 @@ final class WorkoutSession: ObservableObject {
     static func adjustedValue(_ rawValue: Int, byPercent percent: Int) -> Int {
         let scaled = Double(rawValue) * (1 + Double(percent) / 100)
         return Swift.max(0, Int(scaled.rounded()))
-    }
-
-    func setMaxHeartRateBPM(_ bpm: Int?) {
-        maxHeartRateBPM = bpm
     }
 
     func pause() {
@@ -465,7 +456,12 @@ final class WorkoutSession: ObservableObject {
         }
         if let bpm = heartRateProvider()?.bpm {
             heartRateStats.record(Double(bpm))
-            if let maxHR = maxHeartRateBPM, let zone = HeartRateZone.containing(bpm: bpm, maxHeartRateBPM: maxHR) {
+            // Read directly rather than cached in a published property: the
+            // user can edit this in Settings mid-ride, and `.containing`
+            // already treats "0/unset" as "no zone" – see
+            // `SettingsView.maxHeartRateBPMKey`.
+            let maxHR = UserDefaults.standard.integer(forKey: SettingsView.maxHeartRateBPMKey)
+            if let zone = HeartRateZone.containing(bpm: bpm, maxHeartRateBPM: maxHR) {
                 heartRateZoneSecondsAccumulator[zone, default: 0] += sampleDuration
                 heartRateZoneSeconds[zone] = Int(heartRateZoneSecondsAccumulator[zone, default: 0].rounded())
             }

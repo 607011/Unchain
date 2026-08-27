@@ -202,15 +202,11 @@ struct ControlView: View {
             targetPower = connection.powerRange.clamp(targetPower)
             targetResistance = resistancePercentRange.clamp(targetResistance)
             targetGrade = gradePercentRange.clamp(targetGrade)
-            fetchMaxHeartRateIfNeeded()
             loadPersistedOrDefaultProgram()
             ensureModeIsAvailable()
         }
         .onChange(of: connection.supportedFeatures) { _ in
             ensureModeIsAvailable()
-        }
-        .onChange(of: isHeartRateConnected) { _ in
-            fetchMaxHeartRateIfNeeded()
         }
         .confirmationDialog(
             "Save workout to Apple Health?",
@@ -260,18 +256,6 @@ struct ControlView: View {
             if case .failure(let error) = result {
                 loadError = LoadErrorAlert(message: String(localized: "Couldn't export the file: \(error.localizedDescription)"))
             }
-        }
-    }
-
-    private var isHeartRateConnected: Bool { bluetooth.currentHeartRateConnection != nil }
-
-    /// Fetches (once) an estimated max heart rate from Health so `session` can
-    /// classify live BPM readings into zones from the start of the workout.
-    /// A no-op if there's no HR strap connected yet, or if it's already set.
-    private func fetchMaxHeartRateIfNeeded() {
-        guard isHeartRateConnected, session.maxHeartRateBPM == nil else { return }
-        HealthKitManager.shared.fetchMaxHeartRateBPM { bpm in
-            session.setMaxHeartRateBPM(bpm)
         }
     }
 

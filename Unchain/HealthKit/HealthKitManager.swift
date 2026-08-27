@@ -20,13 +20,14 @@ enum HealthKitError: LocalizedError {
 /// "Indoor Walk", or "Indoor Run"), including an active-energy (calorie)
 /// estimate. What this reads back from Health: the user's most recent body
 /// weight (needed for the walk/run calorie formula) and date of birth (for an
-/// estimated max heart rate, used for the in-app heart rate zones – Health
-/// itself has no "time in zone" concept to write to). Both are read rather
-/// than asked for again since Health already has a dedicated place for them.
-/// Apple's own Fitness app then adds its own resting-calorie estimate on top
-/// of our active-energy figure to show a "Total" for the workout, using
-/// whatever profile (age/sex/height/weight) the user has in their Health
-/// Details – nothing this app needs to duplicate.
+/// age-based max-heart-rate estimate – see `fetchMaxHeartRateBPM`, used only
+/// to pre-fill `SettingsView`'s Max Heart Rate field the first time it's
+/// shown). Both are read rather than asked for again since Health already
+/// has a dedicated place for them. Apple's own Fitness app then adds its own
+/// resting-calorie estimate on top of our active-energy figure to show a
+/// "Total" for the workout, using whatever profile (age/sex/height/weight)
+/// the user has in their Health Details – nothing this app needs to
+/// duplicate.
 final class HealthKitManager {
     static let shared = HealthKitManager()
 
@@ -64,11 +65,13 @@ final class HealthKitManager {
 
     /// Requests full authorization eagerly (the same share/read sets `save()`
     /// uses, so a later save doesn't need to prompt again) and returns an
-    /// estimated max heart rate from the user's date of birth (crude
-    /// 220−age formula) for live in-app heart rate zones. There's no
+    /// estimated max heart rate from the user's date of birth, via Tanaka's
+    /// formula (208 − 0.7 × age – a more accurate, more recent revision of
+    /// the ubiquitous but cruder 220−age rule of thumb). There's no
     /// HealthKit type for "the user's configured max heart rate" to read
-    /// instead – this is the best available proxy without asking the user to
-    /// enter it themselves.
+    /// instead – this is just a starting point for `SettingsView`'s Max
+    /// Heart Rate field, which the user can override with a value they know
+    /// more precisely (e.g. from a lab or max-effort test).
     func fetchMaxHeartRateBPM(completion: @escaping (Int?) -> Void) {
         guard isAvailable else {
             completion(nil)
@@ -90,7 +93,7 @@ final class HealthKitManager {
         }
         let age = Calendar.current.component(.year, from: Date()) - birthYear
         guard age > 0 else { return nil }
-        return 220 - age
+        return Int((208 - 0.7 * Double(age)).rounded())
     }
 
     /// Requests authorization (if needed), estimates active energy burned, and

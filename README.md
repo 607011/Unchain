@@ -60,9 +60,10 @@ protocol, so it works in principle with any FTMS-capable trainer.
       device — the Fitness app's own zone breakdown turns out to be exclusive
       to Apple Watch-recorded workouts, not derived after the fact from
       heart rate samples a third-party app writes. So this is entirely a
-      Unchain-side computation, not synced to Health. Max heart rate is the
-      crude 220−age formula from the date of birth in Health (read once,
-      via `NSHealthShareUsageDescription`) — no settings screen for it
+      Unchain-side computation, not synced to Health. Max heart rate now
+      comes from an explicit **Max Heart Rate** field in Settings, right
+      below FTP (see "Explicit Max Heart Rate setting" further down) rather
+      than a fixed, unconfigurable Health-derived guess
 
 ## Status (Phase 2)
 
@@ -438,6 +439,20 @@ protocol, so it works in principle with any FTMS-capable trainer.
       the picker ("English"/"Deutsch") are deliberately *not* translated –
       shown in their own language regardless of which is currently active,
       the same convention every OS/app language picker uses
+- [x] **Explicit Max Heart Rate setting**, right below FTP in Settings —
+      same "0 shows as an empty field" `TextField` treatment as FTP. Replaces
+      the old fixed, unconfigurable Health-derived guess: the field is
+      pre-filled *once*, the first time it's shown empty, with an age-based
+      estimate from the date of birth in Health (`HealthKitManager
+      .fetchMaxHeartRateBPM`) — now using **Tanaka's formula**
+      (208 − 0.7 × age) instead of the cruder, older 220−age rule of thumb —
+      but the user can freely overwrite it, e.g. with a value from an actual
+      lab or max-effort test. `WorkoutSession` (which classifies live BPM
+      samples into heart rate zones, see `HeartRateZone`) now reads this
+      setting directly via `UserDefaults` at the point of use, the same
+      pattern already used there for Vibration/Interval Sound, rather than a
+      value pushed into it once per Bluetooth heart rate strap connection —
+      so an in-Settings edit takes effect immediately, even mid-ride
 
 ## Generating the project
 

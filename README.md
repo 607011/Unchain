@@ -553,11 +553,16 @@ would change, roughly in the order it'd need doing:
       Apple Distribution certificate instead
 - [ ] **App Store Connect record** – app listing, screenshots, description,
       keywords, a deliberately-chosen version/build number scheme (currently
-      whatever XcodeGen defaults to). A **Marketing URL** (and, in a pinch,
-      **Support URL**) already has somewhere to point, though: a small
-      project landing page at `docs/index.html`, served alongside the
-      privacy policy from the same GitHub Pages site –
-      **https://607011.github.io/Unchain/**
+      whatever XcodeGen defaults to). Two of the required URLs already have
+      somewhere to point, though, both served from the same GitHub Pages
+      site as the privacy policy: **Marketing URL** →
+      `docs/index.html` (https://607011.github.io/Unchain/), the small
+      project landing page; **Support URL** → the privacy policy page
+      itself (https://607011.github.io/Unchain/privacy.html), which now
+      doubles as one — a "Need help, or found a bug?" card right under the
+      privacy summary links to GitHub Issues and the contact email, in both
+      languages, so it actually reads as a support page and not just
+      repurposed legal text
 - [ ] *(recommended, not required)* **TestFlight beta** before a public
       release – so far only ever run against one trainer and one iPhone;
       broader FTMS device compatibility is unverified

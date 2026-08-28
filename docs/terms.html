@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unchain – Terms of Use</title>
+<meta name="description" content="Unchain's terms of use – a free, open-source app for controlling smart bike trainers, provided as-is, use at your own risk.">
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1c1c1e;
+    --fg-muted: #6b6b70;
+    --accent: #1a8f52;
+    --rule: #e4e4e7;
+    --card-bg: #f7f7f8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121214;
+      --fg: #f2f2f4;
+      --fg-muted: #a3a3a8;
+      --accent: #4ade80;
+      --rule: #2c2c30;
+      --card-bg: #1c1c1f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  main {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem 5rem;
+  }
+  h1 {
+    font-size: 1.9rem;
+    margin: 0 0 0.25rem;
+  }
+  h2 {
+    font-size: 1.3rem;
+    margin: 2.5rem 0 0.75rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+  }
+  p, li { color: var(--fg); }
+  .meta {
+    color: var(--fg-muted);
+    font-size: 0.95rem;
+    margin: 0 0 2rem;
+  }
+  .card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    margin: 1.25rem 0;
+  }
+  a { color: var(--accent); }
+  code {
+    background: var(--card-bg);
+    padding: 0.1em 0.4em;
+    border-radius: 5px;
+    font-size: 0.9em;
+  }
+  .lang-switch {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 2.5rem;
+    font-size: 0.95rem;
+  }
+  .lang-switch a { text-decoration: none; }
+  .home-link {
+    display: block;
+    color: var(--fg-muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+    margin-bottom: 0.75rem;
+  }
+  .home-link:hover { color: var(--accent); }
+  hr.section {
+    border: none;
+    border-top: 2px solid var(--rule);
+    margin: 4rem 0 2.5rem;
+  }
+  footer {
+    color: var(--fg-muted);
+    font-size: 0.85rem;
+    margin-top: 3rem;
+  }
+</style>
+</head>
+<body>
+<main>
+
+  <a class="home-link" href="index.html">← Unchain</a>
+  <div class="lang-switch">
+    <a href="#en">English</a>
+    <span aria-hidden="true">·</span>
+    <a href="#de">Deutsch</a>
+  </div>
+
+  <section id="en">
+    <h1>Unchain – Terms of Use</h1>
+    <p class="meta">Last updated: August 27, 2026</p>
+
+    <div class="card">
+      <strong>The short version:</strong> Unchain is a free, open-source
+      hobby project, provided as-is with no warranty. It controls real
+      exercise equipment – use common sense, and check with a doctor before
+      starting a new training program if that's ever in doubt.
+    </div>
+
+    <h2>Use at your own risk</h2>
+    <p>
+      Unchain sends control commands (power, resistance, simulated grade) to
+      your smart trainer over Bluetooth, and reads live data back from it
+      and, optionally, a heart rate strap. You are responsible for your own
+      safety while training: stop if something feels wrong, keep the app and
+      your trainer's own firmware reasonably up to date, and don't rely on
+      Unchain's live metrics (power, heart rate, heart rate zones, calorie
+      estimates) as medical-grade or emergency-relevant information. Unchain
+      is not a medical device and does not give medical advice. If you have
+      a heart condition, are pregnant, are new to exercise, or are otherwise
+      unsure, talk to a doctor before starting a new training program.
+    </p>
+
+    <h2>No warranty</h2>
+    <p>
+      Unchain is provided "as is", without warranty of any kind, express or
+      implied – including, without limitation, warranties of accuracy,
+      merchantability, fitness for a particular purpose, or
+      non-infringement. Estimates the app computes or derives (FTP-based
+      targets, max/resting heart rate defaults, heart rate zones, calorie
+      estimates) are just that – estimates, not guaranteed to be accurate
+      for you personally. To the extent permitted by law, the developer
+      isn't liable for any damage, injury, or loss arising from using, or
+      being unable to use, the app – including damage to your trainer or
+      other equipment from an unexpected command, a dropped Bluetooth
+      connection, or a bug.
+    </p>
+
+    <h2>Not affiliated with any trainer manufacturer</h2>
+    <p>
+      Unchain talks to your hardware exclusively through the open Bluetooth
+      SIG standards for this (FTMS – Fitness Machine Service; the Heart Rate
+      Service) – not any vendor-proprietary protocol. It is an independent,
+      third-party app, not affiliated with, endorsed by, or a product of
+      Wahoo Fitness or any other trainer manufacturer. Trainer/product names
+      mentioned anywhere in the app or its documentation are used only to
+      describe compatibility, and remain the property of their respective
+      owners.
+    </p>
+
+    <h2>Open source license</h2>
+    <p>
+      These Terms of Use cover using the app itself, as an end user – they
+      are separate from the license covering the underlying source code.
+      Unchain's source code is published under the
+      <a href="https://github.com/607011/Unchain/blob/main/LICENSE">MIT
+      License</a>, which governs copying, modifying, and redistributing the
+      code (not how you, as a rider, use the finished app).
+    </p>
+
+    <h2>Changes to these terms</h2>
+    <p>
+      These terms may be updated occasionally; the "Last updated" date above
+      reflects the latest revision. Continued use of the app after a change
+      means you accept the updated terms.
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+      Questions about these terms? Email
+      <a href="mailto:oliver@ersatzworld.net">oliver@ersatzworld.net</a>. For
+      privacy questions or support, see the
+      <a href="privacy.html">privacy policy &amp; support page</a> instead.
+    </p>
+  </section>
+
+  <hr class="section">
+
+  <section id="de" lang="de">
+    <h1>Unchain – Nutzungsbedingungen</h1>
+    <p class="meta">Zuletzt aktualisiert: 27. August 2026</p>
+
+    <div class="card">
+      <strong>Kurz gesagt:</strong> Unchain ist ein kostenloses
+      Open-Source-Hobbyprojekt, bereitgestellt ohne jede Gewähr. Es steuert
+      echte Trainingshardware – nutze deinen gesunden Menschenverstand, und
+      sprich im Zweifel vor Beginn eines neuen Trainingsprogramms mit einem
+      Arzt.
+    </div>
+
+    <h2>Nutzung auf eigene Gefahr</h2>
+    <p>
+      Unchain sendet Steuerbefehle (Leistung, Widerstand, simulierte
+      Steigung) per Bluetooth an deinen Smart-Trainer und liest von dort
+      sowie optional von einem Herzfrequenz-Brustgurt Live-Daten zurück. Du
+      bist selbst für deine Sicherheit beim Training verantwortlich: höre
+      auf, wenn sich etwas falsch anfühlt, halte die App und die Firmware
+      deines Trainers einigermaßen aktuell, und verlasse dich bei Unchains
+      Live-Werten (Leistung, Herzfrequenz, Herzfrequenzzonen,
+      Kalorienschätzung) nicht auf medizinische Genauigkeit oder Relevanz im
+      Notfall. Unchain ist kein Medizinprodukt und gibt keine medizinische
+      Beratung. Bei Herzproblemen, Schwangerschaft, fehlender
+      Trainingserfahrung oder sonstiger Unsicherheit: Sprich vor Beginn
+      eines neuen Trainingsprogramms mit einem Arzt.
+    </p>
+
+    <h2>Keine Gewährleistung</h2>
+    <p>
+      Unchain wird "wie besehen" bereitgestellt, ohne jegliche Gewähr,
+      weder ausdrücklich noch stillschweigend – einschließlich, aber nicht
+      beschränkt auf Zusicherungen zu Richtigkeit, Marktgängigkeit, Eignung
+      für einen bestimmten Zweck oder Nichtverletzung von Rechten Dritter.
+      Von der App berechnete oder abgeleitete Schätzwerte (FTP-basierte
+      Zielwerte, Maximal-/Ruhepuls-Voreinstellungen, Herzfrequenzzonen,
+      Kalorienschätzungen) sind genau das – Schätzungen, ohne Garantie, dass
+      sie für dich persönlich zutreffen. Soweit gesetzlich zulässig, haftet
+      der Entwickler nicht für Schäden, Verletzungen oder Verluste, die aus
+      der Nutzung oder Nichtnutzbarkeit der App entstehen – auch nicht für
+      Schäden an deinem Trainer oder anderer Ausrüstung durch einen
+      unerwarteten Befehl, eine abgebrochene Bluetooth-Verbindung oder
+      einen Programmfehler.
+    </p>
+
+    <h2>Keine Verbindung zu Trainer-Herstellern</h2>
+    <p>
+      Unchain spricht ausschließlich über die offenen Bluetooth-SIG-Standards
+      dafür mit deiner Hardware (FTMS – Fitness Machine Service; den Heart
+      Rate Service) – nicht über ein herstellereigenes Protokoll. Es handelt
+      sich um eine unabhängige App eines Drittanbieters, nicht verbunden
+      mit, unterstützt von oder ein Produkt von Wahoo Fitness oder einem
+      anderen Trainer-Hersteller. Trainer-/Produktnamen, die in der App oder
+      ihrer Dokumentation genannt werden, dienen ausschließlich der
+      Beschreibung der Kompatibilität und bleiben Eigentum ihrer jeweiligen
+      Inhaber.
+    </p>
+
+    <h2>Open-Source-Lizenz</h2>
+    <p>
+      Diese Nutzungsbedingungen regeln die Nutzung der App selbst als
+      Endnutzer – sie sind getrennt von der Lizenz, die den zugrunde
+      liegenden Quellcode betrifft. Unchains Quellcode ist unter der
+      <a href="https://github.com/607011/Unchain/blob/main/LICENSE">MIT-Lizenz</a>
+      veröffentlicht, die das Kopieren, Verändern und Weiterverbreiten des
+      Codes regelt (nicht, wie du als Fahrer die fertige App nutzt).
+    </p>
+
+    <h2>Änderungen dieser Bedingungen</h2>
+    <p>
+      Diese Bedingungen können gelegentlich aktualisiert werden; das Datum
+      "Zuletzt aktualisiert" oben spiegelt die neueste Fassung wider. Die
+      weitere Nutzung der App nach einer Änderung gilt als Zustimmung zu
+      den aktualisierten Bedingungen.
+    </p>
+
+    <h2>Kontakt</h2>
+    <p>
+      Fragen zu diesen Bedingungen? E-Mail an
+      <a href="mailto:oliver@ersatzworld.net">oliver@ersatzworld.net</a>.
+      Für Datenschutzfragen oder Support siehe stattdessen die
+      <a href="privacy.html">Datenschutz- &amp; Support-Seite</a>.
+    </p>
+  </section>
+
+  <footer>
+    Unchain · <a href="privacy.html">Privacy Policy</a> ·
+    <a href="https://github.com/607011/Unchain">github.com/607011/Unchain</a>
+  </footer>
+
+</main>
+</body>
+</html>

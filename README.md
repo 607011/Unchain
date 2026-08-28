@@ -496,6 +496,20 @@ protocol, so it works in principle with any FTMS-capable trainer.
       not just inside an active trainer session — rider profile data (FTP,
       Max/Resting Heart Rate, zone boundaries) is worth setting up before
       ever pairing anything, not just mid-ride
+- [x] Fixed: saving a completed workout to Health could silently fail –
+      reported after a real ride where every write permission had been
+      granted, but the (newly added, for Heart Rate Reserve zones) Resting
+      Heart Rate *read* permission hadn't been responded to yet. Root cause:
+      `HealthKitManager.save()` and `fetchHeartRateProfile()` (the Settings
+      prefill) shared one combined read-type set, so `save()`'s own
+      `requestAuthorization` call ended up waiting on a Settings-only
+      permission it doesn't even use, mid-save – which apparently failed
+      silently rather than surfacing a retry-able prompt. Fixed by splitting
+      into two disjoint, minimal read-type sets, each requested only by the
+      one function that actually uses it (`bodyMassReadType` for `save()`,
+      `heartRateProfileReadTypes` for `fetchHeartRateProfile()`) – whatever
+      is or isn't granted in Settings can now never again affect whether a
+      workout saves
 
 ## App Store readiness
 
@@ -536,6 +550,20 @@ would change, roughly in the order it'd need doing:
       and Bluetooth data both stay on-device, governed by Apple's own
       permission system. Links back to this repo (MIT-licensed, open
       source) as a verifiable claim rather than just an assertion
+- [x] **Terms of Use**, at `docs/terms.html` (same bilingual, same GitHub
+      Pages site as the privacy policy: https://607011.github.io/Unchain/terms.html) –
+      not something Apple strictly requires here (that's Review Guideline
+      3.1.2a, scoped to auto-renewable subscriptions; without a custom EULA,
+      Apple's own Standard EULA quietly applies and gets linked from the App
+      Store page automatically), but worth having anyway since Unchain
+      controls real exercise equipment: a plain-language "use at your own
+      risk, not medical advice, no warranty, not affiliated with any
+      trainer manufacturer" disclaimer that neither the MIT license (covers
+      the code, not app usage) nor the privacy policy (covers data, not
+      liability) address. Also reachable **from inside the app** now – a
+      "Legal" section at the bottom of Settings (`Link`, opens the system
+      browser) with both this and the Privacy Policy, so they're not only
+      discoverable via the App Store listing
 - [x] **Verified Release/Archive build** – a new `make archive` target
       (`xcodebuild archive -scheme Unchain -configuration Release …`, the
       one Makefile target that needs `-scheme` rather than `-target`/`-sdk`,
@@ -551,11 +579,16 @@ would change, roughly in the order it'd need doing:
       Xcode's own "Distribute App" flow (or a hand-written
       `exportOptions.plist` with `method: app-store`) to re-sign with an
       Apple Distribution certificate instead
-- [ ] **App Store Connect record** – app listing, screenshots, description,
-      keywords, a deliberately-chosen version/build number scheme (currently
-      whatever XcodeGen defaults to). Two of the required URLs already have
-      somewhere to point, though, both served from the same GitHub Pages
-      site as the privacy policy: **Marketing URL** →
+- [ ] **App name availability** – whether "Unchain" itself is still free on
+      the App Store is unchecked; worth confirming before anything else
+      below, since a conflict here would ripple into the bundle ID, the
+      Marketing/Support URLs' copy, possibly even this README's own title
+- [ ] **App Store Connect record** – the actual app listing still needs
+      creating from scratch: description, keywords, a deliberately-chosen
+      version/build number scheme (currently whatever XcodeGen defaults to,
+      `1.0`/`1`), and the age rating questionnaire. Two of its required URLs
+      already have somewhere to point, though, both served from the same
+      GitHub Pages site as the privacy policy: **Marketing URL** →
       `docs/index.html` (https://607011.github.io/Unchain/), the small
       project landing page; **Support URL** → the privacy policy page
       itself (https://607011.github.io/Unchain/privacy.html), which now
@@ -563,6 +596,25 @@ would change, roughly in the order it'd need doing:
       privacy summary links to GitHub Issues and the contact email, in both
       languages, so it actually reads as a support page and not just
       repurposed legal text
+- [ ] **Screenshots** – for every required device size (at minimum a
+      6.7"-class iPhone; iPad too, since the app explicitly supports Split
+      View) – none exist yet
+- [ ] **App Store Connect's "App Privacy" questionnaire** – a separate,
+      mandatory, web-based step (distinct from the local
+      `PrivacyInfo.xcprivacy` manifest above, which doesn't substitute for
+      it) declaring what's collected for Apple's own "nutrition label" –
+      Health & Fitness data via HealthKit, roughly. The actual privacy
+      policy page already documents exactly what's read/written, which
+      should make answering this fast
+- [ ] **A real Distribution-signed build, uploaded** – `make archive`
+      (above) only verifies the build compiles and signs with the automatic
+      *Development* identity; actually submitting needs Xcode's own
+      "Distribute App" flow (or a hand-written `exportOptions.plist` with
+      `method: app-store`) to re-sign with an **Apple Distribution**
+      certificate, then upload via Xcode Organizer or Transporter
+- [ ] **Export compliance questionnaire** – comes up on every upload;
+      standard BLE/HTTPS encryption usually qualifies for the common
+      exemption, but the question still has to be answered each time
 - [ ] *(recommended, not required)* **TestFlight beta** before a public
       release – so far only ever run against one trainer and one iPhone;
       broader FTMS device compatibility is unverified

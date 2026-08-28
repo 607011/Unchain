@@ -8,10 +8,13 @@ import SwiftUI
 /// one); Max/Resting Heart Rate and the Heart Rate Zone boundaries derived
 /// from them (see `HeartRateZone`); Vibration/Interval Sound for Program
 /// workouts; and an explicit Language override (see `LanguageManager`),
-/// which defaults to following the device's own Language & Region setting.
-/// Each section's explanation lives behind its `InfoButton` rather than a
-/// permanent footer, to keep the screen from growing too tall now that there
-/// are several of them. More settings are expected to land here over time.
+/// which defaults to following the device's own Language & Region setting;
+/// and links to the Privacy Policy/Terms of Use, both served from the
+/// project's GitHub Pages site alongside a small landing page (see
+/// `docs/index.html` in the repo). Each section's explanation lives behind
+/// its `InfoButton` rather than a permanent footer, to keep the screen from
+/// growing too tall now that there are several of them. More settings are
+/// expected to land here over time.
 struct SettingsView: View {
     /// `UserDefaults` key for the rider's FTP – shared here since
     /// `CreateWorkoutView`'s shorthand workout notation (`%FTP` targets) also
@@ -152,6 +155,18 @@ struct SettingsView: View {
                         Text("Language")
                         InfoButton(text: "Applies immediately, no restart needed. \"System\" follows your device's own Language & Region setting.")
                     }
+                }
+                // Self-explanatory row labels – unlike the sections above,
+                // there's nothing here worth hiding behind an `InfoButton`.
+                // `Link` opens the system browser rather than an in-app
+                // `WKWebView`, so these are always the current, up-to-date
+                // pages (and the same ones App Store Connect's Support/
+                // Marketing URLs point to), not a copy that could drift.
+                Section {
+                    Link("Privacy Policy", destination: URL(string: "https://607011.github.io/Unchain/privacy.html")!)
+                    Link("Terms of Use", destination: URL(string: "https://607011.github.io/Unchain/terms.html")!)
+                } header: {
+                    Text("Legal")
                 }
             }
             .navigationTitle("Settings")

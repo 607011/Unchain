@@ -19,16 +19,27 @@ enum HealthKitError: LocalizedError {
 /// workouts to Apple Health (shown in the Fitness app as "Indoor Cycling",
 /// "Indoor Walk", or "Indoor Run"), including an active-energy (calorie)
 /// estimate. What this reads back from Health: the user's most recent body
-/// weight (needed for the walk/run calorie formula), date of birth (for an
-/// age-based max-heart-rate estimate), and most recent resting heart rate
-/// sample (Apple Watch computes and writes this on its own) – see
-/// `fetchHeartRateProfile`, used only to pre-fill `SettingsView`'s Max/
-/// Resting Heart Rate fields the first time they're shown. All three are
-/// read rather than asked for again since Health already has a dedicated
-/// place for them. Apple's own Fitness app then adds its own resting-calorie
-/// estimate on top of our active-energy figure to show a "Total" for the
-/// workout, using whatever profile (age/sex/height/weight) the user has in
-/// their Health Details – nothing this app needs to duplicate.
+/// weight (needed for the walk/run calorie formula – see `save()`), and,
+/// separately, date of birth and most recent resting heart rate sample
+/// (Apple Watch computes and writes this on its own), used only to pre-fill
+/// `SettingsView`'s Max/Resting Heart Rate fields the first time they're
+/// shown – see `fetchHeartRateProfile`. Read rather than asked for again
+/// since Health already has a dedicated place for them. Apple's own Fitness
+/// app then adds its own resting-calorie estimate on top of our
+/// active-energy figure to show a "Total" for the workout, using whatever
+/// profile (age/sex/height/weight) the user has in their Health Details –
+/// nothing this app needs to duplicate.
+///
+/// `save()` and `fetchHeartRateProfile()` each request only the read types
+/// they themselves actually use (`bodyMassReadType` vs.
+/// `heartRateProfileReadTypes` below) rather than one shared, combined set –
+/// deliberately, after a real bug: bundling every read type together meant
+/// `save()`'s own `requestAuthorization` call could end up waiting on the
+/// user to respond to a *Settings-only* permission (e.g. Resting Heart
+/// Rate) it doesn't even use, right in the middle of saving a workout –
+/// which silently failed the save instead. Splitting them means whatever
+/// the user has or hasn't granted in Settings can never again affect
+/// whether a workout saves.
 final class HealthKitManager {
     static let shared = HealthKitManager()
 
@@ -61,11 +72,24 @@ final class HealthKitManager {
         return types
     }
 
-    private var typesToRead: Set<HKObjectType> {
+    /// Just body weight – the only thing `save()` itself ever reads back
+    /// (for the walk/run calorie estimate). See the type's own doc comment
+    /// for why this is deliberately kept separate from
+    /// `heartRateProfileReadTypes` rather than one shared "everything" set.
+    private var bodyMassReadType: Set<HKObjectType> {
         var types: Set<HKObjectType> = []
         if let bodyMass = HKObjectType.quantityType(forIdentifier: .bodyMass) {
             types.insert(bodyMass)
         }
+        return types
+    }
+
+    /// Just what `fetchHeartRateProfile()` itself reads – date of birth and
+    /// resting heart rate. See the type's own doc comment for why this is
+    /// deliberately kept separate from `bodyMassReadType` rather than one
+    /// shared "everything" set.
+    private var heartRateProfileReadTypes: Set<HKObjectType> {
+        var types: Set<HKObjectType> = []
         if let dateOfBirth = HKObjectType.characteristicType(forIdentifier: .dateOfBirth) {
             types.insert(dateOfBirth)
         }
@@ -75,24 +99,25 @@ final class HealthKitManager {
         return types
     }
 
-    /// Requests full authorization eagerly (the same share/read sets `save()`
-    /// uses, so a later save doesn't need to prompt again) and returns an
-    /// estimated max heart rate from the user's date of birth, via Tanaka's
-    /// formula (208 − 0.7 × age – a more accurate, more recent revision of
-    /// the ubiquitous but cruder 220−age rule of thumb), alongside the most
-    /// recent resting-heart-rate sample Health has on record. Neither is
-    /// meant as more than a starting point for `SettingsView`'s Max/Resting
-    /// Heart Rate fields, which the user can override with values they know
-    /// more precisely (e.g. from a lab or max-effort test) – there's no
-    /// HealthKit type for "the user's configured max heart rate" to read
-    /// instead, and a resting-heart-rate sample only exists at all once a
-    /// Watch (or another source) has actually written one.
+    /// Returns an estimated max heart rate from the user's date of birth,
+    /// via Tanaka's formula (208 − 0.7 × age – a more accurate, more recent
+    /// revision of the ubiquitous but cruder 220−age rule of thumb),
+    /// alongside the most recent resting-heart-rate sample Health has on
+    /// record. Neither is meant as more than a starting point for
+    /// `SettingsView`'s Max/Resting Heart Rate fields, which the user can
+    /// override with values they know more precisely (e.g. from a lab or
+    /// max-effort test) – there's no HealthKit type for "the user's
+    /// configured max heart rate" to read instead, and a resting-heart-rate
+    /// sample only exists at all once a Watch (or another source) has
+    /// actually written one. Requests read-only access (no share types –
+    /// this never writes anything itself) for just `heartRateProfileReadTypes`,
+    /// not `save()`'s own read type too – see this class's doc comment.
     func fetchHeartRateProfile(completion: @escaping (HeartRateProfile) -> Void) {
         guard isAvailable else {
             completion(HeartRateProfile(maxBPM: nil, restingBPM: nil))
             return
         }
-        store.requestAuthorization(toShare: typesToShare, read: typesToRead) { [weak self] granted, _ in
+        store.requestAuthorization(toShare: [], read: heartRateProfileReadTypes) { [weak self] granted, _ in
             guard let self, granted else {
                 DispatchQueue.main.async { completion(HeartRateProfile(maxBPM: nil, restingBPM: nil)) }
                 return
@@ -130,13 +155,15 @@ final class HealthKitManager {
 
     /// Requests authorization (if needed), estimates active energy burned, and
     /// saves the workout along with any heart rate samples collected during
-    /// the session. Completion is always called on the main thread.
+    /// the session. Completion is always called on the main thread. Requests
+    /// only `bodyMassReadType`, not `fetchHeartRateProfile()`'s own read
+    /// type too – see this class's doc comment for why that split matters.
     func save(_ summary: WorkoutSummary, as activityType: HKWorkoutActivityType, completion: @escaping (Result<Void, Error>) -> Void) {
         guard isAvailable else {
             completion(.failure(HealthKitError.unavailable))
             return
         }
-        store.requestAuthorization(toShare: typesToShare, read: typesToRead) { [weak self] granted, error in
+        store.requestAuthorization(toShare: typesToShare, read: bodyMassReadType) { [weak self] granted, error in
             guard let self else { return }
             if let error {
                 DispatchQueue.main.async { completion(.failure(error)) }

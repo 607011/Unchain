@@ -29,8 +29,11 @@ final class BluetoothManager: NSObject, ObservableObject {
     /// for a given device on this phone – see Apple's docs on
     /// `CBPeripheral.identifier`). Lets a strap that's been paired with
     /// before reconnect on its own as soon as it's seen again (see
-    /// `centralManager(_:didDiscover:)`), saving the one tap that would
-    /// otherwise be needed every single time. Deliberately not extended to
+    /// `centralManager(_:didDiscover:)`) or, without even needing to be seen
+    /// via scanning first, as soon as Bluetooth is ready (see
+    /// `attemptAutoReconnectHeartRateStrap()`) – saving the one tap that
+    /// would otherwise be needed every single time. Deliberately not
+    /// extended to
     /// the trainer too: connecting there also navigates away to
     /// `ControlView` and requests exclusive control, a bigger, more
     /// consequential action than just starting to receive BPM values.
@@ -111,6 +114,32 @@ final class BluetoothManager: NSObject, ObservableObject {
     func clearHeartRateConnection() {
         currentHeartRateConnection = nil
     }
+
+    /// Reconnects a previously-used strap purely from its stored identifier
+    /// (`lastHeartRateStrapUUIDKey`) – no scanning needed, and it works even
+    /// before the strap is back in range. Once `central.connect(_:options:)`
+    /// is issued for a peripheral CoreBluetooth already knows about
+    /// (`retrievePeripherals(withIdentifiers:)`), the system holds that
+    /// connection request pending and completes it automatically the moment
+    /// the peripheral becomes reachable again – the same mechanism iOS
+    /// itself uses to reconnect known accessories in the background.
+    /// Complements, rather than replaces, the discovery-based auto-reconnect
+    /// in `centralManager(_:didDiscover:)`, which only helps if scanning
+    /// happens to still be running at that exact moment. That mattered in
+    /// practice: `ControlView` itself never scans (see `connect(to:)`'s own
+    /// note on `stopScan()`), so a strap that hadn't already reconnected
+    /// *before* the trainer did – put on afterwards, or just missed during
+    /// the brief device-list scan – could never be found again for the rest
+    /// of the session without this.
+    private func attemptAutoReconnectHeartRateStrap() {
+        guard currentHeartRateConnection == nil,
+              let uuidString = UserDefaults.standard.string(forKey: Self.lastHeartRateStrapUUIDKey),
+              let uuid = UUID(uuidString: uuidString),
+              let peripheral = central.retrievePeripherals(withIdentifiers: [uuid]).first else { return }
+        let connection = HeartRateConnection(peripheral: peripheral, central: central)
+        currentHeartRateConnection = connection
+        central.connect(peripheral, options: nil)
+    }
 }
 
 extension BluetoothManager: CBCentralManagerDelegate {
@@ -118,6 +147,7 @@ extension BluetoothManager: CBCentralManagerDelegate {
         isBluetoothReady = (central.state == .poweredOn)
         if isBluetoothReady {
             startScan()
+            attemptAutoReconnectHeartRateStrap()
         } else {
             discoveredDevices.removeAll()
         }

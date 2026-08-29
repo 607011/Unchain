@@ -24,11 +24,21 @@ enum HealthKitError: LocalizedError {
 /// (Apple Watch computes and writes this on its own), used only to pre-fill
 /// `SettingsView`'s Max/Resting Heart Rate fields the first time they're
 /// shown – see `fetchHeartRateProfile`. Read rather than asked for again
-/// since Health already has a dedicated place for them. Apple's own Fitness
-/// app then adds its own resting-calorie estimate on top of our
-/// active-energy figure to show a "Total" for the workout, using whatever
-/// profile (age/sex/height/weight) the user has in their Health Details –
-/// nothing this app needs to duplicate.
+/// since Health already has a dedicated place for them.
+///
+/// What this writes becomes the workout's **Active Calories**; Fitness's
+/// "Total Calories" for that same workout is Active + whatever Resting/
+/// Basal Energy (`HKQuantityTypeIdentifier.basalEnergyBurned`, a separate,
+/// continuous *background* metric) happens to already be on record for that
+/// exact time window – this class deliberately never reads or writes that
+/// figure itself. If nothing was actively producing background
+/// resting-energy samples for that stretch of time (in practice, mostly an
+/// Apple Watch actually worn then – a lone iPhone's own contribution here
+/// is inconsistent and undocumented by Apple), there's nothing for Fitness
+/// to add on top, and Total legitimately just equals Active – not a bug in
+/// this app, and not something worth working around by writing a
+/// basal-energy figure of our own, which would risk double-counting against
+/// whatever the system already has.
 ///
 /// `save()` and `fetchHeartRateProfile()` each request only the read types
 /// they themselves actually use (`bodyMassReadType` vs.

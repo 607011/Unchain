@@ -6,7 +6,11 @@ Lean iOS app for controlling smart trainers (Kickr & co.) via the open
 **FTMS** Bluetooth standard (Fitness Machine Service) — not a Wahoo-proprietary
 protocol, so it works in principle with any FTMS-capable trainer.
 
-[MIT licensed](LICENSE).
+[MIT licensed](LICENSE). If Unchain's useful to you, a
+[GitHub Sponsors](https://github.com/sponsors/607011) or
+[Buy Me a Coffee](https://buymeacoffee.com/607011) contribution toward
+keeping it going (mainly an Apple Developer Program membership) is welcome,
+always optional — the app itself never asks.
 
 ## Status (MVP, Phase 1)
 

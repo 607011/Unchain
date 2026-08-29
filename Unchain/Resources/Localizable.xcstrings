@@ -1700,6 +1700,66 @@
           }
         }
       }
+    },
+    "Diagnostics": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnose"
+          }
+        }
+      }
+    },
+    "Crash and hang reports iOS collected for Unchain, saved locally on this device – nothing is sent anywhere automatically.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von iOS für Unchain gesammelte Absturz- und Hänger-Berichte, lokal auf diesem Gerät gespeichert – es wird nichts automatisch irgendwohin gesendet."
+          }
+        }
+      }
+    },
+    "No Diagnostics Yet": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Diagnosedaten"
+          }
+        }
+      }
+    },
+    "Crash and hang reports collected by iOS show up here – usually not until the next time the app is opened after one happens.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von iOS gesammelte Absturz- und Hänger-Berichte erscheinen hier – meist erst, wenn die App danach das nächste Mal geöffnet wird."
+          }
+        }
+      }
+    },
+    "Tap to share": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Teilen antippen"
+          }
+        }
+      }
+    },
+    "Delete All": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle löschen"
+          }
+        }
+      }
     }
   },
   "version": "1.1"

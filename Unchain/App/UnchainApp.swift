@@ -12,6 +12,11 @@ struct UnchainApp: App {
         // Re-apply whatever override was picked in a previous launch before
         // the very first view renders.
         LanguageManager.apply()
+        // Subscribes for the lifetime of the process – see
+        // `DiagnosticsReporter`'s own doc comment for what this actually
+        // captures (crash/hang diagnostics via MetricKit) and why it works
+        // without TestFlight or the App Store.
+        DiagnosticsReporter.shared.start()
     }
 
     var body: some Scene {

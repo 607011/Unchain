@@ -704,6 +704,33 @@ protocol, so it works in principle with any FTMS-capable trainer.
       still needs a live distance/body-weight estimate wired up, unlike the
       simpler mechanical-work-based cycling one – even though Walk vs. Run
       itself is technically known early enough now
+- [x] **Crash/hang diagnostics via MetricKit** (`DiagnosticsReporter`,
+      `DiagnosticsView`, reachable from Settings), prompted by a real
+      question: does crash reporting even work without TestFlight or the
+      App Store? It does, two ways already, with no code at all – iOS keeps
+      its own on-device crash logs (Settings → Privacy & Security → Analytics
+      & Improvements → Analytics Data) regardless of how an app was
+      installed, and Xcode's Devices window (Window → Devices and Simulators
+      → [device] → View Device Logs) pulls and symbolicates those directly
+      from a connected iPhone. `DiagnosticsReporter` adds a third, in-app
+      option: `MXMetricManagerSubscriber`'s `didReceive(_:[MXDiagnosticPayload])`
+      hands the app a JSON diagnostic report – crash, hang, CPU/disk-write
+      exception – the next time it launches after one happens (per Apple's
+      own MetricKit docs, this can lag up to a day, and won't arrive at all
+      until the app is reopened), saved as-is to a file in the app's own
+      sandboxed storage. No parsing/symbolication attempted here – that's
+      still easiest done by opening the exported file in Xcode or a text
+      editor. `DiagnosticsView` just lists saved reports (newest first,
+      dated from the filename's own embedded timestamp rather than the
+      file's actual creation/modification date – deliberately, since the
+      latter would pull in the "File Timestamp APIs" required-reason
+      category `PrivacyInfo.xcprivacy` would then need a reason for) with a
+      `ShareLink` per row to export one (AirDrop/Mail/Files/…) and a
+      swipe-to-delete/"Delete All" for cleanup. Everything stays local until
+      you explicitly share a file yourself – documented as such in a new
+      "Crash & hang diagnostics" section in `docs/privacy.html`, which also
+      had to stop claiming "no analytics or crash-reporting SDKs" quite so
+      simply
 
 ## App Store readiness
 

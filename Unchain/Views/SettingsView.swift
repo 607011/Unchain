@@ -41,8 +41,10 @@ enum SpeedDisplayUnit: String, CaseIterable, Identifiable {
 /// GitHub Pages site alongside a small landing page (see `docs/index.html`
 /// in the repo); and, right at the bottom, "Log a Workout…" (see
 /// `LogWorkoutView`) for backfilling one into Health that Unchain never
-/// recorded live. Each section's explanation lives behind its `InfoButton`
-/// rather than a permanent footer, to keep the screen from growing too tall
+/// recorded live, and "Diagnostics" (see `DiagnosticsView`/
+/// `DiagnosticsReporter`) for crash/hang reports MetricKit collected. Each
+/// section's explanation lives behind its `InfoButton` rather than a
+/// permanent footer, to keep the screen from growing too tall
 /// now that there are several of them. More settings are expected to land
 /// here over time.
 struct SettingsView: View {
@@ -81,6 +83,7 @@ struct SettingsView: View {
     @AppStorage(LanguageManager.storageKey) private var languageOverride = AppLanguage.system.rawValue
     @AppStorage(speedDisplayUnitKey) private var speedDisplayUnit = SpeedDisplayUnit.kmh
     @State private var isShowingLogWorkout = false
+    @State private var isShowingDiagnostics = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -231,6 +234,15 @@ struct SettingsView: View {
                 } footer: {
                     Text("Add a workout to Health that wasn't recorded live in Unchain – e.g. one done without the app running.")
                 }
+                Section {
+                    Button {
+                        isShowingDiagnostics = true
+                    } label: {
+                        Label("Diagnostics", systemImage: "waveform.path.ecg")
+                    }
+                } footer: {
+                    Text("Crash and hang reports iOS collected for Unchain, saved locally on this device – nothing is sent anywhere automatically.")
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -242,6 +254,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $isShowingLogWorkout) {
             LogWorkoutView()
+        }
+        .sheet(isPresented: $isShowingDiagnostics) {
+            DiagnosticsView()
         }
         .onAppear {
             if maxHeartRateBPM == 0 || restingHeartRateBPM == 0 {

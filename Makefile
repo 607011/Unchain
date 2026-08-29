@@ -32,7 +32,22 @@ APP_PATH      := $(BUILD_DIR)/$(CONFIGURATION)-iphoneos/$(TARGET).app
 LAUNCH_JSON   := $(BUILD_DIR)/devicectl-launch.json
 ARCHIVE_PATH  := $(BUILD_DIR)/$(TARGET).xcarchive
 
-.PHONY: generate build install run debug archive clean
+# The Watch companion, installed/launched separately from the targets above
+# – `install`/`run` only ever push `Unchain.app` (with `UnchainWatch.app`
+# embedded inside it, per project.yml) to the iPhone, which is *not* the
+# same as the paired Watch actually picking up that new embedded build.
+# That normally waits on the Watch app's own "Automatic App Install" sync,
+# which doesn't reliably (or quickly) pick up a plain development install –
+# in practice, the Watch keeps showing whatever it last had installed
+# directly. `install-watch`/`run-watch` below push straight to the Watch
+# instead, the same way `install`/`run` do for the iPhone, bypassing that
+# sync entirely.
+WATCH_TARGET    := UnchainWatch
+WATCH_BUNDLE_ID := net.ersatzworld.unchain.watchkitapp
+WATCH_DEVICE    ?= watchOLA
+WATCH_APP_PATH  := $(BUILD_DIR)/$(CONFIGURATION)-watchos/$(WATCH_TARGET).app
+
+.PHONY: generate build install run debug archive clean install-watch run-watch debug-watch
 
 # Regenerates Unchain.xcodeproj/ from project.yml (XcodeGen) – cheap, so this
 # always runs rather than trying to guess whether project.yml changed.
@@ -65,6 +80,37 @@ debug: install
 	fi; \
 	echo "Attaching lldb to process $$pid on $(DEVICE) ..."; \
 	xcrun lldb -o "device select $(DEVICE)" -o "device process attach -p $$pid"
+
+# Builds and installs straight to the paired Watch – see the note above on
+# why this is a separate path from `install`. Deliberately its own
+# `xcodebuild` invocation, not a dependency on `build`: `-target
+# $(WATCH_TARGET)` alone still resolves to its own watchOS platform (same
+# reasoning as `build`'s own note on omitting `-sdk`), so there's no need to
+# build the whole iPhone app first just to get an up-to-date watch one.
+install-watch: generate
+	xcodebuild -target $(WATCH_TARGET) -configuration $(CONFIGURATION) -allowProvisioningUpdates build
+	xcrun devicectl device install app --device $(WATCH_DEVICE) $(WATCH_APP_PATH)
+
+# Launches, replacing any already-running instance, and streams the app's
+# stdout/stderr/os_log output until it's stopped (Ctrl-C) – same as `run`,
+# just for the Watch.
+run-watch: install-watch
+	xcrun devicectl device process launch --device $(WATCH_DEVICE) --terminate-existing --console $(WATCH_BUNDLE_ID)
+
+# Launches suspended and attaches lldb – same as `debug`, just for the
+# Watch. Needs the Watch unlocked and Developer Mode on (Settings → Privacy
+# & Security → Developer Mode, on the Watch itself) or `process launch`
+# fails outright rather than just queuing.
+debug-watch: install-watch
+	@mkdir -p $(BUILD_DIR)
+	xcrun devicectl device process launch --device $(WATCH_DEVICE) --terminate-existing --start-stopped --json-output $(LAUNCH_JSON) $(WATCH_BUNDLE_ID)
+	@pid=$$(jq -r '.. | objects | .processIdentifier? // empty' $(LAUNCH_JSON) | head -1); \
+	if [ -z "$$pid" ]; then \
+		echo "Couldn't find the process identifier in $(LAUNCH_JSON) – inspect it manually."; \
+		exit 1; \
+	fi; \
+	echo "Attaching lldb to process $$pid on $(WATCH_DEVICE) ..."; \
+	xcrun lldb -o "device select $(WATCH_DEVICE)" -o "device process attach -p $$pid"
 
 # A Release-configuration archive for device distribution – what App Store
 # Connect submission ultimately needs. Unlike every other target above,

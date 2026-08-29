@@ -865,6 +865,17 @@ providers require an account for that – one exception:
 
 Bluetooth doesn't work in the simulator — the app must run on a real iPhone.
 
+`make run`/`make install`/`make debug` only ever push `Unchain.app` (with
+`UnchainWatch.app` embedded inside it) to the iPhone – that's *not* the same
+as the paired Watch picking up the new embedded build, which normally
+depends on the Watch app's own "Automatic App Install" sync and doesn't
+reliably (or quickly) reflect a fresh development build. Use
+`make install-watch`/`make run-watch`/`make debug-watch` to push straight to
+the paired Watch instead, the same way the plain targets do for the iPhone
+(`WATCH_DEVICE` defaults to `watchOLA`, override the same way `DEVICE`
+works). Bike vs. treadmill behavior on the Watch itself still can't be
+tested in the Simulator either – needs a real, paired Watch.
+
 ## Idea for later: elevation lookup for GPX tracks without `<ele>`
 
 GPX-route riding (see Status above) is deliberately offline-only for now: a

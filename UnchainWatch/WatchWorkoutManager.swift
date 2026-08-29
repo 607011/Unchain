@@ -15,9 +15,14 @@ import WatchConnectivity
 /// Deliberately minimal: no live power/heart rate display here – just
 /// Start/Stop, with this session handling energy/heart-rate collection and
 /// the eventual Health save entirely on its own, the same way the stock
-/// Workout app would. Scoped to Indoor Cycling only – see
-/// `HKWorkoutConfiguration.activityType` below and the matching gate on the
-/// iOS side (`ControlView.configureWatchCompanion`).
+/// Workout app would. Works for Indoor Cycling and treadmill Walk/Run alike
+/// – whichever `HKWorkoutActivityType` the iPhone's reply to
+/// `notifyPhoneToStart` names is what `beginSession(activityType:)` uses.
+/// This side never decides Walk vs. Run itself: for a treadmill, the iPhone
+/// doesn't know the answer either until the rider's picked one in its own
+/// "Walking or running?" dialog – shown there, not here, deliberately (see
+/// `ContentView`'s own note on staying picker-free) – so `start()` simply
+/// waits for that reply, however long it takes.
 final class WatchWorkoutManager: NSObject, ObservableObject {
     enum State: Equatable {
         case idle
@@ -74,6 +79,12 @@ final class WatchWorkoutManager: NSObject, ObservableObject {
 
     /// Just what this session itself writes – no read types at all (unlike
     /// `HealthKitManager` on the iOS side, this never reads anything back).
+    /// Covers both distance types regardless of which activity actually
+    /// starts: a treadmill workout (unlike a bike) can get distance readings
+    /// straight from the Watch's own motion sensors, indoors or not, so
+    /// leaving `distanceWalkingRunning` out here would risk exactly the kind
+    /// of silent per-type write failure `HealthKitManager`'s own doc comment
+    /// describes on the iOS side.
     private var shareTypes: Set<HKSampleType> {
         var types: Set<HKSampleType> = [HKObjectType.workoutType()]
         if let heartRate = HKObjectType.quantityType(forIdentifier: .heartRate) {
@@ -82,13 +93,21 @@ final class WatchWorkoutManager: NSObject, ObservableObject {
         if let activeEnergy = HKObjectType.quantityType(forIdentifier: .activeEnergyBurned) {
             types.insert(activeEnergy)
         }
+        if let distanceCycling = HKObjectType.quantityType(forIdentifier: .distanceCycling) {
+            types.insert(distanceCycling)
+        }
+        if let distanceWalkingRunning = HKObjectType.quantityType(forIdentifier: .distanceWalkingRunning) {
+            types.insert(distanceWalkingRunning)
+        }
         return types
     }
 
     /// Starts both halves at once: this Watch-side session, and (via
     /// `notifyPhoneToStart`) Unchain's own session on the iPhone. Doesn't
     /// proceed with either if the phone side reports it couldn't (e.g. no
-    /// trainer connected yet, or the connected machine isn't a bike).
+    /// trainer connected, or the rider cancelled the "Walking or running?"
+    /// dialog there) – see that method's own doc comment on why this can
+    /// take a moment to resolve for a treadmill.
     func start() {
         guard state == .idle else { return }
         guard isAvailable else {
@@ -96,13 +115,13 @@ final class WatchWorkoutManager: NSObject, ObservableObject {
             return
         }
         state = .starting
-        notifyPhoneToStart { [weak self] success in
+        notifyPhoneToStart { [weak self] success, activityType in
             guard let self else { return }
-            guard success else {
+            guard success, let activityType else {
                 self.state = .failed(String(localized: "iPhone couldn't start – check it's connected to a trainer."))
                 return
             }
-            self.requestAuthorizationAndBeginSession()
+            self.requestAuthorizationAndBeginSession(activityType: activityType)
         }
     }
 
@@ -117,7 +136,7 @@ final class WatchWorkoutManager: NSObject, ObservableObject {
         state = .idle
     }
 
-    private func requestAuthorizationAndBeginSession() {
+    private func requestAuthorizationAndBeginSession(activityType: HKWorkoutActivityType) {
         store.requestAuthorization(toShare: shareTypes, read: []) { [weak self] granted, _ in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -125,14 +144,17 @@ final class WatchWorkoutManager: NSObject, ObservableObject {
                     self.state = .failed(String(localized: "Health access denied."))
                     return
                 }
-                self.beginSession()
+                self.beginSession(activityType: activityType)
             }
         }
     }
 
-    private func beginSession() {
+    /// `activityType` comes from the iPhone's reply to `notifyPhoneToStart`
+    /// – whatever `ControlView` actually started (or, for a treadmill, the
+    /// rider's own Walk/Run answer there), not decided on this side at all.
+    private func beginSession(activityType: HKWorkoutActivityType) {
         let configuration = HKWorkoutConfiguration()
-        configuration.activityType = .cycling
+        configuration.activityType = activityType
         configuration.locationType = .indoor
         do {
             let newSession = try HKWorkoutSession(healthStore: store, configuration: configuration)
@@ -254,19 +276,26 @@ extension WatchWorkoutManager: WCSessionDelegate {
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {}
 
     /// Asks Unchain on the iPhone to start its own session, exactly as if
-    /// "Start Workout" had been tapped there – `completion` reports whether
+    /// "Start Workout" had been tapped there. `completion` reports whether
     /// that actually happened (`false` if the phone's unreachable, or it
-    /// declined, e.g. no trainer connected).
-    private func notifyPhoneToStart(completion: @escaping (Bool) -> Void) {
+    /// declined, e.g. no trainer connected) and, if so, which activity type
+    /// it started as – this may sit waiting on the phone's reply for a
+    /// while if the connected machine is a treadmill: the phone shows its
+    /// own "Walking or running?" dialog before replying at all, rather than
+    /// deciding that here. `WCSession`'s reply handler is fine left open for
+    /// that; there's no strict timeout for it while both sides stay
+    /// reachable.
+    private func notifyPhoneToStart(completion: @escaping (Bool, HKWorkoutActivityType?) -> Void) {
         guard WCSession.default.activationState == .activated, WCSession.default.isReachable else {
-            completion(false)
+            completion(false, nil)
             return
         }
         WCSession.default.sendMessage(["command": "start"]) { reply in
             let success = (reply["success"] as? Bool) ?? false
-            DispatchQueue.main.async { completion(success) }
+            let activityType = (reply["activityType"] as? UInt).flatMap { HKWorkoutActivityType(rawValue: $0) }
+            DispatchQueue.main.async { completion(success, activityType) }
         } errorHandler: { _ in
-            DispatchQueue.main.async { completion(false) }
+            DispatchQueue.main.async { completion(false, nil) }
         }
     }
 

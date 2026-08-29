@@ -556,11 +556,13 @@ protocol, so it works in principle with any FTMS-capable trainer.
       can be, with a proper Total this time); Unchain's phone-side save is
       skipped for that one, rather than writing a duplicate – see
       `ControlView`'s `isWatchCompanionWorkout`/`configureWatchCompanion()`
-      and `WatchConnectivityManager`. Scoped to **Indoor Cycling only**
-      (enforced on the phone side): the Watch has to declare its workout's
-      activity type *before* the ride starts, and unlike a bike, FTMS can't
-      tell a treadmill workout's eventual Walk/Run choice apart that early –
-      that's only asked *after* stopping (see `saveDialogButtons`)
+      and `WatchConnectivityManager`. Originally Indoor Cycling only – the
+      Watch has to declare its workout's activity type *before* the ride
+      starts, and unlike a bike, FTMS can't tell a treadmill workout's
+      eventual Walk/Run choice apart that early, which used to only get
+      asked *after* stopping (see the "Save workout to Apple Health?"
+      dialog's `saveDialogButtons`). Superseded by the next entry, which
+      moves that choice earlier and lifts the restriction
 - [x] Fixed (build tooling): embedding `UnchainWatch` made `make build`
       (and CI) fail outright – a blanket `-sdk iphoneos`/`-sdk
       iphonesimulator` gets applied to *every* target in the build, forcing
@@ -672,6 +674,36 @@ protocol, so it works in principle with any FTMS-capable trainer.
       enough to need a second look. Trade-off: the tile now does grow
       taller while a summary is showing, unlike before this was requested,
       when tap-to-toggle deliberately kept every tile's height constant
+- [x] The Watch companion now works for a treadmill too, not just a bike –
+      prompted by a good catch: the Watch's idle screen showed a fixed
+      bicycle icon, which stopped making sense the moment Start there could
+      also mean Walk or Run. The actual blocker had been deciding *which*:
+      the Watch has to declare its `HKWorkoutConfiguration.activityType`
+      before the workout starts, but FTMS can't tell a treadmill's eventual
+      Walk/Run apart that early – previously only asked, on the phone,
+      *after* stopping. Fixed by moving that choice earlier instead: tapping
+      Start for a treadmill – on the phone screen *or* the Watch – now shows
+      a "Walking or running?" dialog on the phone first (`ControlView`'s
+      `startWorkout()`/`chooseTreadmillActivity(_:)`), and only then starts
+      either side; the old post-stop Walk/Run choice is gone; the save
+      dialog now shows one button either way, same as a bike always did.
+      For a Watch-triggered start, `WatchConnectivityManager.onStartRequested`
+      changed from a synchronous `Bool` return to a completion callback,
+      since the phone's reply now has to wait on the rider actually
+      answering that dialog rather than being knowable right away; it
+      carries the chosen `HKWorkoutActivityType` back to
+      `WatchWorkoutManager.beginSession(activityType:)`, which no longer
+      hardcodes `.cycling`. Also added `distanceCycling`/
+      `distanceWalkingRunning` to the Watch's own HealthKit share types – a
+      treadmill workout can get distance readings straight from the Watch's
+      motion sensors even indoors, unlike a bike, so leaving either out
+      would risk the exact same silent per-type write failure
+      `HealthKitManager`'s doc comment describes on the phone side. The
+      Watch's idle icon is now a generic flame instead of the bicycle. Live
+      kcal (see above) stays cycling-only for now – the walk/run formula
+      still needs a live distance/body-weight estimate wired up, unlike the
+      simpler mechanical-work-based cycling one – even though Walk vs. Run
+      itself is technically known early enough now
 
 ## App Store readiness
 

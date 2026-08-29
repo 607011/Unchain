@@ -1,4 +1,5 @@
 import Foundation
+import HealthKit
 import WatchConnectivity
 
 /// iPhone-side half of the minimal Watch companion integration (see the
@@ -11,10 +12,13 @@ import WatchConnectivity
 /// reliably can't (see `HealthKitManager`'s own doc comment for the full
 /// explanation, added after exactly this was reported not working).
 ///
-/// Scoped to Indoor Cycling only for now, enforced on the `ControlView` side
-/// (`onStartRequested`) – the Watch has to declare its workout's activity
-/// type *before* the ride starts, and unlike a bike, FTMS can't tell a
-/// treadmill workout's eventual Walk/Run choice apart that early.
+/// Works for both Indoor Cycling and treadmill Walk/Run – for a treadmill,
+/// `onStartRequested`'s completion doesn't fire until the rider's actually
+/// answered `ControlView`'s "Walking or running?" dialog (shown on the
+/// phone even when Start was tapped on the Watch, since the Watch's own
+/// screen deliberately has no picker of its own – see `UnchainWatch`'s
+/// `ContentView`), which is also what the Watch needs to know before it can
+/// declare its own workout's activity type.
 final class WatchConnectivityManager: NSObject, ObservableObject {
     static let shared = WatchConnectivityManager()
 
@@ -25,11 +29,15 @@ final class WatchConnectivityManager: NSObject, ObservableObject {
     @Published private(set) var isWatchCompanionActive = false
 
     /// Set by `ControlView` – attempts to start the workout exactly like
-    /// tapping "Start Workout" would, returning whether that actually
-    /// succeeded (e.g. `false` if no trainer is connected, or a treadmill
-    /// is), so the Watch can show an error rather than a falsely-confirmed
-    /// "Recording" state.
-    var onStartRequested: (() -> Bool)?
+    /// tapping "Start Workout" would, calling `completion` with whether that
+    /// actually succeeded (e.g. `false` if no trainer is connected) and, if
+    /// so, the activity type the workout started as – so the Watch can
+    /// declare the same one for its own `HKWorkoutSession`, or show an error
+    /// rather than a falsely-confirmed "Recording" state. A completion, not
+    /// a plain return value: for a treadmill, `ControlView` doesn't actually
+    /// know the answer until the rider's picked Walk or Run on the phone,
+    /// which can take a moment – see that type's own doc comment.
+    var onStartRequested: ((_ completion: @escaping (Bool, HKWorkoutActivityType?) -> Void) -> Void)?
     /// Set by `ControlView` – stops the current workout exactly like
     /// tapping "Stop" there would.
     var onStopRequested: (() -> Void)?
@@ -78,9 +86,22 @@ extension WatchConnectivityManager: WCSessionDelegate {
             }
             switch command {
             case "start":
-                let success = self.onStartRequested?() ?? false
-                self.isWatchCompanionActive = success
-                replyHandler(["success": success])
+                guard let onStartRequested = self.onStartRequested else {
+                    replyHandler(["success": false])
+                    return
+                }
+                // May not call `replyHandler` right away – see this
+                // property's own doc comment – but `WCSession` is fine
+                // holding a reply open while the rider answers a dialog on
+                // the phone.
+                onStartRequested { success, activityType in
+                    self.isWatchCompanionActive = success
+                    var reply: [String: Any] = ["success": success]
+                    if let activityType {
+                        reply["activityType"] = activityType.rawValue
+                    }
+                    replyHandler(reply)
+                }
             case "stop":
                 self.onStopRequested?()
                 self.isWatchCompanionActive = false

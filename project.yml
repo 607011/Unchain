@@ -90,8 +90,9 @@ targets:
   # display (see WatchWorkoutManager's doc comment for why this exists at
   # all – it's what lets Apple Fitness add Resting/Basal Energy on top of
   # Unchain's own Active-Energy figure for "Total Calories", which a lone
-  # iPhone reliably can't). Scoped to Indoor Cycling only, enforced on the
-  # iOS side (`ControlView.configureWatchCompanion`).
+  # iPhone reliably can't). Works for Indoor Cycling and treadmill Walk/Run
+  # alike – whichever the iPhone side is driving, per its own reply to the
+  # Watch's start request (see `ControlView.configureWatchCompanion`).
   UnchainWatch:
     type: application
     platform: watchOS
@@ -107,7 +108,7 @@ targets:
         # Without this, the Watch app list/install prompt shows the product
         # name ("UnchainWatch") instead of a proper display name.
         CFBundleDisplayName: Unchain
-        NSHealthUpdateUsageDescription: "Unchain uses this to save this cycling workout to Health."
+        NSHealthUpdateUsageDescription: "Unchain uses this to save this workout to Health."
         # Keeps the workout session (and this app) running while the wrist
         # is down / the watch face has taken over – without this, iOS
         # suspends the app and the `HKWorkoutSession` along with it well

@@ -1690,6 +1690,16 @@
           }
         }
       }
+    },
+    "Walking or running?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gehen oder Laufen?"
+          }
+        }
+      }
     }
   },
   "version": "1.1"

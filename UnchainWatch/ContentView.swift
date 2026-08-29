@@ -2,8 +2,11 @@ import SwiftUI
 
 /// The Watch app's entire UI – deliberately just Start/Stop plus status, no
 /// live power/heart rate display (see `WatchWorkoutManager`'s doc comment
-/// for the scoping decision). Indoor Cycling only, matching the gate on the
-/// iOS side.
+/// for the scoping decision). Works for whichever of Indoor Cycling or
+/// treadmill Walk/Run the iPhone is actually driving – this screen has no
+/// picker of its own for that (the iPhone's "Walking or running?" dialog
+/// covers it, even when Start was tapped here), which is also why the idle
+/// icon below is a generic one rather than a bicycle.
 struct ContentView: View {
     @StateObject private var workoutManager = WatchWorkoutManager()
 
@@ -20,7 +23,7 @@ struct ContentView: View {
             VStack(spacing: 10) {
                 switch workoutManager.state {
                 case .idle:
-                    Image(systemName: "bicycle")
+                    Image(systemName: "flame.fill")
                         .font(.title2)
                         .foregroundStyle(.secondary)
                     Button {

@@ -53,6 +53,24 @@ struct ControlView: View {
     /// the usual "Save workout to Apple Health?" dialog and save are both
     /// skipped for it – see the `onChange(of: session.pendingSummary)` below.
     @State private var isWatchCompanionWorkout = false
+    /// Chosen once, up front, the moment a treadmill workout starts (see
+    /// `startWorkout()`/`chooseTreadmillActivity(_:)`) – used at save time
+    /// instead of asking again (`saveDialogButtons`), and, for a
+    /// Watch-triggered start, sent along so the Watch's own
+    /// `HKWorkoutSession` declares the same activity type. `nil` before the
+    /// choice is made, and for any non-treadmill workout.
+    @State private var treadmillActivityType: HKWorkoutActivityType?
+    /// Drives the "Walking or running?" dialog below – shown the moment
+    /// Start is requested for a treadmill, regardless of whether that
+    /// request came from this screen's own Start button or relayed from the
+    /// Watch (`configureWatchCompanion()`).
+    @State private var isChoosingTreadmillActivity = false
+    /// Set only while answering a Watch-triggered start request – holds the
+    /// reply `WatchConnectivityManager` is waiting to send back to the
+    /// Watch until the rider actually answers the dialog above. `nil` for a
+    /// plain start from this screen's own button, where there's no Watch
+    /// side waiting on anything.
+    @State private var pendingWatchStartCompletion: ((Bool, HKWorkoutActivityType?) -> Void)?
 
     private let powerStep = 5
     private let resistanceStep = 1
@@ -258,6 +276,22 @@ struct ControlView: View {
                 saveDialogButtons(for: summary)
             }
         }
+        // Shown instead of starting right away whenever the connected
+        // machine is a treadmill – see `startWorkout()`/
+        // `configureWatchCompanion()`, the two places that set
+        // `isChoosingTreadmillActivity`. Answering it is what actually
+        // starts the workout (`chooseTreadmillActivity(_:)`); Cancel here
+        // leaves the workout unstarted, and, for a Watch-triggered request,
+        // tells the Watch so via `pendingWatchStartCompletion`.
+        .confirmationDialog(
+            "Walking or running?",
+            isPresented: $isChoosingTreadmillActivity,
+            titleVisibility: .visible
+        ) {
+            Button("Indoor Walk") { chooseTreadmillActivity(.walking) }
+            Button("Indoor Run") { chooseTreadmillActivity(.running) }
+            Button("Cancel", role: .cancel) { cancelTreadmillActivityChoice() }
+        }
         .alert(item: $saveResult) { result in
             Alert(title: Text(result.title), message: Text(result.message), dismissButton: .default(Text("OK")))
         }
@@ -388,7 +422,8 @@ struct ControlView: View {
                         // workout was (stale state would otherwise wrongly
                         // skip this one's Health save too).
                         isWatchCompanionWorkout = false
-                        session.start(usingProgram: mode == .program)
+                        pendingWatchStartCompletion = nil
+                        startWorkout()
                     }
                         .buttonStyle(.borderedProminent)
                         .disabled(connection.state != .ready || (mode == .program && session.activeWorkout == nil))
@@ -884,17 +919,28 @@ struct ControlView: View {
         }
     }
 
-    /// Buttons offered in the post-workout save dialog. Which activity types are
-    /// offered depends on the detected machine kind – FTMS can tell us it's a
-    /// treadmill, but not whether the user walked or ran, so that's a manual choice.
+    /// Buttons offered in the post-workout save dialog. Which activity types
+    /// are offered depends on the detected machine kind. For a treadmill,
+    /// this used to be where Walk vs. Run was decided – it's now already
+    /// known from `treadmillActivityType` (chosen up front, at Start, via
+    /// `startWorkout()`/`chooseTreadmillActivity(_:)`), so there's just one
+    /// button, same as the bike case always had. The two-button fallback
+    /// only covers the (in practice unreachable) case of that choice
+    /// somehow never having been made.
     @ViewBuilder
     private func saveDialogButtons(for summary: WorkoutSummary) -> some View {
         switch summary.machineKind {
         case .bike:
             Button("Save as Indoor Cycling") { save(summary, as: .cycling) }
         case .treadmill:
-            Button("Save as Indoor Walk") { save(summary, as: .walking) }
-            Button("Save as Indoor Run") { save(summary, as: .running) }
+            if let treadmillActivityType {
+                Button(treadmillActivityType == .running ? "Save as Indoor Run" : "Save as Indoor Walk") {
+                    save(summary, as: treadmillActivityType)
+                }
+            } else {
+                Button("Save as Indoor Walk") { save(summary, as: .walking) }
+                Button("Save as Indoor Run") { save(summary, as: .running) }
+            }
         case .unknown:
             Button("Save Workout") { save(summary, as: .other) }
         }
@@ -929,23 +975,82 @@ struct ControlView: View {
         session.stop()
     }
 
+    /// The phone screen's own Start button – begins right away for a bike
+    /// (and for `.unknown`, same as always: `saveDialogButtons` already
+    /// falls back to a generic "Save Workout" there, with no activity
+    /// choice to make either way), but for a treadmill shows the "Walking
+    /// or running?" dialog first (`chooseTreadmillActivity(_:)` is what
+    /// actually starts things once answered).
+    private func startWorkout() {
+        switch connection.machineKind {
+        case .bike, .unknown:
+            treadmillActivityType = nil
+            session.start(usingProgram: mode == .program)
+        case .treadmill:
+            isChoosingTreadmillActivity = true
+        }
+    }
+
+    /// Answers the "Walking or running?" dialog: records the choice for
+    /// `saveDialogButtons` to use later, starts the workout, and – if this
+    /// dialog was actually triggered by a Watch start request rather than
+    /// the phone's own Start button – replies to the Watch so *its* own
+    /// `HKWorkoutSession` starts with the same activity type.
+    private func chooseTreadmillActivity(_ activityType: HKWorkoutActivityType) {
+        treadmillActivityType = activityType
+        // Only actually a Watch-companion workout if this dialog was
+        // triggered by a Watch start request in the first place – a plain
+        // treadmill start from this screen's own Start button also shows
+        // it, with `pendingWatchStartCompletion` left `nil`.
+        if pendingWatchStartCompletion != nil {
+            isWatchCompanionWorkout = true
+        }
+        session.start(usingProgram: mode == .program)
+        pendingWatchStartCompletion?(true, activityType)
+        pendingWatchStartCompletion = nil
+    }
+
+    /// Cancelling the dialog leaves the workout unstarted – for a
+    /// Watch-triggered request, the Watch needs to hear that explicitly
+    /// (rather than being left waiting on a reply that never comes), so it
+    /// can show its usual "couldn't start" state instead of hanging on
+    /// "Starting…" forever.
+    private func cancelTreadmillActivityChoice() {
+        pendingWatchStartCompletion?(false, nil)
+        pendingWatchStartCompletion = nil
+    }
+
     /// Wires `WatchConnectivityManager`'s two callbacks to this view's own
     /// start/stop actions – see that type's doc comment for the full
-    /// picture. Scoped to Indoor Cycling only: `onStartRequested` fails
-    /// (returns `false`, so the Watch can show that rather than a falsely
-    /// confirmed "Recording" state) unless the connected machine is a bike –
-    /// the Watch has to declare its own workout's activity type *before*
-    /// the ride starts, and unlike a bike, FTMS can't tell a treadmill
-    /// workout's eventual Walk/Run choice apart that early (that's only
-    /// asked *after* stopping – see `saveDialogButtons`).
+    /// picture. `onStartRequested` now takes a completion instead of
+    /// returning synchronously: a bike answers it immediately, but a
+    /// treadmill has to show the same "Walking or running?" dialog
+    /// `startWorkout()` does first (`isChoosingTreadmillActivity`), and the
+    /// Watch's reply waits – via `pendingWatchStartCompletion` – until the
+    /// rider actually answers it on the phone. `.unknown` fails immediately;
+    /// there'd be no honest activity type to hand the Watch either way.
     private func configureWatchCompanion() {
-        WatchConnectivityManager.shared.onStartRequested = {
-            guard connection.state == .ready,
-                  connection.machineKind == .bike,
-                  session.state == .idle else { return false }
-            isWatchCompanionWorkout = true
-            session.start(usingProgram: mode == .program)
-            return true
+        WatchConnectivityManager.shared.onStartRequested = { completion in
+            guard connection.state == .ready, session.state == .idle else {
+                completion(false, nil)
+                return
+            }
+            switch connection.machineKind {
+            case .bike:
+                isWatchCompanionWorkout = true
+                treadmillActivityType = nil
+                session.start(usingProgram: mode == .program)
+                completion(true, .cycling)
+            case .treadmill:
+                // `isWatchCompanionWorkout` is set from
+                // `chooseTreadmillActivity(_:)` instead, once the rider
+                // actually answers – not here, where the request could
+                // still be cancelled.
+                pendingWatchStartCompletion = completion
+                isChoosingTreadmillActivity = true
+            case .unknown:
+                completion(false, nil)
+            }
         }
         WatchConnectivityManager.shared.onStopRequested = {
             session.stop()

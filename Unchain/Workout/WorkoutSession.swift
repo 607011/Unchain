@@ -154,12 +154,13 @@ final class WorkoutSession: ObservableObject {
     /// Display is set to "Off" (see `SettingsView.speedDisplayUnitKey`).
     /// Same formula `HealthKitManager.save()`'s final figure uses for
     /// cycling (`EnergyEstimator.cyclingActiveEnergyKcal`) – deliberately
-    /// cycling-only for now: the walk/run formula also needs to know which
-    /// of the two this is, and FTMS can't tell that apart until the rider
-    /// picks one *after* stopping (see `ControlView.saveDialogButtons`), so
-    /// there's no honest live number to show for a treadmill workout yet –
-    /// `nil` there, same "no accurate figure means no invented one" rule as
-    /// everywhere else energy gets estimated.
+    /// cycling-only for now: the walk/run formula also needs a live body
+    /// weight fetch and distance-based estimate wired up here, which hasn't
+    /// been done yet, even though Walk vs. Run itself is now known from the
+    /// start of a treadmill workout (`ControlView.chooseTreadmillActivity`)
+    /// rather than only after stopping. `nil` for a treadmill for now – same
+    /// "no accurate figure means no invented one" rule as everywhere else
+    /// energy gets estimated.
     @Published private(set) var liveActiveEnergyKcal: Double?
     /// Session-local nudge to a Program's target values, e.g. "+5" means
     /// every target is sent (and shown) at 105 % of what the file/shorthand

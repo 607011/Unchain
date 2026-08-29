@@ -1440,6 +1440,256 @@
           }
         }
       }
+    },
+    "Indoor Cycling": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indoor-Radfahren"
+          }
+        }
+      }
+    },
+    "Indoor Walk": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indoor-Gehen"
+          }
+        }
+      }
+    },
+    "Indoor Run": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indoor-Laufen"
+          }
+        }
+      }
+    },
+    "Log a Workout…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Training nachtragen …"
+          }
+        }
+      }
+    },
+    "Log a Workout": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Training nachtragen"
+          }
+        }
+      }
+    },
+    "Type": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Art"
+          }
+        }
+      }
+    },
+    "When": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wann"
+          }
+        }
+      }
+    },
+    "Start": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beginn"
+          }
+        }
+      }
+    },
+    "Duration (min)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dauer (Min.)"
+          }
+        }
+      }
+    },
+    "Details (optional)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details (optional)"
+          }
+        }
+      }
+    },
+    "Distance (m)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strecke (m)"
+          }
+        }
+      }
+    },
+    "Avg Power (W)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ø-Leistung (W)"
+          }
+        }
+      }
+    },
+    "e.g. 45": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. 45"
+          }
+        }
+      }
+    },
+    "e.g. 5000": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. 5000"
+          }
+        }
+      }
+    },
+    "e.g. 180": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. 180"
+          }
+        }
+      }
+    },
+    "Add a workout to Health that wasn't recorded live in Unchain – e.g. one done without the app running.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fügt Health ein Training hinzu, das nicht live mit Unchain aufgezeichnet wurde – z. B. eines ohne laufende App."
+          }
+        }
+      }
+    },
+    "Distance and average power are both optional, but average power is what enables a calorie estimate for cycling.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strecke und Ø-Leistung sind beide optional, aber erst die Ø-Leistung ermöglicht eine Kalorienschätzung beim Radfahren."
+          }
+        }
+      }
+    },
+    "Distance is optional, but without it there's no calorie estimate – walking/running needs it, along with your body weight from Health.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Strecke ist optional, aber ohne sie gibt es keine Kalorienschätzung – Gehen/Laufen braucht sie, zusammen mit deinem Körpergewicht aus Health."
+          }
+        }
+      }
+    },
+    "Speed Display": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geschwindigkeitsanzeige"
+          }
+        }
+      }
+    },
+    "km/h rarely matters on an indoor trainer, and running/walking is usually tracked in min/km instead – choose whichever fits, or turn it off to show live calories in that spot instead (cycling only).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "km/h ist auf einem Indoor-Trainer selten aussagekräftig, und beim Laufen/Gehen wird eher in min/km gemessen – wähle, was passt, oder schalte die Anzeige aus, um dort stattdessen live die Kalorien zu sehen (nur beim Radfahren)."
+          }
+        }
+      }
+    },
+    "km/h": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "km/h"
+          }
+        }
+      }
+    },
+    "min/km": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "min/km"
+          }
+        }
+      }
+    },
+    "Off": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus"
+          }
+        }
+      }
+    },
+    "kcal": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kcal"
+          }
+        }
+      }
+    },
+    "Heart Rate": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herzfrequenz"
+          }
+        }
+      }
     }
   },
   "version": "1.1"

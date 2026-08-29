@@ -30,6 +30,9 @@ struct ControlView: View {
     @AppStorage("lastTargetPowerWatts") private var targetPower: Int = 100
     @AppStorage("lastTargetResistancePercent") private var targetResistance: Int = 20
     @AppStorage("lastTargetGradePercent") private var targetGrade: Double = 0
+    /// Set in Settings – see `SpeedDisplayUnit`'s own doc comment for why
+    /// km/h isn't always the most useful reading here.
+    @AppStorage(SettingsView.speedDisplayUnitKey) private var speedDisplayUnit = SpeedDisplayUnit.kmh
     @State private var saveResult: SaveResultAlert?
     @State private var savedSummary: WorkoutSummary?
     @State private var isShowingFeatures = false
@@ -43,6 +46,13 @@ struct ControlView: View {
     /// confirmation dialog's dismiss handler from mistaking the dialog closing
     /// itself (after "Save as …" was tapped) for the user cancelling.
     @State private var isSaving = false
+    /// True for the duration of a workout started via the Watch companion
+    /// app (see `WatchConnectivityManager`) – the Watch's own `HKWorkoutSession`
+    /// is the one saving this workout to Health (more accurately than
+    /// Unchain's own estimate can, see `HealthKitManager`'s doc comment), so
+    /// the usual "Save workout to Apple Health?" dialog and save are both
+    /// skipped for it – see the `onChange(of: session.pendingSummary)` below.
+    @State private var isWatchCompanionWorkout = false
 
     private let powerStep = 5
     private let resistanceStep = 1
@@ -157,6 +167,13 @@ struct ControlView: View {
                         bluetooth.disconnectCurrent()
                         bluetooth.clearConnection()
                     }
+                    // Tapping this mid-workout would end the session (and
+                    // drop back to the device list) with no way to undo it
+                    // or recover the progress so far – unlike Stop, which at
+                    // least offers the save/discard dialog first. Same
+                    // "workout in progress" condition already used just
+                    // above for the mode Picker.
+                    .disabled(session.state == .running || session.state == .paused)
                 }
             }
             ToolbarItem(placement: .confirmationAction) {
@@ -204,9 +221,23 @@ struct ControlView: View {
             targetGrade = gradePercentRange.clamp(targetGrade)
             loadPersistedOrDefaultProgram()
             ensureModeIsAvailable()
+            configureWatchCompanion()
         }
         .onChange(of: connection.supportedFeatures) { _ in
             ensureModeIsAvailable()
+        }
+        // Fires the instant `stop()` sets `pendingSummary` – for a
+        // Watch-companion workout this resolves it immediately, silently,
+        // before the confirmationDialog below ever gets a chance to render
+        // (SwiftUI processes this before the next body evaluation), so the
+        // rider never sees "Save to Health?" for a workout the Watch itself
+        // is already saving, more accurately, on its own. `.onReceive`
+        // rather than `.onChange(of:)` since `WorkoutSummary` isn't
+        // `Equatable` (a `heartRateSamples` tuple array can't be).
+        .onReceive(session.$pendingSummary) { summary in
+            guard isWatchCompanionWorkout, summary != nil else { return }
+            isWatchCompanionWorkout = false
+            session.reset()
         }
         .confirmationDialog(
             "Save workout to Apple Health?",
@@ -294,9 +325,49 @@ struct ControlView: View {
         HStack(spacing: 24) {
             MetricTile(title: "Watt", value: connection.metrics.instantaneousPowerWatts.map { "\($0)" } ?? "–", stat: session.powerStats)
             MetricTile(title: "RPM", value: connection.metrics.instantaneousCadenceRPM.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: session.cadenceStats)
+            // The kcal tile swaps places with bpm (but km/h/pace doesn't) –
+            // requested after the kcal tile landed right next to Watt/RPM,
+            // ahead of heart rate, which read oddly since kcal is itself
+            // derived from the same live data heart rate sits next to
+            // everywhere else in the app (e.g. the post-workout summary).
+            if showsKcalTile {
+                if let heartRate = bluetooth.currentHeartRateConnection {
+                    HeartRateTile(connection: heartRate, stat: session.heartRateStats)
+                }
+                speedOrCalorieTile
+            } else {
+                speedOrCalorieTile
+                if let heartRate = bluetooth.currentHeartRateConnection {
+                    HeartRateTile(connection: heartRate, stat: session.heartRateStats)
+                }
+            }
+        }
+    }
+
+    /// Whether `speedOrCalorieTile` is currently showing the kcal tile
+    /// (rather than km/h, pace, or its own km/h fallback) – see
+    /// `speedOrCalorieTile`'s own doc comment for the conditions.
+    private var showsKcalTile: Bool { speedDisplayUnit == .off && connection.machineKind == .bike }
+
+    /// The third tile: km/h, pace (min/km), or – for cycling, with speed
+    /// display turned off – a live calorie count instead, per the
+    /// `speedDisplayUnit` Settings choice. See `SpeedDisplayUnit`'s own doc
+    /// comment for why km/h isn't always the most useful thing to show here.
+    @ViewBuilder
+    private var speedOrCalorieTile: some View {
+        switch speedDisplayUnit {
+        case .kmh:
             MetricTile(title: "km/h", value: connection.metrics.instantaneousSpeedKmh.map { String(format: "%.1f", locale: .current, $0) } ?? "–", stat: session.speedStats)
-            if let heartRate = bluetooth.currentHeartRateConnection {
-                HeartRateTile(connection: heartRate, stat: session.heartRateStats)
+        case .pace:
+            MetricTile(title: "min/km", value: paceString(fromSpeedKmh: connection.metrics.instantaneousSpeedKmh), stat: session.speedStats, formatValue: paceString(fromSpeedKmh:))
+        case .off:
+            if connection.machineKind == .bike {
+                MetricTile(title: "kcal", value: session.liveActiveEnergyKcal.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: LiveStat())
+            } else {
+                // Live kcal needs a run/walk split (see `liveActiveEnergyKcal`'s
+                // own doc comment) that isn't knowable until the workout ends –
+                // fall back to km/h rather than showing a tile that can't work.
+                MetricTile(title: "km/h", value: connection.metrics.instantaneousSpeedKmh.map { String(format: "%.1f", locale: .current, $0) } ?? "–", stat: session.speedStats)
             }
         }
     }
@@ -311,19 +382,26 @@ struct ControlView: View {
             HStack(spacing: 16) {
                 switch session.state {
                 case .idle, .ended:
-                    Button("Start Workout") { session.start(usingProgram: mode == .program) }
+                    Button("Start Workout") {
+                        // A fresh manual start from the phone screen – not
+                        // via the Watch this time, even if the *previous*
+                        // workout was (stale state would otherwise wrongly
+                        // skip this one's Health save too).
+                        isWatchCompanionWorkout = false
+                        session.start(usingProgram: mode == .program)
+                    }
                         .buttonStyle(.borderedProminent)
                         .disabled(connection.state != .ready || (mode == .program && session.activeWorkout == nil))
                 case .running:
                     Button("Pause") { session.pause() }
                         .buttonStyle(.bordered)
-                    Button("Stop") { session.stop() }
+                    Button("Stop") { stopWorkout() }
                         .buttonStyle(.borderedProminent)
                         .tint(.red)
                 case .paused:
                     Button("Resume") { session.resume() }
                         .buttonStyle(.borderedProminent)
-                    Button("Stop") { session.stop() }
+                    Button("Stop") { stopWorkout() }
                         .buttonStyle(.bordered)
                         .tint(.red)
                 }
@@ -402,7 +480,7 @@ struct ControlView: View {
                 // No external `.frame(height:)` here – `WorkoutProgramChart`
                 // sizes itself, since its height is meant to grow with the
                 // y-axis ceiling (see `chartHeight`), not stay a fixed box.
-                WorkoutProgramChart(program: program, elapsedSeconds: session.elapsedSeconds, powerHistory: session.powerHistory, maxActualWatts: session.powerStats.maxValue, intensityAdjustmentPercent: session.intensityAdjustmentPercent, workoutState: session.state)
+                WorkoutProgramChart(program: program, elapsedSeconds: session.elapsedSeconds, powerHistory: session.powerHistory, maxActualWatts: session.powerStats.maxValue, heartRateHistory: session.heartRateHistory, isHeartRateConnected: bluetooth.currentHeartRateConnection != nil, intensityAdjustmentPercent: session.intensityAdjustmentPercent, workoutState: session.state)
                     .padding(.horizontal)
 
                 Text("\(elapsedTimeLabel) / \(formattedDuration(program.duration))")
@@ -837,6 +915,42 @@ struct ControlView: View {
             session.reset()
         }
     }
+
+    /// The Stop button's action, from either `.running` or `.paused` – wraps
+    /// `session.stop()` with the one extra step a Watch-companion workout
+    /// needs: telling the Watch to end its own `HKWorkoutSession` too, since
+    /// the phone side is what's ending things this time (if the Watch's own
+    /// Stop button had been tapped instead, `WatchConnectivityManager`'s
+    /// `onStopRequested` closure below already calls `session.stop()`
+    /// directly, with no need to message the Watch back about its own
+    /// action).
+    private func stopWorkout() {
+        WatchConnectivityManager.shared.notifyPhoneStoppedWorkout()
+        session.stop()
+    }
+
+    /// Wires `WatchConnectivityManager`'s two callbacks to this view's own
+    /// start/stop actions – see that type's doc comment for the full
+    /// picture. Scoped to Indoor Cycling only: `onStartRequested` fails
+    /// (returns `false`, so the Watch can show that rather than a falsely
+    /// confirmed "Recording" state) unless the connected machine is a bike –
+    /// the Watch has to declare its own workout's activity type *before*
+    /// the ride starts, and unlike a bike, FTMS can't tell a treadmill
+    /// workout's eventual Walk/Run choice apart that early (that's only
+    /// asked *after* stopping – see `saveDialogButtons`).
+    private func configureWatchCompanion() {
+        WatchConnectivityManager.shared.onStartRequested = {
+            guard connection.state == .ready,
+                  connection.machineKind == .bike,
+                  session.state == .idle else { return false }
+            isWatchCompanionWorkout = true
+            session.start(usingProgram: mode == .program)
+            return true
+        }
+        WatchConnectivityManager.shared.onStopRequested = {
+            session.stop()
+        }
+    }
 }
 
 private struct SaveResultAlert: Identifiable {
@@ -1004,6 +1118,17 @@ private struct WorkoutProgramChart: View {
     /// if a live reading exceeds it (see `yCeiling`), instead of either
     /// stretching to fit the exact value or clipping it off invisibly.
     let maxActualWatts: Double?
+    /// Plotted as a second trace against its own (right-hand) axis –
+    /// see `showsHeartRate`/`heartRateDomain` – whenever a heart rate strap
+    /// has produced at least one reading so far this workout, regardless of
+    /// program kind (power or resistance).
+    let heartRateHistory: [HeartRateSample]
+    /// Whether a strap is currently paired (`bluetooth.currentHeartRateConnection
+    /// != nil`) – used alongside `heartRateHistory` in `showsHeartRate` so the
+    /// right-hand axis appears the moment a strap is connected, before a
+    /// workout (and with it, any actual samples) has even started, rather
+    /// than only once `heartRateHistory` has its first entry.
+    let isHeartRateConnected: Bool
     /// See `WorkoutSession.intensityAdjustmentPercent` – the Target curve
     /// plotted here is the *adjusted* one (via `WorkoutSession
     /// .adjustedValue(_:byPercent:)`, the same formula that decides what's
@@ -1039,11 +1164,19 @@ private struct WorkoutProgramChart: View {
     private var targetSeriesLabel: String { String(localized: "Target") }
     private var actualSeriesLabel: String { String(localized: "Actual") }
     private var ftpSeriesLabel: String { String(localized: "FTP") }
+    private var heartRateSeriesLabel: String { String(localized: "Heart Rate") }
+
+    /// Only once a strap has actually produced a reading this workout – not
+    /// just "one's currently connected", so a brief BLE dropout doesn't yank
+    /// the trace (and the right-hand axis, and the chart's shape) away
+    /// mid-workout.
+    private var showsHeartRate: Bool { isHeartRateConnected || !heartRateHistory.isEmpty }
 
     var body: some View {
         let targetSeriesLabel = targetSeriesLabel
         let actualSeriesLabel = actualSeriesLabel
         let ftpSeriesLabel = ftpSeriesLabel
+        let heartRateSeriesLabel = heartRateSeriesLabel
         VStack(spacing: 2) {
             Chart {
                 if let index = selectedBreakpointIndex, index + 1 < program.breakpoints.count {
@@ -1071,6 +1204,16 @@ private struct WorkoutProgramChart: View {
                         .foregroundStyle(by: .value("Series", actualSeriesLabel))
                     }
                 }
+                if showsHeartRate {
+                    ForEach(heartRateHistory, id: \.timeSeconds) { sample in
+                        LineMark(
+                            x: .value("Minutes", sample.timeSeconds / 60),
+                            y: .value(heartRateSeriesLabel, rescaledHeartRateValue(Double(sample.bpm)))
+                        )
+                        .interpolationMethod(.linear)
+                        .foregroundStyle(by: .value("Series", heartRateSeriesLabel))
+                    }
+                }
                 RuleMark(x: .value("Elapsed", Double(elapsedSeconds) / 60))
                     .foregroundStyle(.red)
                 if showsActualPower, ftpWatts > 0 {
@@ -1084,11 +1227,45 @@ private struct WorkoutProgramChart: View {
                         }
                 }
             }
-            .chartForegroundStyleScale([targetSeriesLabel: Color.blue, actualSeriesLabel: Color.green, ftpSeriesLabel: Color.orange])
+            .chartForegroundStyleScale([targetSeriesLabel: Color.blue, actualSeriesLabel: Color.green, ftpSeriesLabel: Color.orange, heartRateSeriesLabel: Color.red])
             .chartXScale(domain: xDomainMinutes)
             .chartYScale(domain: yDomain)
             .chartXAxisLabel("Minutes")
-            .chartYAxisLabel(unitLabel)
+            // `position: .leading` here is deliberate, not the default –
+            // `.automatic` (the parameterless overload this used before)
+            // stopped reliably resolving to the left once a right-hand axis
+            // existed too, and would occasionally flip this label over to
+            // the trailing side, overlapping the heart rate axis' own tick
+            // labels there. Pinning it explicitly keeps it with the axis
+            // it's actually labeling, regardless of what else the chart
+            // draws.
+            .chartYAxisLabel(unitLabel, position: .leading)
+            // The Watt/Percent axis stays on the left (`.leading`) with
+            // Swift Charts' own automatic tick placement, exactly as before
+            // – only its *position* is now explicit, needed to make room
+            // for the heart rate axis on the right. `values: .automatic`
+            // here is deliberate: an explicit `.stride(by:)` step overlapped
+            // once this chart was short enough to need more ticks than it
+            // had room for (see `yAxisStep`'s own note on the same bug).
+            // The heart rate axis' tick *positions* are the rescaled y-values
+            // of a handful of round bpm numbers (`heartRateAxisTickBpmValues`)
+            // – Swift Charts has no native second y-domain, so each tick's
+            // label is drawn as the original bpm figure while its on-screen
+            // position comes from mapping that bpm through the same linear
+            // rescale the plotted line itself uses (`rescaledHeartRateValue`).
+            .chartYAxis {
+                AxisMarks(position: .leading)
+                if showsHeartRate {
+                    AxisMarks(position: .trailing, values: heartRateAxisTickBpmValues.map { rescaledHeartRateValue($0) }) { value in
+                        AxisGridLine()
+                        AxisValueLabel {
+                            if let rescaled = value.as(Double.self) {
+                                Text("\(Int(unrescaledHeartRateValue(rescaled)))")
+                            }
+                        }
+                    }
+                }
+            }
             // `.chartXScale(domain:)` alone only remaps the scale – it doesn't
             // clip drawing to the plot area, so a line segment leading to a
             // point outside the zoomed window still gets drawn past the
@@ -1259,6 +1436,44 @@ private struct WorkoutProgramChart: View {
     /// clean grid every time regardless of what's actually loaded.
     private var yDomain: ClosedRange<Double> {
         0...yCeiling
+    }
+
+    /// Fixed rather than fitted to this workout's actual readings (unlike
+    /// `yCeiling`) – a stable range keeps the right-hand axis' ticks and the
+    /// heart rate trace's shape from shifting every time a new min/max
+    /// reading comes in, which a fitted range would otherwise do constantly
+    /// over a live-updating chart. Covers essentially every rider's realistic
+    /// range, resting to max effort.
+    private var heartRateDomain: ClosedRange<Double> { 40...220 }
+
+    /// Round bpm figures to label on the right-hand axis – every 20 bpm
+    /// across `heartRateDomain`, the same "clean, evenly spaced" idea as the
+    /// Watt/Percent axis' own automatic ticks, just chosen by hand since
+    /// this axis' positions are synthetic (see `.chartYAxis` above).
+    private var heartRateAxisTickBpmValues: [Double] {
+        Swift.stride(from: heartRateDomain.lowerBound, through: heartRateDomain.upperBound, by: 20).map { $0 }
+    }
+
+    /// Maps a bpm value from `heartRateDomain` onto this chart's actual
+    /// Watt/Percent y-domain (`yDomain`), so it can be plotted as a
+    /// `LineMark` value on the same axis Swift Charts actually draws –
+    /// see `.chartYAxis` above for how the right-hand axis then displays
+    /// the original bpm figures instead of these rescaled ones.
+    private func rescaledHeartRateValue(_ bpm: Double) -> Double {
+        let hrSpan = heartRateDomain.upperBound - heartRateDomain.lowerBound
+        guard hrSpan > 0 else { return yDomain.lowerBound }
+        let fraction = (bpm - heartRateDomain.lowerBound) / hrSpan
+        return yDomain.lowerBound + fraction * (yDomain.upperBound - yDomain.lowerBound)
+    }
+
+    /// The inverse of `rescaledHeartRateValue(_:)` – recovers the original
+    /// bpm figure from a rescaled y-domain position, for the right-hand
+    /// axis' tick labels.
+    private func unrescaledHeartRateValue(_ rescaled: Double) -> Double {
+        let ySpan = yDomain.upperBound - yDomain.lowerBound
+        guard ySpan > 0 else { return heartRateDomain.lowerBound }
+        let fraction = (rescaled - yDomain.lowerBound) / ySpan
+        return heartRateDomain.lowerBound + fraction * (heartRateDomain.upperBound - heartRateDomain.lowerBound)
     }
 
     /// Chart height scales with `yCeiling` at a fixed points-per-watt ratio,
@@ -1542,14 +1757,15 @@ private struct HeartRateTile: View {
 }
 
 /// One live-metric tile (Watt/RPM/km/h/bpm). Tapping toggles between the
-/// current reading and a "↓min Øavg ↑max" summary *in the same slot*, rather
-/// than showing the summary as an extra line underneath – that used to make
-/// the tile taller only once a workout had collected samples, shifting
-/// everything below it the moment one started, and the summary text had to
-/// stay tiny to fit alongside the current value. Both states are a single
-/// line at the same font ceiling, auto-shrunk to fit no matter which is
-/// showing, so the tile's height never changes and the summary can be as
-/// large as the tile's width actually allows.
+/// current reading and a ↓min/Øaverage/↑max summary *in the same slot*.
+/// The three summary values stack vertically, one per line, each at the
+/// same font size as the plain reading above them – legible at a glance
+/// mid-ride, same as the current value is – rather than the three
+/// squeezed onto one line and auto-shrunk to fit, which used to read
+/// small enough to need a second look. The tradeoff: the tile does grow
+/// taller while a summary is showing (three stacked lines vs. one), unlike
+/// before this was requested, when tap-to-toggle deliberately kept the
+/// tile's height constant.
 private struct MetricTile: View {
     /// `LocalizedStringKey`, not `String` – unlike passing a literal
     /// straight to `Text(...)`, a literal flowing through a plain `String`
@@ -1559,6 +1775,12 @@ private struct MetricTile: View {
     let title: LocalizedStringKey
     let value: String
     let stat: LiveStat
+    /// Formats a min/average/max value for the tapped-summary state below.
+    /// Defaults to the plain rounded-integer formatting every existing tile
+    /// (Watt/RPM/km-h/bpm) already used – only the pace tile overrides this,
+    /// since a pace's min/average/max need converting from the underlying
+    /// speed-in-km/h samples `stat` actually stores, not just rounding.
+    var formatValue: (Double?) -> String = formatStatValue
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showsSummary = false
 
@@ -1566,18 +1788,24 @@ private struct MetricTile: View {
 
     var body: some View {
         VStack(spacing: 2) {
-            Group {
-                if showsSummary, stat.count > 0 {
-                    Text("↓\(formatStatValue(stat.minValue)) Ø\(formatStatValue(stat.average)) ↑\(formatStatValue(stat.maxValue))")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(value)
+            if showsSummary, stat.count > 0 {
+                VStack(spacing: 2) {
+                    Text("↓\(formatValue(stat.minValue))")
+                    Text("Ø\(formatValue(stat.average))")
+                    Text("↑\(formatValue(stat.maxValue))")
                 }
+                .font(.system(size: isRegularWidth ? 44 : 28, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.4)
+                .monospacedDigit()
+            } else {
+                Text(value)
+                    .font(.system(size: isRegularWidth ? 44 : 28, weight: .semibold, design: .rounded))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.4)
+                    .monospacedDigit()
             }
-            .font(.system(size: isRegularWidth ? 44 : 28, weight: .semibold, design: .rounded))
-            .lineLimit(1)
-            .minimumScaleFactor(0.4)
-            .monospacedDigit()
             Text(title).font(isRegularWidth ? .title3 : .caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
@@ -1668,4 +1896,16 @@ private struct RepeatingStepButton: View {
 
 private func formatStatValue(_ value: Double?) -> String {
     value.map { String(format: "%.0f", locale: .current, $0) } ?? "–"
+}
+
+/// Converts a speed in km/h to a running/walking pace, formatted "m:ss" per
+/// kilometer (e.g. 10 km/h → "6:00"). `nil` or a speed too low to produce a
+/// meaningful pace (below brisk-walking, where the minutes-per-km figure
+/// balloons into something nobody reads as a pace) both fall back to "–".
+private func paceString(fromSpeedKmh speedKmh: Double?) -> String {
+    guard let speedKmh, speedKmh >= 1 else { return "–" }
+    let secondsPerKm = 3600 / speedKmh
+    let minutes = Int(secondsPerKm) / 60
+    let seconds = Int(secondsPerKm.rounded()) % 60
+    return String(format: "%d:%02d", minutes, seconds)
 }

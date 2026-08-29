@@ -52,9 +52,21 @@ protocol, so it works in principle with any FTMS-capable trainer.
       workouts, the ACSM walk/run metabolic equations from speed and body
       weight (flat ground assumed). No settings screen for sex/height/weight —
       body weight is read directly from the Health app (`NSHealthShareUsageDescription`),
-      where it's already the source of truth. Apple's Fitness app then adds
-      its own resting-calorie estimate on top to show "Total Calories",
-      using whatever profile the user has in their own Health Details
+      where it's already the source of truth. This becomes the workout's
+      **Active Calories**; Fitness's "Total Calories" for that same workout
+      is Active + whatever **Resting/Basal Energy** (a separate, continuous
+      *background* HealthKit metric, `basalEnergyBurned`) happens to be on
+      record for that exact time window – not something Unchain reads,
+      writes, or has any say over. **Correcting an earlier claim here**: this
+      isn't simply "Apple adds an age/weight-based estimate on top" the way
+      it was first described – if nothing was actively producing background
+      resting-energy samples for that stretch of time (in practice, mostly
+      an Apple Watch actually worn then; a lone iPhone's own contribution
+      here is inconsistent, undocumented by Apple, and not guaranteed),
+      there's nothing for Fitness to add, and Total legitimately just equals
+      Active. Deliberately not something Unchain works around by writing its
+      own basal-energy figure – that would risk double-counting against
+      whatever the system is already tracking in the background
 - [x] Live min/average/max shown under each of Watt/RPM/km/h/bpm once a
       workout is running
 - [x] After (re)connecting, the currently displayed power/resistance target is
@@ -510,6 +522,156 @@ protocol, so it works in principle with any FTMS-capable trainer.
       `heartRateProfileReadTypes` for `fetchHeartRateProfile()`) – whatever
       is or isn't granted in Settings can now never again affect whether a
       workout saves
+- [x] **"Log a Workout…"**, right at the bottom of Settings (see
+      `LogWorkoutView`) – backfills a workout into Health that Unchain never
+      recorded live, e.g. one done without the app running, or one whose
+      live save failed outright (see the bug fixed just above). Type
+      (Indoor Cycling/Walk/Run), start time, duration, and optionally
+      distance and (cycling only) average power – the last of which is what
+      turns into a calorie estimate via the exact same `EnergyEstimator`
+      formulas a live save uses (`workDoneKilojoules = avgWatts × duration`
+      for cycling; distance + duration + body weight from Health for walk/
+      run). Reuses `HealthKitManager.save(_:as:)` and `WorkoutSummary`
+      completely unchanged from the live save path in `ControlView` – same
+      validation, same "no accurate figure means no invented one" rule,
+      same error handling – just with `heartRateSamples`/
+      `heartRateZoneSeconds` always empty, since there's nothing to log
+      after the fact for either
+- [x] **A minimal Apple Watch companion** (`UnchainWatch` target, embedded
+      in `Unchain.app/Watch` – see `project.yml`), prompted by a real ride
+      where Fitness's "Total Calories" for the workout turned out identical
+      to "Active Calories": that's not a bug, it's what happens when nothing
+      was actively producing background Resting/Basal Energy samples for
+      that time window – in practice, mostly a Watch actually *running its
+      own workout session*, not just worn (see `HealthKitManager`'s doc
+      comment for the full explanation, corrected there after an earlier,
+      too-simple claim). Deliberately minimal, matching that one goal
+      exactly: a single Start/Stop screen (`WatchWorkoutManager`,
+      `ContentView`), no live power/heart-rate display. Tapping Start there
+      starts a real `HKWorkoutSession`/`HKLiveWorkoutBuilder` on the Watch
+      *and*, via `WatchConnectivity`, tells Unchain on the iPhone to start
+      its own trainer-driving session at the same moment – tapping Stop
+      (on either device) ends both. The Watch's own session becomes the
+      workout saved to Health (more accurately than Unchain's own estimate
+      can be, with a proper Total this time); Unchain's phone-side save is
+      skipped for that one, rather than writing a duplicate – see
+      `ControlView`'s `isWatchCompanionWorkout`/`configureWatchCompanion()`
+      and `WatchConnectivityManager`. Scoped to **Indoor Cycling only**
+      (enforced on the phone side): the Watch has to declare its workout's
+      activity type *before* the ride starts, and unlike a bike, FTMS can't
+      tell a treadmill workout's eventual Walk/Run choice apart that early –
+      that's only asked *after* stopping (see `saveDialogButtons`)
+- [x] Fixed (build tooling): embedding `UnchainWatch` made `make build`
+      (and CI) fail outright – a blanket `-sdk iphoneos`/`-sdk
+      iphonesimulator` gets applied to *every* target in the build, forcing
+      the embedded watch target to also try building against the iOS SDK
+      instead of its own watchOS one. `Makefile`/`ci.yml` both now omit
+      `-sdk` entirely, letting each target resolve its own platform from
+      its own `project.yml` settings instead – verified this still defaults
+      the main `Unchain` target to exactly the same `Debug-iphoneos` output
+      as before, so nothing else needed to change. Separately: a watchOS
+      app's icon asset-catalog step needs a watchOS Simulator runtime
+      installed *even for a device build* – on a Mac that's missing one,
+      `make build`/`make archive` fail with "No available simulator
+      runtimes for platform watchsimulator" until `xcodebuild
+      -downloadPlatform watchOS` (or Xcode → Settings → Platforms) adds it
+- [x] Fixed: the Watch's own **Stop** button could do nothing at all –
+      confirmed on a real device. Two separate causes: `ContentView`'s
+      `.running` case put the Stop button below the visible area on smaller
+      watch models (fixed by wrapping the whole screen in a `ScrollView`),
+      and `stop()` called `session?.end()` immediately after
+      `stopActivity(with:)` with no wait for that to actually take effect
+      first, which could silently drop the `.ended` transition and leave the
+      UI stuck on "Stopping…" forever. Restructured to be state-driven
+      instead: `end()` is now only called from `HKWorkoutSessionDelegate`
+      once `.stopped` is actually confirmed (see `WatchWorkoutManager
+      .stop()`/`workoutSession(_:didChangeTo:...)`), with an 8-second
+      watchdog (`armStoppingWatchdog()`) as a hard backstop if that
+      confirmation never arrives at all
+- [x] Fixed: repeated reinstalls during testing could leave an
+      `HKWorkoutSession` orphaned at the system level – still running, with
+      no `WatchWorkoutManager` left to manage it – which then saved to
+      Health separately from whatever session came after it, showing up as
+      duplicate entries for what felt like one continuous ride.
+      `WatchWorkoutManager.init()` now calls `HKHealthStore
+      .recoverActiveWorkoutSession(completion:)` on launch and cleanly ends
+      any such orphan through the same state-driven stop path above, rather
+      than silently resuming it as a fresh "Recording" state
+- [x] The **Disconnect** toolbar button in `ControlView` is now disabled
+      while a workout is running or paused – it used to end the Bluetooth
+      connection, and with it the workout's progress, with no confirmation
+      at all, one accidental tap away
+- [x] The Program workout chart now overlays live **heart rate** as a
+      second trace whenever a strap has produced at least one reading this
+      workout (`WorkoutSession.heartRateHistory`), on its own right-hand
+      axis. Swift Charts has no native second y-domain, so
+      `WorkoutProgramChart` fakes one: the trace is plotted by linearly
+      rescaling bpm into the chart's existing Watt/Percent range
+      (`rescaledHeartRateValue(_:)`), while the right-hand axis' tick
+      *labels* show the original bpm figures back
+      (`unrescaledHeartRateValue(_:)`) at a handful of fixed, evenly-spaced
+      values. That bpm range (`heartRateDomain`) is fixed at 40–220 rather
+      than fitted to the ride, so the axis doesn't rescale itself every time
+      a new min/max reading comes in. The Watt/Percent axis itself stays on
+      the left, same as always – now explicit (`AxisMarks(position:
+      .leading)`) rather than implicit, but still with automatic tick
+      placement (see the note further up on why an explicit `.stride(by:)`
+      step isn't safe there), to make room for the new axis on the right
+- [x] New **Speed Display** Settings picker (`SpeedDisplayUnit`: km/h /
+      min/km / Off) controls the third live-metric tile in `ControlView` –
+      km/h is a fairly meaningless number on an indoor trainer, and running/
+      walking is conventionally tracked as pace (min/km,
+      `paceString(fromSpeedKmh:)`) instead. Choosing **Off** frees that tile
+      for a live **kcal** reading instead, cycling only
+      (`WorkoutSession.liveActiveEnergyKcal`, the same running total the
+      eventual Health save's Active Calories comes from) – a treadmill
+      workout's Walk/Run split isn't knowable until after Stop (see
+      `saveDialogButtons`), so live kcal isn't available there and the tile
+      falls back to km/h regardless of the setting
+- [x] Fixed two issues in the new heart rate overlay above, both reported
+      from a real device: the Watt/Percent axis label could jump to the
+      right, overlapping the heart rate axis' own tick labels there, and the
+      heart rate axis itself didn't appear until a workout had actually
+      started, even with a strap already connected. First cause:
+      `.chartYAxisLabel(unitLabel)`'s default `.automatic` position stopped
+      reliably resolving to the left once a second, right-hand axis
+      existed – pinned explicitly to `.leading` instead. Second cause:
+      `showsHeartRate` only looked at `heartRateHistory`, which stays empty
+      until a workout is actually running and collecting samples –
+      `WorkoutProgramChart` now also takes `isHeartRateConnected`
+      (`bluetooth.currentHeartRateConnection != nil`) so the axis shows up
+      the moment a strap is paired, with an empty trace until there's
+      actually something to plot
+- [x] Fixed: a heart rate strap already known to the app (paired at least
+      once before, see `lastHeartRateStrapUUIDKey`) could fail to
+      auto-reconnect. Root cause: the only auto-reconnect path was
+      discovery-based (`centralManager(_:didDiscover:)`, matching a
+      just-scanned device against the stored UUID) – but `ControlView`
+      itself never scans, and `connect(to:)` stops the device-list scan the
+      moment a trainer is picked. A strap that hadn't already reconnected by
+      then – switched on afterwards, or just missed during the brief
+      device-list scan – could never be found again for the rest of the
+      session. Fixed by adding a second, scan-independent path
+      (`attemptAutoReconnectHeartRateStrap()`, run once Bluetooth is ready):
+      `central.retrievePeripherals(withIdentifiers:)` recovers the
+      peripheral purely from its stored identifier, and issuing
+      `connect(_:options:)` on it right away leaves the request pending with
+      CoreBluetooth, which completes it automatically the moment the strap
+      is actually reachable – no scanning required, and no need to already
+      know it's currently in range
+- [x] The kcal tile (see above) now swaps places with bpm, but only when
+      it's actually showing kcal – km/h/pace still sit ahead of bpm as
+      before. Requested since kcal ending up right next to Watt/RPM, ahead
+      of heart rate, read oddly given how closely related the two already
+      are everywhere else in the app (e.g. the post-workout summary)
+- [x] The tap-to-toggle min/average/max summary under each metric tile
+      (`MetricTile`) now stacks its three values vertically, one per line,
+      at the same font size as the tile's plain reading – legible at a
+      glance mid-ride, same as that reading is, rather than all three
+      squeezed onto one line and auto-shrunk to fit, which read small
+      enough to need a second look. Trade-off: the tile now does grow
+      taller while a summary is showing, unlike before this was requested,
+      when tap-to-toggle deliberately kept every tile's height constant
 
 ## App Store readiness
 

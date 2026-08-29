@@ -10,8 +10,18 @@
 #
 # Note on this Mac: scheme/destination-based `xcodebuild` fails here
 # ("Supported platforms for the buildables in the current scheme is empty"),
-# so every build below uses `-target`/`-sdk` instead of `-scheme`/
-# `-destination`, which works reliably (see README).
+# so every build below uses `-target` instead of `-scheme`/`-destination`,
+# which works reliably (see README).
+#
+# `build` deliberately passes no `-sdk` at all (unlike most of this file's
+# earlier history) now that `Unchain` embeds `UnchainWatch` (see
+# project.yml) – a blanket `-sdk iphoneos` gets applied to *every* target in
+# the build, including the embedded watch one, forcing it to (wrongly) also
+# try building against the iOS SDK instead of its own watchOS one. Omitting
+# `-sdk` entirely lets each target resolve its own platform from its own
+# project.yml settings instead – verified to still default the main
+# `Unchain` target to `Debug-iphoneos` exactly as before (see `APP_PATH`
+# below), so nothing else here needed to change.
 
 TARGET        := Unchain
 CONFIGURATION := Debug
@@ -30,7 +40,7 @@ generate:
 	xcodegen generate
 
 build: generate
-	xcodebuild -target $(TARGET) -sdk iphoneos -configuration $(CONFIGURATION) -allowProvisioningUpdates build
+	xcodebuild -target $(TARGET) -configuration $(CONFIGURATION) -allowProvisioningUpdates build
 
 install: build
 	xcrun devicectl device install app --device $(DEVICE) $(APP_PATH)

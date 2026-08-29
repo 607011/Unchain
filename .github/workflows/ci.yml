@@ -32,14 +32,20 @@ jobs:
         run: xcodegen generate
 
       # Bluetooth doesn't work in the Simulator (see README), so this only
-      # verifies the app compiles & links — it can't exercise the BLE/FTMS/
-      # HealthKit code paths, which still need a real iPhone.
-      - name: Build for iOS Simulator
+      # verifies the app (and, now that it's embedded, the UnchainWatch
+      # companion too) compiles & links — it can't exercise the BLE/FTMS/
+      # HealthKit/WatchConnectivity code paths, which still need a real
+      # iPhone (and, for the Watch companion, a paired Watch). Deliberately
+      # no `-sdk` override: `Unchain` now embeds `UnchainWatch` as a
+      # dependency (see project.yml), and a blanket `-sdk iphonesimulator`
+      # would wrongly force *that* target to build against the iOS SDK too
+      # instead of its own watchOS one – letting each target resolve its own
+      # platform, with signing disabled, builds cleanly for both.
+      - name: Build
         run: |
           xcodebuild build \
             -project Unchain.xcodeproj \
             -target Unchain \
-            -sdk iphonesimulator \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO

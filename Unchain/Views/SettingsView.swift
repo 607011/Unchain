@@ -1,5 +1,33 @@
 import SwiftUI
 
+/// How the metrics row's speed tile displays speed – or whether it's shown
+/// at all. See `ControlView.metricsRow`. "Off" frees up that tile's spot for
+/// a live kcal reading instead (see `WorkoutSession.liveActiveEnergyKcal`) –
+/// speed in km/h is fairly pointless for an indoor trainer that never
+/// actually moves, and running/walking pace is usually given in min/km
+/// rather than km/h anyway.
+/// How `ControlView`'s speed tile presents the trainer's speed reading – or
+/// whether it shows a live calorie count in that slot instead. Configurable
+/// because "km/h" is a fairly meaningless number on an indoor bike (it
+/// reflects the simulated wheel speed, not anything the rider actually feels)
+/// and running/walking is conventionally tracked as pace (min/km) rather than
+/// speed at all.
+enum SpeedDisplayUnit: String, CaseIterable, Identifiable {
+    case kmh
+    case pace
+    case off
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .kmh: return String(localized: "km/h")
+        case .pace: return String(localized: "min/km")
+        case .off: return String(localized: "Off")
+        }
+    }
+}
+
 /// App-wide settings, not tied to any particular trainer connection – opened
 /// via the gear icon in `ControlView`'s toolbar. The rider's FTP, used to
 /// interpret %FTP-based workout files (see `WorkoutProgramParser.parse`,
@@ -9,12 +37,14 @@ import SwiftUI
 /// from them (see `HeartRateZone`); Vibration/Interval Sound for Program
 /// workouts; and an explicit Language override (see `LanguageManager`),
 /// which defaults to following the device's own Language & Region setting;
-/// and links to the Privacy Policy/Terms of Use, both served from the
-/// project's GitHub Pages site alongside a small landing page (see
-/// `docs/index.html` in the repo). Each section's explanation lives behind
-/// its `InfoButton` rather than a permanent footer, to keep the screen from
-/// growing too tall now that there are several of them. More settings are
-/// expected to land here over time.
+/// links to the Privacy Policy/Terms of Use, both served from the project's
+/// GitHub Pages site alongside a small landing page (see `docs/index.html`
+/// in the repo); and, right at the bottom, "Log a Workout…" (see
+/// `LogWorkoutView`) for backfilling one into Health that Unchain never
+/// recorded live. Each section's explanation lives behind its `InfoButton`
+/// rather than a permanent footer, to keep the screen from growing too tall
+/// now that there are several of them. More settings are expected to land
+/// here over time.
 struct SettingsView: View {
     /// `UserDefaults` key for the rider's FTP – shared here since
     /// `CreateWorkoutView`'s shorthand workout notation (`%FTP` targets) also
@@ -33,6 +63,10 @@ struct SettingsView: View {
     /// not on record in Health", in which case `HeartRateZone` quietly falls
     /// back to the plain %-of-max-heart-rate breakpoints instead.
     static let restingHeartRateBPMKey = "userRestingHeartRateBPM"
+    /// `UserDefaults` key for `SpeedDisplayUnit` – read directly by
+    /// `ControlView.metricsRow`, the same "read at the point of use" pattern
+    /// as `WorkoutSession`'s own settings.
+    static let speedDisplayUnitKey = "speedDisplayUnit"
 
     @AppStorage(ftpWattsKey) private var ftpWatts: Int = 188
     @AppStorage(maxHeartRateBPMKey) private var maxHeartRateBPM: Int = 0
@@ -45,6 +79,8 @@ struct SettingsView: View {
     @AppStorage(WorkoutSession.intervalSoundTypeKey) private var intervalSoundType = IntervalSoundType.single
     @AppStorage(WorkoutSession.intervalSoundVolumeKey) private var intervalSoundVolumePercent: Int = 0
     @AppStorage(LanguageManager.storageKey) private var languageOverride = AppLanguage.system.rawValue
+    @AppStorage(speedDisplayUnitKey) private var speedDisplayUnit = SpeedDisplayUnit.kmh
+    @State private var isShowingLogWorkout = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -156,6 +192,19 @@ struct SettingsView: View {
                         InfoButton(text: "Applies immediately, no restart needed. \"System\" follows your device's own Language & Region setting.")
                     }
                 }
+                Section {
+                    Picker("Speed Display", selection: $speedDisplayUnit) {
+                        ForEach(SpeedDisplayUnit.allCases) { unit in
+                            Text(unit.displayName).tag(unit)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    HStack(spacing: 4) {
+                        Text("Speed Display")
+                        InfoButton(text: "km/h rarely matters on an indoor trainer, and running/walking is usually tracked in min/km instead – choose whichever fits, or turn it off to show live calories in that spot instead (cycling only).")
+                    }
+                }
                 // Self-explanatory row labels – unlike the sections above,
                 // there's nothing here worth hiding behind an `InfoButton`.
                 // `Link` opens the system browser rather than an in-app
@@ -168,6 +217,20 @@ struct SettingsView: View {
                 } header: {
                     Text("Legal")
                 }
+                // Deliberately the very last section – this isn't a setting
+                // so much as an occasional action, and it isn't tied to a
+                // trainer connection either (unlike the live post-workout
+                // save dialog in `ControlView`), so it belongs wherever
+                // Settings itself is reachable from, not buried behind one.
+                Section {
+                    Button {
+                        isShowingLogWorkout = true
+                    } label: {
+                        Label("Log a Workout…", systemImage: "square.and.pencil")
+                    }
+                } footer: {
+                    Text("Add a workout to Health that wasn't recorded live in Unchain – e.g. one done without the app running.")
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -176,6 +239,9 @@ struct SettingsView: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+        .sheet(isPresented: $isShowingLogWorkout) {
+            LogWorkoutView()
         }
         .onAppear {
             if maxHeartRateBPM == 0 || restingHeartRateBPM == 0 {

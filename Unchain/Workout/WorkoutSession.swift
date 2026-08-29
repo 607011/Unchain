@@ -27,6 +27,13 @@ struct PowerSample {
     let watts: Int
 }
 
+/// One second-resolution heart rate reading – see
+/// `WorkoutSession.heartRateHistory`.
+struct HeartRateSample {
+    let timeSeconds: TimeInterval
+    let bpm: Int
+}
+
 enum WorkoutState: Equatable {
     case idle
     case running
@@ -137,6 +144,23 @@ final class WorkoutSession: ObservableObject {
     /// comparing the two. At most one entry per second regardless of how
     /// often `refreshWorkoutState` itself fires (see the class doc comment).
     @Published private(set) var powerHistory: [PowerSample] = []
+    /// Same "at most one entry per elapsed second" shape as `powerHistory`,
+    /// for `ControlView`'s `WorkoutProgramChart` to optionally overlay a
+    /// heart rate trace on its own (secondary) axis alongside Target/Actual
+    /// – only populated while a heart rate strap is actually connected.
+    @Published private(set) var heartRateHistory: [HeartRateSample] = []
+    /// Live active-energy (calorie) estimate, updated every sample tick –
+    /// shown in the metrics row in place of the speed tile once Speed
+    /// Display is set to "Off" (see `SettingsView.speedDisplayUnitKey`).
+    /// Same formula `HealthKitManager.save()`'s final figure uses for
+    /// cycling (`EnergyEstimator.cyclingActiveEnergyKcal`) – deliberately
+    /// cycling-only for now: the walk/run formula also needs to know which
+    /// of the two this is, and FTMS can't tell that apart until the rider
+    /// picks one *after* stopping (see `ControlView.saveDialogButtons`), so
+    /// there's no honest live number to show for a treadmill workout yet –
+    /// `nil` there, same "no accurate figure means no invented one" rule as
+    /// everywhere else energy gets estimated.
+    @Published private(set) var liveActiveEnergyKcal: Double?
     /// Session-local nudge to a Program's target values, e.g. "+5" means
     /// every target is sent (and shown) at 105 % of what the file/shorthand
     /// actually says – lets the rider scale a loaded workout up/down live
@@ -353,6 +377,8 @@ final class WorkoutSession: ObservableObject {
         elapsedSeconds = 0
         distanceMeters = 0
         powerHistory.removeAll()
+        heartRateHistory.removeAll()
+        liveActiveEnergyKcal = nil
         workDoneJoules = 0
         heartRateSamples.removeAll()
         startDate = nil
@@ -450,12 +476,20 @@ final class WorkoutSession: ObservableObject {
             if powerHistory.last?.timeSeconds != TimeInterval(elapsedSeconds) {
                 powerHistory.append(PowerSample(timeSeconds: TimeInterval(elapsedSeconds), watts: power))
             }
+            if connection.machineKind == .bike {
+                liveActiveEnergyKcal = EnergyEstimator.cyclingActiveEnergyKcal(workDoneKilojoules: workDoneJoules / 1000)
+            }
         }
         if let cadence = metrics.instantaneousCadenceRPM {
             cadenceStats.record(cadence)
         }
         if let bpm = heartRateProvider()?.bpm {
             heartRateStats.record(Double(bpm))
+            // Same "at most one entry per elapsed second" dedup as
+            // `powerHistory` above.
+            if heartRateHistory.last?.timeSeconds != TimeInterval(elapsedSeconds) {
+                heartRateHistory.append(HeartRateSample(timeSeconds: TimeInterval(elapsedSeconds), bpm: bpm))
+            }
             // Read directly rather than cached in a published property: the
             // user can edit these in Settings mid-ride, and `.containing`
             // already treats "0/unset" as "no zone" (max) or "no resting

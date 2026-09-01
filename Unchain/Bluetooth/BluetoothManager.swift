@@ -79,10 +79,6 @@ final class BluetoothManager: NSObject, ObservableObject {
         central.connect(device.peripheral, options: nil)
     }
 
-    func disconnectCurrent() {
-        currentConnection?.disconnect()
-    }
-
     /// Reconnects the same `TrainerConnection` (e.g. after the trainer went out of
     /// range and dropped the link) instead of tearing it down and going back to
     /// the device list. Reuses the existing peripheral reference — `connect()`
@@ -93,8 +89,22 @@ final class BluetoothManager: NSObject, ObservableObject {
         central.connect(connection.peripheral, options: nil)
     }
 
-    /// Resets the active trainer connection, e.g. when the user returns to the device list.
+    /// Resets the active trainer connection, e.g. when the user returns to
+    /// the device list. Also explicitly disconnects, not just drops the
+    /// reference – fixed after a real crash: leaving `ControlView` without
+    /// this (a swipe-back mid-workout, in the case that prompted this fix)
+    /// used to leave `TrainerConnection` "orphaned" – no longer referenced
+    /// by the UI, but still `peripheral.delegate`, silently going on
+    /// receiving CoreBluetooth callbacks in the background. If it later
+    /// deallocated while one of those callbacks was still in flight (queued
+    /// for deferred delivery on the main thread, per CoreBluetooth's own
+    /// internal dispatch), the callback could land on already-freed/reused
+    /// memory once delivered – textbook cause of an "unrecognized selector"
+    /// crash. Calling `disconnect()` here first tells CoreBluetooth outright
+    /// to stop delivering anything further for this peripheral, rather than
+    /// leaving that entirely to however/whenever ARC happens to deallocate it.
     func clearConnection() {
+        currentConnection?.disconnect()
         currentConnection = nil
     }
 

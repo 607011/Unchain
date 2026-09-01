@@ -735,6 +735,162 @@ always optional — the app itself never asks.
       "Crash & hang diagnostics" section in `docs/privacy.html`, which also
       had to stop claiming "no analytics or crash-reporting SDKs" quite so
       simply
+- [x] Fixed a real crash, caught via the Diagnostics feature above (an
+      "unrecognized selector" abort, thrown from deep inside Foundation's
+      `__NSThreadPerformPerform` – no Unchain frames on the stack at all,
+      since that mechanism delivers a delegate callback on a deferred basis,
+      well after whatever originally scheduled it has returned). Root cause,
+      confirmed by the rider having navigated back mid-workout: leaving
+      `ControlView` had never actually torn down the BLE connection –
+      `BluetoothManager.clearConnection()` only dropped the app's own
+      reference to `TrainerConnection`, not `cancelPeripheralConnection`, so
+      CoreBluetooth kept delivering callbacks to an "orphaned"
+      `TrainerConnection` no longer referenced by the UI. If it later
+      deallocated while a callback for it was still queued for deferred
+      main-thread delivery, that callback could land on already-freed/reused
+      memory once it finally arrived – textbook cause of exactly this crash
+      shape. Two fixes: `clearConnection()` now calls `disconnect()` first
+      (making `disconnectCurrent()` redundant – removed); and, since only
+      the in-app "Disconnect" button was ever guarded against a running
+      workout, not iOS's own edge-swipe-back gesture, a small
+      `UIViewControllerRepresentable` (`InteractivePopGestureDisabler`)
+      now reaches past SwiftUI to disable
+      `UINavigationController.interactivePopGestureRecognizer` for the
+      duration – `.navigationBarBackButtonHidden(true)` alone only hides the
+      *button*, not the gesture, a genuine SwiftUI API gap
+- [x] Fixed: connecting to the first-ever treadmill actually tested against
+      this app (a Paragon X) got stuck on "Reading device data …" forever –
+      feature discovery worked fine, but control was never granted. Root
+      cause: `TrainerConnection.didDiscoverCharacteristicsFor` called
+      `requestControl()` immediately after `setNotifyValue(true, for:)` for
+      the control point, with no wait for CoreBluetooth to actually confirm
+      that indication subscription took effect on the peripheral first – a
+      race against the trainer's own response. If the trainer processed the
+      Request Control write and sent its response indication before the
+      phone had genuinely finished subscribing, that indication got silently
+      dropped, and `handleControlPointResponse` (the only path to `.ready`)
+      never fired, with no error surfaced either. Fixed by moving
+      `requestControl()` into the new
+      `peripheral(_:didUpdateNotificationStateFor:error:)` delegate method,
+      gated on the control point's own `characteristic.isNotifying`
+      actually turning `true` first – the earliest point it's genuinely
+      safe to ask. This was always a latent bug, for any FTMS trainer –
+      the bike used for testing so far apparently just never lost that race
+- [x] `TrainerMetrics(treadmillData:)` now also parses Instantaneous Power,
+      not just Speed – noticed once the Paragon X's own feature list (see
+      `TrainerFeaturesView`) showed it as supported. Getting there means
+      correctly skipping every optional field the FTMS spec places between
+      Speed and Power in the exact order/byte-width it defines (Average
+      Speed, Total Distance, Inclination + Ramp Angle Setting, Elevation
+      Gain, Instantaneous/Average Pace, Expended Energy, Heart Rate,
+      Metabolic Equivalent, Elapsed/Remaining Time, Force on Belt) – get any
+      one width wrong and Power reads from the wrong offset entirely,
+      silently, not as an obvious failure. Verified against the Bluetooth
+      GATT Specification Supplement's own
+      `org.bluetooth.characteristic.treadmill_data` field table rather than
+      going from memory. `instantaneousCadenceRPM` deliberately still never
+      gets set for a treadmill – FTMS defines no cadence field there at all,
+      unlike Indoor Bike Data (nothing rotating to count) – and the RPM tile
+      in `ControlView.metricsRow` no longer even shows for a treadmill,
+      since it could never have shown anything there anyway. Confirmed:
+      populating `workDoneKilojoules` now for a power-reporting treadmill
+      doesn't affect the Health save's calorie estimate at all –
+      `HealthKitManager.estimateActiveEnergyKcal` branches on the actual
+      `activityType` being saved as, not on whether that figure happens to
+      be present, so a treadmill save still always goes through the ACSM
+      walk/run formula regardless
+- [x] Likely fixed: the RPM tile fix above (should be gone on a treadmill)
+      turned out to still show up on a Paragon X 425A – along with the
+      "Off" Speed Display setting's kcal tile, itself also supposed to be
+      bike-only. Both gated purely on `TrainerConnection.machineKind`, so
+      both pointed at the same thing: `machineKind` itself was ending up
+      `.bike` for this treadmill. Best explanation found:
+      `didDiscoverCharacteristicsFor` set it unconditionally on whichever of
+      Indoor Bike Data / Treadmill Data it happened to see *last* in
+      `service.characteristics` – an order CoreBluetooth never actually
+      guarantees means anything – and this treadmill apparently exposes
+      *both* characteristics (likely for compatibility with apps that only
+      ever learned to read Indoor Bike Data), making the result a coin flip.
+      Fixed by giving Treadmill Data unconditional precedence whenever it's
+      present at all, regardless of discovery order – the more specific
+      signal, and the one this app has real treadmill-only handling built
+      on (the Watch's Walk/Run choice, the treadmill-only metric tiles
+      above)
+- [x] The trainer features sheet (`TrainerFeaturesView`, the ℹ️ button next
+      to the device name) now opens with a new "Reported Characteristics"
+      section at the top, listing every characteristic CoreBluetooth
+      actually found under the Fitness Machine Service verbatim – not just
+      the ones this app reads – each with a best-effort human name
+      (`FTMS.characteristicName(for:)`, covering every characteristic the
+      Bluetooth SIG's FTMS spec defines) alongside its raw UUID. Direct
+      result of not having any way, from inside the app, to see *why*
+      `machineKind` detection had gone wrong for the Paragon X above – this
+      would have shown the both-characteristics-present situation
+      immediately instead of needing several rounds of guessing and a
+      symptom-first diagnosis
+- [x] New **Speed & Incline** control tab (`ControlMode.speedIncline`),
+      treadmill-only – "Power" felt like an odd fit there, where speed and
+      incline (not wattage) are normally what a session's actually about.
+      Shown only when the connected machine is an actual treadmill
+      (`TrainerConnection.machineKind == .treadmill`, not just a device
+      that happens to declare the right target features – see the
+      `machineKind` fix above for why that distinction matters) *and*
+      reports supporting at least one of Speed/Inclination Target Setting
+      (`FitnessMachineFeatures.supportsSpeedTarget`/
+      `supportsInclinationTarget`, two more individually-typed flags
+      alongside the existing Power/Resistance/Grade ones). Sends FTMS op
+      codes this app had never used before – Set Target Speed (0x02, UINT16,
+      0.01 km/h) and Set Target Inclination (0x03, SINT16, 0.1 %) – verified
+      against the Bluetooth SIG spec (section 4.16.2.3/.4) rather than
+      guessed, given a wrong encoding here would send a treadmill a
+      genuinely wrong physical speed/incline, not just a wrong number on
+      screen. Each target clamps to the device's own reported range,
+      newly read from the Supported Speed/Inclination Range characteristics
+      (0x2AD4/0x2AD5, `TrainerConnection.speedRangeKmh`/
+      `inclinationRangePercent`) – the same "ask the device, don't
+      hardcode" approach `powerRange`/`resistanceRangeRaw` already used, now
+      extended to these two. Unlike every other control tab, this one drives
+      two independent targets, not one – `manualControls`' single
+      value/+/- pair didn't fit, so it's a separate `treadmillControls`
+      view instead, one target group per row, each only shown if the
+      connected treadmill actually supports it
+- [x] Fixed: connecting could get stuck on "Reading device data …" again,
+      this time introduced by the Speed & Incline work above. Two separate
+      robustness gaps, found by re-reading the delegate code rather than
+      reproducing on hardware first: `didDiscoverServices`/
+      `didDiscoverCharacteristicsFor` never actually checked their own
+      `error` parameter, so any CoreBluetooth-level failure there left the
+      connection silently stuck forever, with nothing to show for it (both
+      now transition to `.failed(...)` instead – the exact same failure
+      *shape*, if not necessarily the same cause, as the control-point race
+      this file already fixed once). And the two new Supported Speed/
+      Inclination Range characteristics had been bundled into the same
+      `discoverCharacteristics` call as the essential ones (control point
+      included) – a device erroring out or behaving oddly discovering
+      *these specific, newly-added-today* characteristics could take the
+      whole combined request down with it. Split into two independent
+      `discoverCharacteristics` calls instead, so a problem with the
+      optional pair can no longer block the essential one – worst case now,
+      `speedRangeKmh`/`inclinationRangePercent` just stay at their
+      placeholder defaults
+- [x] Fixed: tapping "Start Workout" pressed the treadmill's own virtual
+      "Go" (the FTMS Start/Resume op code) without first (re-)sending the
+      target actually showing in the app – it started moving at *its own*
+      stored speed/incline instead, ignoring what Unchain displayed.
+      `WorkoutSession.start(usingProgram:)` only ever pushed a fresh target
+      for Program mode (`sendCurrentWorkoutTarget(for:)`); every manual mode
+      (Power/Resistance/Grade/**Speed & Incline**) relied entirely on
+      whatever had already been sent earlier – at connect time, or the last
+      +/- tap – still being in effect by the time Start was actually
+      pressed. Apparently not a safe assumption for at least this
+      treadmill: a target set *before* the Start/Resume op code can get
+      reset or ignored, with only one sent *after* reliably sticking.
+      Fixed with a new `ControlView.startSession()`, replacing all three of
+      this view's `session.start(usingProgram:)` call sites (the plain
+      phone Start button, the "Walking or running?" dialog's answer, and a
+      Watch-triggered bike start) – calls `session.start(usingProgram:)`
+      then immediately `sendCurrentTarget()` right after, for every mode,
+      not just Program
 
 ## App Store readiness
 

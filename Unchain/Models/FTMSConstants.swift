@@ -13,6 +13,8 @@ enum FTMS {
     static let fitnessMachineFeature = CBUUID(string: "2ACC")
     static let treadmillData = CBUUID(string: "2ACD")
     static let indoorBikeData = CBUUID(string: "2AD2")
+    static let supportedSpeedRange = CBUUID(string: "2AD4")
+    static let supportedInclinationRange = CBUUID(string: "2AD5")
     static let supportedResistanceLevelRange = CBUUID(string: "2AD6")
     static let supportedPowerRange = CBUUID(string: "2AD8")
     static let fitnessMachineControlPoint = CBUUID(string: "2AD9")
@@ -23,6 +25,8 @@ enum FTMS {
     enum OpCode: UInt8 {
         case requestControl = 0x00
         case reset = 0x01
+        case setTargetSpeed = 0x02
+        case setTargetInclination = 0x03
         case setTargetResistanceLevel = 0x04
         case setTargetPower = 0x05
         case startOrResume = 0x07
@@ -56,5 +60,37 @@ enum FTMS {
         static let rollingResistanceCoefficientRaw: UInt8 = 40
         /// Raw UInt8, resolution 0.01 kg/m → ~0.51 kg/m, a seated road rider.
         static let windResistanceCoefficientRaw: UInt8 = 51
+    }
+
+    /// Best-effort human-readable name for any FTMS data/control
+    /// characteristic – used only by `TrainerFeaturesView`'s diagnostic
+    /// "Reported Characteristics" list, so a device exposing something this
+    /// app doesn't otherwise read (the exact situation that prompted adding
+    /// that list – a treadmill turning out to also expose Indoor Bike Data)
+    /// still shows *something* meaningful rather than being silently
+    /// dropped. Covers every characteristic the Bluetooth SIG's FTMS spec
+    /// defines, not just the ones `TrainerConnection` actually acts on;
+    /// falls back to the raw UUID for anything genuinely unrecognized.
+    /// Deliberately left untranslated – these are the spec's own official
+    /// characteristic names, not app UI text.
+    static func characteristicName(for uuid: CBUUID) -> String {
+        switch uuid {
+        case fitnessMachineFeature: return "Fitness Machine Feature"
+        case treadmillData: return "Treadmill Data"
+        case CBUUID(string: "2ACE"): return "Cross Trainer Data"
+        case CBUUID(string: "2ACF"): return "Step Climber Data"
+        case CBUUID(string: "2AD0"): return "Stair Climber Data"
+        case CBUUID(string: "2AD1"): return "Rower Data"
+        case indoorBikeData: return "Indoor Bike Data"
+        case CBUUID(string: "2AD3"): return "Training Status"
+        case supportedSpeedRange: return "Supported Speed Range"
+        case supportedInclinationRange: return "Supported Inclination Range"
+        case supportedResistanceLevelRange: return "Supported Resistance Level Range"
+        case CBUUID(string: "2AD7"): return "Supported Heart Rate Range"
+        case supportedPowerRange: return "Supported Power Range"
+        case fitnessMachineControlPoint: return "Fitness Machine Control Point"
+        case fitnessMachineStatus: return "Fitness Machine Status"
+        default: return uuid.uuidString
+        }
     }
 }

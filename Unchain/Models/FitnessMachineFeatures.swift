@@ -18,6 +18,8 @@ struct FitnessMachineFeatures: Equatable {
     private(set) var supportsPowerTarget = false
     private(set) var supportsResistanceTarget = false
     private(set) var supportsIndoorBikeSimulation = false
+    private(set) var supportsSpeedTarget = false
+    private(set) var supportsInclinationTarget = false
 
     init(data: Data) {
         guard data.count >= 8 else { return }
@@ -32,6 +34,8 @@ struct FitnessMachineFeatures: Equatable {
             (targetFlags & (1 << bit)) != 0 ? name : nil
         }
 
+        supportsSpeedTarget = (targetFlags & (1 << 0)) != 0
+        supportsInclinationTarget = (targetFlags & (1 << 1)) != 0
         supportsResistanceTarget = (targetFlags & (1 << 2)) != 0
         supportsPowerTarget = (targetFlags & (1 << 3)) != 0
         supportsIndoorBikeSimulation = (targetFlags & (1 << 13)) != 0

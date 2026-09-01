@@ -2,6 +2,7 @@ import SwiftUI
 import HealthKit
 import Charts
 import UniformTypeIdentifiers
+import UIKit
 
 struct ControlView: View {
     @ObservedObject var connection: TrainerConnection
@@ -30,6 +31,8 @@ struct ControlView: View {
     @AppStorage("lastTargetPowerWatts") private var targetPower: Int = 100
     @AppStorage("lastTargetResistancePercent") private var targetResistance: Int = 20
     @AppStorage("lastTargetGradePercent") private var targetGrade: Double = 0
+    @AppStorage("lastTargetSpeedKmh") private var targetSpeedKmh: Double = 5.0
+    @AppStorage("lastTargetInclinePercent") private var targetInclinePercent: Double = 0
     /// Set in Settings – see `SpeedDisplayUnit`'s own doc comment for why
     /// km/h isn't always the most useful reading here.
     @AppStorage(SettingsView.speedDisplayUnitKey) private var speedDisplayUnit = SpeedDisplayUnit.kmh
@@ -75,6 +78,8 @@ struct ControlView: View {
     private let powerStep = 5
     private let resistanceStep = 1
     private let gradeStep: Double = 0.5
+    private let speedStepKmh: Double = 0.5
+    private let inclineStepPercent: Double = 0.5
     /// Resistance is always controlled as 0–100 % of the device's own supported
     /// range (see `TrainerConnection.setTargetResistancePercent`) — not the raw,
     /// vendor-defined FTMS resistance level, which can be far narrower.
@@ -102,6 +107,8 @@ struct ControlView: View {
     private var supportsPowerTarget: Bool { connection.supportedFeatures?.supportsPowerTarget ?? true }
     private var supportsResistanceTarget: Bool { connection.supportedFeatures?.supportsResistanceTarget ?? true }
     private var supportsIndoorBikeSimulation: Bool { connection.supportedFeatures?.supportsIndoorBikeSimulation ?? false }
+    private var supportsSpeedTarget: Bool { connection.supportedFeatures?.supportsSpeedTarget ?? false }
+    private var supportsInclinationTarget: Bool { connection.supportedFeatures?.supportsInclinationTarget ?? false }
 
     /// Only the modes the connected machine actually supports. Program (file
     /// loading) always shows – which file *types* it accepts adapts
@@ -110,6 +117,15 @@ struct ControlView: View {
         var modes: [ControlMode] = []
         if supportsPowerTarget { modes.append(.power) }
         if supportsIndoorBikeSimulation { modes.append(.grade) }
+        // Treadmill-gated per its own request, not just on the target
+        // features being supported – a device could in principle declare
+        // Speed/Inclination Target support without actually being detected
+        // as a treadmill (see `TrainerConnection.machineKind`'s own note on
+        // a device exposing more than one data characteristic), and this
+        // tab's controls only make sense for one.
+        if connection.machineKind == .treadmill, supportsSpeedTarget || supportsInclinationTarget {
+            modes.append(.speedIncline)
+        }
         modes.append(.program)
         if supportsResistanceTarget { modes.append(.resistance) }
         return modes
@@ -163,6 +179,17 @@ struct ControlView: View {
         .navigationTitle(connection.deviceName)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
+        // `.navigationBarBackButtonHidden` only hides the *button* – the
+        // system's own edge-swipe-to-go-back gesture stays active
+        // regardless, and isn't blocked by SwiftUI's `.disabled(_:)` on
+        // anything either (see the "Disconnect" toolbar button just below,
+        // which only covers a *tap* on that one control). Fixed after a
+        // real crash traced back to exactly this: swiping back mid-workout
+        // left `TrainerConnection` orphaned – no longer referenced by the
+        // UI, but still receiving CoreBluetooth callbacks in the
+        // background – see `BluetoothManager.clearConnection()`'s own note
+        // on the crash mechanism this produced.
+        .background(InteractivePopGestureDisabler(isDisabled: session.state == .running || session.state == .paused))
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 6) {
@@ -182,7 +209,6 @@ struct ControlView: View {
                     }
                 } else {
                     Button("Disconnect") {
-                        bluetooth.disconnectCurrent()
                         bluetooth.clearConnection()
                     }
                     // Tapping this mid-workout would end the session (and
@@ -204,7 +230,7 @@ struct ControlView: View {
             }
         }
         .sheet(isPresented: $isShowingFeatures) {
-            TrainerFeaturesView(deviceName: connection.deviceName, features: connection.supportedFeatures)
+            TrainerFeaturesView(deviceName: connection.deviceName, features: connection.supportedFeatures, discoveredCharacteristics: connection.discoveredCharacteristics)
         }
         .sheet(isPresented: $isShowingRecentWorkouts) {
             RecentWorkoutsView(recents: compatibleRecents, onSelect: loadRecentEntry, onDelete: deleteRecentEntry)
@@ -237,6 +263,8 @@ struct ControlView: View {
             targetPower = connection.powerRange.clamp(targetPower)
             targetResistance = resistancePercentRange.clamp(targetResistance)
             targetGrade = gradePercentRange.clamp(targetGrade)
+            targetSpeedKmh = connection.speedRangeKmh.clamp(targetSpeedKmh)
+            targetInclinePercent = connection.inclinationRangePercent.clamp(targetInclinePercent)
             loadPersistedOrDefaultProgram()
             ensureModeIsAvailable()
             configureWatchCompanion()
@@ -358,7 +386,14 @@ struct ControlView: View {
     private var metricsRow: some View {
         HStack(spacing: 24) {
             MetricTile(title: "Watt", value: connection.metrics.instantaneousPowerWatts.map { "\($0)" } ?? "–", stat: session.powerStats)
-            MetricTile(title: "RPM", value: connection.metrics.instantaneousCadenceRPM.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: session.cadenceStats)
+            // Cadence/RPM is a bike-only concept – FTMS has no such field
+            // for a treadmill at all (nothing rotating to count), so
+            // showing it there was always going to read "–" forever. Rather
+            // than clutter the row with a tile that can never show
+            // anything, it's simply not there for a treadmill.
+            if connection.machineKind == .bike {
+                MetricTile(title: "RPM", value: connection.metrics.instantaneousCadenceRPM.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: session.cadenceStats)
+            }
             // The kcal tile swaps places with bpm (but km/h/pace doesn't) –
             // requested after the kcal tile landed right next to Watt/RPM,
             // ahead of heart rate, which read oddly since kcal is itself
@@ -455,6 +490,8 @@ struct ControlView: View {
         switch mode {
         case .power, .resistance, .grade:
             manualControls
+        case .speedIncline:
+            treadmillControls
         case .program:
             programControls
         }
@@ -479,6 +516,47 @@ struct ControlView: View {
             HStack(spacing: 40) {
                 stepButton(systemImage: "minus.circle.fill") { step(-1) }
                 stepButton(systemImage: "plus.circle.fill") { step(1) }
+            }
+        }
+    }
+
+    /// Two independent targets, Speed and Incline, stacked rather than
+    /// `manualControls`' single big number – each only shown if the
+    /// connected treadmill actually supports it (`supportsSpeedTarget`/
+    /// `supportsInclinationTarget`), same as the tab itself only appearing
+    /// when at least one of the two does (see `availableModes`).
+    private var treadmillControls: some View {
+        VStack(spacing: 24) {
+            if supportsSpeedTarget {
+                treadmillTargetGroup(
+                    title: "Speed",
+                    valueText: String(format: "%.1f km/h", locale: .current, targetSpeedKmh),
+                    decrement: { stepSpeed(-1) },
+                    increment: { stepSpeed(1) }
+                )
+            }
+            if supportsInclinationTarget {
+                treadmillTargetGroup(
+                    title: "Incline",
+                    valueText: String(format: "%.1f %%", locale: .current, targetInclinePercent),
+                    decrement: { stepIncline(-1) },
+                    increment: { stepIncline(1) }
+                )
+            }
+        }
+    }
+
+    private func treadmillTargetGroup(title: LocalizedStringKey, valueText: String, decrement: @escaping () -> Void, increment: @escaping () -> Void) -> some View {
+        VStack(spacing: 6) {
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text(valueText)
+                .font(.system(size: isRegularWidth ? 48 : 34, weight: .bold, design: .rounded))
+                .monospacedDigit()
+            HStack(spacing: 32) {
+                stepButton(systemImage: "minus.circle.fill", action: decrement)
+                stepButton(systemImage: "plus.circle.fill", action: increment)
             }
         }
     }
@@ -860,13 +938,15 @@ struct ControlView: View {
         return String(format: "%.1f–%.1f", locale: .current, lower, upper)
     }
 
-    /// Only shown from `manualControls`, i.e. never while `mode == .program`.
+    /// Only shown from `manualControls`, i.e. never while `mode == .program`
+    /// or `.speedIncline` (the latter shows two targets, via
+    /// `treadmillControls` instead – see that view's own labels).
     private var currentTargetLabel: String {
         switch mode {
         case .power: return "\(targetPower) W"
         case .resistance: return "\(targetResistance) %"
         case .grade: return String(format: "%.1f %%", locale: .current, targetGrade)
-        case .program: return ""
+        case .program, .speedIncline: return ""
         }
     }
 
@@ -874,7 +954,8 @@ struct ControlView: View {
         RepeatingStepButton(systemImage: systemImage, isDisabled: connection.state != .ready, action: action)
     }
 
-    /// Only called from `manualControls`, i.e. never while `mode == .program`.
+    /// Only called from `manualControls`, i.e. never while `mode == .program`
+    /// or `.speedIncline` (see `stepSpeed(_:)`/`stepIncline(_:)` instead).
     private func step(_ direction: Int) {
         switch mode {
         case .power:
@@ -883,17 +964,34 @@ struct ControlView: View {
             targetResistance = resistancePercentRange.clamp(targetResistance + direction * resistanceStep)
         case .grade:
             targetGrade = gradePercentRange.clamp(targetGrade + Double(direction) * gradeStep)
-        case .program:
+        case .program, .speedIncline:
             return
         }
         sendCurrentTarget()
+    }
+
+    /// +/- one `speedStepKmh`, clamp to the device's own reported range, and
+    /// send right away – the `treadmillControls` counterpart to `step(_:)`
+    /// above, kept separate since this mode drives two independent targets
+    /// rather than one.
+    private func stepSpeed(_ direction: Int) {
+        targetSpeedKmh = connection.speedRangeKmh.clamp(targetSpeedKmh + Double(direction) * speedStepKmh)
+        connection.setTargetSpeed(kmh: targetSpeedKmh)
+    }
+
+    /// +/- one `inclineStepPercent`, clamp to the device's own reported
+    /// range, and send right away – see `stepSpeed(_:)`'s own note.
+    private func stepIncline(_ direction: Int) {
+        targetInclinePercent = connection.inclinationRangePercent.clamp(targetInclinePercent + Double(direction) * inclineStepPercent)
+        connection.setTargetInclination(percent: targetInclinePercent)
     }
 
     /// Sends whichever target is currently active to the trainer — used both
     /// after +/- taps and right after (re)connecting, so the display and the
     /// device are never out of sync. In Program mode this re-sends the
     /// loaded workout's current target (time-based for a program, distance-
-    /// based for a route) rather than a manual value.
+    /// based for a route) rather than a manual value; in `.speedIncline`,
+    /// both targets go out together, same as every other reconnect case.
     private func sendCurrentTarget() {
         switch mode {
         case .power:
@@ -902,6 +1000,9 @@ struct ControlView: View {
             connection.setTargetResistancePercent(targetResistance)
         case .grade:
             connection.setSimulationGrade(percent: targetGrade)
+        case .speedIncline:
+            connection.setTargetSpeed(kmh: targetSpeedKmh)
+            connection.setTargetInclination(percent: targetInclinePercent)
         case .program:
             switch session.activeWorkout {
             case .program(let program):
@@ -985,10 +1086,31 @@ struct ControlView: View {
         switch connection.machineKind {
         case .bike, .unknown:
             treadmillActivityType = nil
-            session.start(usingProgram: mode == .program)
+            startSession()
         case .treadmill:
             isChoosingTreadmillActivity = true
         }
+    }
+
+    /// Starts the session and immediately pushes whatever target is
+    /// currently showing to the trainer – `session.start(usingProgram:)`
+    /// itself only does this for Program mode
+    /// (`sendCurrentWorkoutTarget(for:)`); every manual mode (Power/
+    /// Resistance/Grade/Speed & Incline) used to rely entirely on whatever
+    /// had already been sent earlier (on connect, or the last +/- tap)
+    /// still being in effect. Turned out not to be a safe assumption –
+    /// reported after a treadmill visibly ignored the app's shown target
+    /// and started moving at whatever speed/incline *it* had stored
+    /// instead, once Start was actually pressed: apparently a target set
+    /// before the Start/Resume op code can be reset or ignored by the
+    /// trainer, with only one sent *after* reliably sticking. Centralized
+    /// here since it's needed at all three of this view's
+    /// `session.start(usingProgram:)` call sites – the plain phone Start
+    /// button above, the "Walking or running?" dialog's answer, and a
+    /// Watch-triggered bike start, both further down.
+    private func startSession() {
+        session.start(usingProgram: mode == .program)
+        sendCurrentTarget()
     }
 
     /// Answers the "Walking or running?" dialog: records the choice for
@@ -1005,7 +1127,7 @@ struct ControlView: View {
         if pendingWatchStartCompletion != nil {
             isWatchCompanionWorkout = true
         }
-        session.start(usingProgram: mode == .program)
+        startSession()
         pendingWatchStartCompletion?(true, activityType)
         pendingWatchStartCompletion = nil
     }
@@ -1039,7 +1161,7 @@ struct ControlView: View {
             case .bike:
                 isWatchCompanionWorkout = true
                 treadmillActivityType = nil
-                session.start(usingProgram: mode == .program)
+                startSession()
                 completion(true, .cycling)
             case .treadmill:
                 // `isWatchCompanionWorkout` is set from
@@ -2013,4 +2135,30 @@ private func paceString(fromSpeedKmh speedKmh: Double?) -> String {
     let minutes = Int(secondsPerKm) / 60
     let seconds = Int(secondsPerKm.rounded()) % 60
     return String(format: "%d:%02d", minutes, seconds)
+}
+
+/// Toggles the enclosing screen's interactive edge-swipe-to-go-back gesture –
+/// SwiftUI's `NavigationStack` has no API for this (unlike the back *button*,
+/// which `.navigationBarBackButtonHidden(true)` covers), so this reaches
+/// past it to the underlying `UINavigationController` directly. An
+/// invisible, zero-effect `UIViewController` used purely as a handle: its
+/// `updateUIViewController` fires on every SwiftUI re-render, which is what
+/// lets `isDisabled` toggle the gesture live as a workout starts/stops,
+/// without ever needing its own visible content.
+private struct InteractivePopGestureDisabler: UIViewControllerRepresentable {
+    let isDisabled: Bool
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        UIViewController()
+    }
+
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        // `navigationController` is only set once this controller's actually
+        // been inserted into the hosting navigation stack's hierarchy, which
+        // hasn't necessarily happened yet the *first* time this runs –
+        // deferring one runloop turn is enough to be sure it has.
+        DispatchQueue.main.async {
+            uiViewController.navigationController?.interactivePopGestureRecognizer?.isEnabled = !isDisabled
+        }
+    }
 }

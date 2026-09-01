@@ -365,8 +365,10 @@ struct SettingsView: View {
 /// there are several sections each with their own explanation. `.popover`
 /// adapts to a sheet-like presentation on iPhone's compact width on its own;
 /// `popoverContent` below opts back into a small bubble there too, from
-/// iOS 16.4 on.
-private struct InfoButton: View {
+/// iOS 16.4 on. Not `private` (unlike most of this file's helper views) –
+/// `TrainerFeaturesView` reuses it too, for the same "explain a section
+/// header without a permanent footer" need.
+struct InfoButton: View {
     let text: LocalizedStringKey
     @State private var isPresented = false
 

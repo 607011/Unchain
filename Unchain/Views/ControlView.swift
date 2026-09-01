@@ -21,10 +21,11 @@ struct ControlView: View {
 
     /// Restored from the last run, same as the target values below — picking
     /// up right where you left off (Power vs. Program vs. …) beats always
-    /// reopening on Power. `ensureModeIsAvailable()` already handles a
-    /// restored mode the *currently connected* machine doesn't support (e.g.
-    /// last time was Grade on a different trainer) by falling back, so this
-    /// needs no extra guarding beyond that existing check.
+    /// reopening on Power. `ensureModeIsAvailable()` handles a restored mode
+    /// the *currently connected* machine doesn't support (e.g. last time was
+    /// Grade on a different trainer) by falling back – see that function's
+    /// own note on why it must never run before machine capabilities are
+    /// actually known, though, or this restore silently breaks instead.
     @AppStorage("lastActiveMode") private var mode: ControlMode = .power
     /// Restored from the last run, and kept up to date as the user steps
     /// them, so they survive an app restart.
@@ -134,6 +135,17 @@ struct ControlView: View {
     /// If the currently selected tab just became unavailable (feature
     /// detection completed and turned out negative), fall back to the first
     /// one that's still valid instead of leaving the picker on a hidden case.
+    ///
+    /// Only ever call this once `connection.supportedFeatures`/
+    /// `connection.machineKind` are actually known (see the call sites
+    /// below – never from `.onAppear` unconditionally). `mode` is itself
+    /// the `@AppStorage`-backed property, so any write here persists
+    /// *immediately* – calling this before those are known used to treat
+    /// "not detected yet" the same as "genuinely unsupported", silently and
+    /// permanently overwriting a remembered Grade/Speed & Incline
+    /// preference with "Power" before the real answer had even arrived.
+    /// Reported after exactly that happened to Speed & Incline; the same
+    /// bug had apparently already bitten Grade earlier.
     private func ensureModeIsAvailable() {
         guard !availableModes.contains(mode) else { return }
         mode = availableModes.first ?? .program
@@ -266,10 +278,21 @@ struct ControlView: View {
             targetSpeedKmh = connection.speedRangeKmh.clamp(targetSpeedKmh)
             targetInclinePercent = connection.inclinationRangePercent.clamp(targetInclinePercent)
             loadPersistedOrDefaultProgram()
-            ensureModeIsAvailable()
+            // Only if capabilities are already known at this point (e.g.
+            // this view re-appearing on an already-`.ready` connection) –
+            // see `ensureModeIsAvailable()`'s own note on why calling this
+            // any earlier than that used to silently destroy a remembered
+            // mode. The `.onChange` handlers below cover the far more
+            // common case, a fresh connect, where they aren't yet.
+            if connection.supportedFeatures != nil {
+                ensureModeIsAvailable()
+            }
             configureWatchCompanion()
         }
         .onChange(of: connection.supportedFeatures) { _ in
+            ensureModeIsAvailable()
+        }
+        .onChange(of: connection.machineKind) { _ in
             ensureModeIsAvailable()
         }
         // Fires the instant `stop()` sets `pendingSummary` – for a

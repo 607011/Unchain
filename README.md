@@ -891,6 +891,31 @@ always optional — the app itself never asks.
       Watch-triggered bike start) – calls `session.start(usingProgram:)`
       then immediately `sendCurrentTarget()` right after, for every mode,
       not just Program
+- [x] Fixed: the remembered control mode (`@AppStorage("lastActiveMode")`)
+      could silently, permanently reset to Power on restart – the same bug
+      that had apparently already hit Grade earlier, now hitting the new
+      Speed & Incline mode too. Root cause: `ensureModeIsAvailable()` ran
+      from `.onAppear`, unconditionally – but at that exact moment, right
+      after a fresh connect, `connection.machineKind` is still `.unknown`
+      and `connection.supportedFeatures` is still `nil` (BLE discovery
+      hasn't completed yet), so `availableModes` only ever saw the bare
+      minimum (Power/Program/Resistance) at that instant. A restored Grade
+      or Speed & Incline preference looked "unavailable" under that
+      incomplete picture and got downgraded to Power right then – and
+      because `mode` *is* the `@AppStorage`-backed property, that downgrade
+      wrote straight to disk immediately, before the real answer had even
+      arrived. The existing `.onChange(of: connection.supportedFeatures)`
+      safety net couldn't undo it afterwards either: by the time real
+      capability data showed up, `mode` already *was* Power – a mode
+      that's always available, so the "is the current mode still valid"
+      check had nothing left to catch. Fixed by only calling
+      `ensureModeIsAvailable()` from `.onAppear` when
+      `connection.supportedFeatures` is already known (e.g. this view
+      re-appearing on an already-`.ready` connection), leaving the fresh-
+      connect case entirely to the `.onChange` handlers – which now also
+      include one for `connection.machineKind`, needed since Speed &
+      Incline's availability depends on that too, not just
+      `supportedFeatures`
 
 ## App Store readiness
 

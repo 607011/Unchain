@@ -294,7 +294,6 @@ struct ControlView: View {
             targetGrade = gradePercentRange.clamp(targetGrade)
             targetSpeedKmh = connection.speedRangeKmh.clamp(targetSpeedKmh)
             targetInclinePercent = connection.inclinationRangePercent.clamp(targetInclinePercent)
-            loadPersistedOrDefaultProgram()
             // Only if capabilities are already known at this point (e.g.
             // this view re-appearing on an already-`.ready` connection) –
             // see `ensureModeIsAvailable()`'s own note on why calling this
@@ -304,14 +303,17 @@ struct ControlView: View {
             if connection.supportedFeatures != nil {
                 ensureModeIsAvailable()
             }
+            loadPersistedOrDefaultProgramIfCapabilitiesKnown()
             rememberConnectedDevice()
             configureWatchCompanion()
         }
         .onChange(of: connection.supportedFeatures) { _ in
             ensureModeIsAvailable()
+            loadPersistedOrDefaultProgramIfCapabilitiesKnown()
         }
         .onChange(of: connection.machineKind) { _ in
             ensureModeIsAvailable()
+            loadPersistedOrDefaultProgramIfCapabilitiesKnown()
             rememberConnectedDevice()
         }
         // Fires the instant `stop()` sets `pendingSummary` – for a
@@ -895,12 +897,37 @@ struct ControlView: View {
         meters >= 1000 ? String(format: "%.2f km", locale: .current, meters / 1000) : String(format: "%.0f m", locale: .current, meters)
     }
 
-    /// Called once when the screen first appears: if a workout is already
-    /// loaded (e.g. from an earlier appearance while reconnecting) this is a
-    /// no-op; otherwise restores whichever of a program or route was used
-    /// most recently *and is still supported by this trainer*, or – if
-    /// nothing qualifies – falls back to the bundled ramp test (itself only
-    /// if Power Target is supported) so Program mode isn't empty-handed.
+    /// Guards `loadPersistedOrDefaultProgram()` against running before
+    /// `connection.machineKind`/`supportedFeatures` are actually known –
+    /// same bug shape `ensureModeIsAvailable()`'s own doc comment already
+    /// covers, just discovered here later: `.onAppear` fires the instant
+    /// `ControlView` is pushed, *before* either has resolved (both start
+    /// `.unknown`/`nil` and only settle once the trainer's characteristics
+    /// have actually been read back over BLE). Calling the real function
+    /// that early used to make `compatibleRecents` evaluate as empty
+    /// regardless of what's actually connected (every filter in it checks
+    /// `connection.machineKind`), falling through to
+    /// `supportsPowerTarget`'s `?? true` default and silently loading the
+    /// bundled power-based ramp test – on a *treadmill* every single time,
+    /// not just occasionally, since `machineKind` is guaranteed `.unknown`
+    /// at that exact moment. Worse, once that wrong program landed,
+    /// `loadPersistedOrDefaultProgram()`'s own `activeWorkout == nil` guard
+    /// then permanently blocked ever correcting it, even after the real
+    /// capabilities arrived a moment later – reported as "the last
+    /// bike workout" loading into a walking/running session instead of the
+    /// last `.zwo` file actually used with it.
+    private func loadPersistedOrDefaultProgramIfCapabilitiesKnown() {
+        guard connection.machineKind != .unknown, connection.supportedFeatures != nil else { return }
+        loadPersistedOrDefaultProgram()
+    }
+
+    /// Called once capabilities are actually known (see the guard above):
+    /// if a workout is already loaded (e.g. from an earlier appearance
+    /// while reconnecting) this is a no-op; otherwise restores whichever of
+    /// a program, route, or treadmill workout was used most recently *and
+    /// is still supported by this trainer*, or – if nothing qualifies –
+    /// falls back to the bundled ramp test (itself only if Power Target is
+    /// supported) so Program mode isn't empty-handed.
     private func loadPersistedOrDefaultProgram() {
         guard session.activeWorkout == nil else { return }
         // `compatibleRecents` already merges and sorts all three sources by

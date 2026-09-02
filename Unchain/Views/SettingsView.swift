@@ -84,11 +84,62 @@ struct SettingsView: View {
     @AppStorage(speedDisplayUnitKey) private var speedDisplayUnit = SpeedDisplayUnit.kmh
     @State private var isShowingLogWorkout = false
     @State private var isShowingDiagnostics = false
+    /// Reloaded on every appearance (not just once) – `TrainerDeviceStore`
+    /// is plain `UserDefaults`, not something SwiftUI observes on its own,
+    /// so a trainer connected for the first time since this screen was last
+    /// opened wouldn't otherwise show up here without backing out and back
+    /// in again.
+    @State private var knownDevices: [KnownTrainerDevice] = []
     @Environment(\.dismiss) private var dismiss
+
+    private var knownTreadmills: [KnownTrainerDevice] { knownDevices.filter { $0.machineKind == .treadmill } }
+    private var knownBikeTrainers: [KnownTrainerDevice] { knownDevices.filter { $0.machineKind == .bike } }
 
     var body: some View {
         NavigationStack {
             Form {
+                // Deliberately one Section (rather than a whole umbrella
+                // wrapping two device-kind Sections) – SwiftUI has no
+                // clean "section of sections" of its own, and one Section
+                // with two inline group labels reads the same as a proper
+                // two-level grouping while still being a single "Devices"
+                // area, matching what's actually being grouped: every
+                // trainer this app has ever connected to (see
+                // `TrainerDeviceStore`), not tied to a live connection –
+                // same "works with nothing connected" reasoning as every
+                // other section on this screen.
+                Section {
+                    if knownDevices.isEmpty {
+                        Text("No trainers connected yet.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        if !knownTreadmills.isEmpty {
+                            Text("Treadmills")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            ForEach(knownTreadmills) { device in
+                                NavigationLink(device.name) {
+                                    TrainerDeviceSettingsView(device: device)
+                                }
+                            }
+                        }
+                        if !knownBikeTrainers.isEmpty {
+                            Text("Bike Trainers")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            ForEach(knownBikeTrainers) { device in
+                                NavigationLink(device.name) {
+                                    TrainerDeviceSettingsView(device: device)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    HStack(spacing: 4) {
+                        Text("Devices")
+                        InfoButton(text: "Every trainer you've connected to at least once. Tap one to adjust its own settings.")
+                    }
+                }
                 Section {
                     TextField("e.g. 250", text: zeroAsEmptyText($ftpWatts))
                         .keyboardType(.numberPad)
@@ -259,6 +310,7 @@ struct SettingsView: View {
             DiagnosticsView()
         }
         .onAppear {
+            knownDevices = TrainerDeviceStore.loadAll()
             if maxHeartRateBPM == 0 || restingHeartRateBPM == 0 {
                 // A Health lookup is about to run (async) and will very
                 // likely change one or both values – let the `.onChange`

@@ -230,6 +230,12 @@ final class WorkoutSession: ObservableObject {
     /// starting a later manual session while a workout is still loaded from a
     /// previous run, can never make `tick()` fight the user's own +/- taps.
     private var isDrivenByProgram = false
+    /// Offset between `elapsedSeconds` (real, wall-clock workout time –
+    /// never touched by a jump) and where playback actually is within the
+    /// loaded program/route, e.g. after `jump(toElapsedSeconds:)`. Zero for
+    /// the entire session unless that's been called at least once. See
+    /// `programPositionSeconds`.
+    private var programOffsetSeconds: TimeInterval = 0
     /// Which `.erg`/`.mrc` file entry playback last reached – see
     /// `WorkoutProgram.breakpointIndex(atElapsedSeconds:)`. Compared against
     /// on every tick to fire the step-change vibration exactly once per new
@@ -259,6 +265,7 @@ final class WorkoutSession: ObservableObject {
         guard state == .idle else { return }
         isDrivenByProgram = usingProgram && activeWorkout != nil
         isProgramFinished = false
+        programOffsetSeconds = 0
         connection.startOrResumeWorkout()
         startDate = Date()
         state = .running
@@ -351,18 +358,16 @@ final class WorkoutSession: ObservableObject {
     /// (`isDrivenByProgram`); a no-op for a plain manual session, which has
     /// no file position to jump within.
     ///
-    /// `elapsedSeconds` isn't a plain counter – it's recomputed from
-    /// `startDate` (see `currentElapsedSeconds(at:)`) every refresh, so
-    /// "jumping" it means shifting `startDate` itself by the same delta,
-    /// rather than assigning `elapsedSeconds` directly and having the very
-    /// next tick silently overwrite it back to the real wall-clock
-    /// position.
+    /// Moves `programOffsetSeconds`, *not* `elapsedSeconds`/`startDate` –
+    /// `elapsedSeconds` is how long the workout has actually been
+    /// running/walked, and must keep ticking with the real clock no matter
+    /// where playback has been jumped to (previously this shifted
+    /// `startDate` itself, which made the on-screen total time jump too,
+    /// backward or forward, every time a row was tapped). See
+    /// `programPositionSeconds`.
     func jump(toElapsedSeconds target: TimeInterval) {
-        guard isDrivenByProgram, state == .running || state == .paused, let startDate else { return }
-        let now = Date()
-        let currentElapsed = TimeInterval(currentElapsedSeconds(at: now))
-        self.startDate = startDate.addingTimeInterval(currentElapsed - target)
-        elapsedSeconds = Int(target)
+        guard isDrivenByProgram, state == .running || state == .paused else { return }
+        programOffsetSeconds = target - TimeInterval(elapsedSeconds)
         // A big jump shouldn't itself count as "reached a new entry" for
         // vibration/interval-sound purposes – let the next regular tick
         // re-establish that from a clean slate instead of possibly firing
@@ -372,6 +377,15 @@ final class WorkoutSession: ObservableObject {
             sendCurrentWorkoutTarget(for: workout)
         }
     }
+
+    /// Where playback actually is within the loaded program/route's own
+    /// timeline – equal to `elapsedSeconds` (real, wall-clock workout time)
+    /// unless `jump(toElapsedSeconds:)` has shifted it away, e.g. tapping
+    /// ahead or back in `TreadmillProgramSegmentList` to preview a
+    /// different segment. Kept separate from `elapsedSeconds` itself so a
+    /// preview jump can change *this* (which segment is "current", what
+    /// target gets sent) without also making the on-screen total time jump.
+    var programPositionSeconds: TimeInterval { TimeInterval(elapsedSeconds) + programOffsetSeconds }
 
     func stop() {
         guard state == .running || state == .paused else { return }
@@ -435,6 +449,7 @@ final class WorkoutSession: ObservableObject {
         stateBeforeStop = nil
         isDrivenByProgram = false
         isProgramFinished = false
+        programOffsetSeconds = 0
         intensityAdjustmentPercent = 0
         lastProgramBreakpointIndex = nil
         powerStats = LiveStat()
@@ -577,7 +592,7 @@ final class WorkoutSession: ObservableObject {
     private func sendCurrentWorkoutTarget(for workout: ActiveWorkout) {
         switch workout {
         case .program(let program):
-            let elapsed = TimeInterval(elapsedSeconds)
+            let elapsed = programPositionSeconds
             if let target = program.target(atElapsedSeconds: elapsed) {
                 // Explicit, not just "stays false in the ordinary case" –
                 // `jump(toElapsedSeconds:)` can move `elapsed` *backward*
@@ -615,7 +630,7 @@ final class WorkoutSession: ObservableObject {
             // Session-local intensity adjustment for this workout kind is
             // simply out of scope for now, not silently dropped – nothing
             // in `ControlView` exposes the +/- for it either.
-            let elapsed = TimeInterval(elapsedSeconds)
+            let elapsed = programPositionSeconds
             if let target = program.target(atElapsedSeconds: elapsed) {
                 // See the `.program` case's own note above on why this is
                 // explicit – `jump(toElapsedSeconds:)` is exactly why.

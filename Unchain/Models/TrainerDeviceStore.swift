@@ -1,0 +1,76 @@
+import Foundation
+
+/// A trainer this app has connected to at least once, remembered so its
+/// own device-specific settings (`TrainerDeviceSettings`) stay reachable
+/// from `SettingsView` even while it isn't currently connected – the same
+/// "doesn't need a live connection" reasoning `SettingsView` itself already
+/// documents for FTP/Heart Rate. Keyed by `CBPeripheral.identifier`
+/// (`id` here), stable across scans and app launches for a given device on
+/// this phone – same identifier `BluetoothManager` already relies on for
+/// the last-used heart rate strap.
+struct KnownTrainerDevice: Codable, Identifiable, Equatable {
+    let id: UUID
+    var name: String
+    var machineKind: MachineKind
+    var lastConnectedDate: Date
+}
+
+/// Persists the list of known trainers (see `KnownTrainerDevice`) across
+/// app launches – plain `UserDefaults`, nothing sensitive, same shape as
+/// `TreadmillWorkoutProgramStore`/`RouteStore`. Deliberately uncapped
+/// (unlike those "recent files" lists): realistically a handful of actual
+/// trainers, not something that grows without bound.
+enum TrainerDeviceStore {
+    private static let key = "knownTrainerDevices"
+
+    static func loadAll() -> [KnownTrainerDevice] {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
+        return (try? JSONDecoder().decode([KnownTrainerDevice].self, from: data)) ?? []
+    }
+
+    /// Adds or refreshes the entry for `id` – called every time
+    /// `ControlView` observes `machineKind` resolve to something concrete,
+    /// so the name and kind stay in sync with whatever was most recently
+    /// seen and `lastConnectedDate` keeps each group's most-recently-used
+    /// device first. A no-op while `machineKind` is still `.unknown` (right
+    /// after connecting, before the trainer's own characteristics have been
+    /// read) – there'd be nothing meaningful to group it under yet.
+    static func recordConnection(id: UUID, name: String, machineKind: MachineKind) {
+        guard machineKind != .unknown else { return }
+        var all = loadAll()
+        all.removeAll { $0.id == id }
+        all.insert(KnownTrainerDevice(id: id, name: name, machineKind: machineKind, lastConnectedDate: Date()), at: 0)
+        guard let data = try? JSONEncoder().encode(all) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+}
+
+/// Per-device settings, keyed by the same `CBPeripheral.identifier` as
+/// `KnownTrainerDevice.id`. Currently just the one treadmill-specific
+/// value; more are expected to land here as device-specific behavior
+/// (like compensating for this lag during `.zwo` playback) gets built.
+struct TrainerDeviceSettings: Codable, Equatable {
+    /// How many seconds this treadmill takes to actually reach a new
+    /// incline once commanded, per degree changed – e.g. `1.5` means a 2°
+    /// change takes about 3 seconds to settle. `nil` until the rider
+    /// measures and enters it; nothing reads this yet, it's prep for
+    /// compensating `.zwo` incline changes for the delay.
+    var inclineChangeSecondsPerDegree: Double?
+}
+
+enum TrainerDeviceSettingsStore {
+    private static func key(for id: UUID) -> String { "trainerDeviceSettings.\(id.uuidString)" }
+
+    static func load(for id: UUID) -> TrainerDeviceSettings {
+        guard let data = UserDefaults.standard.data(forKey: key(for: id)),
+              let settings = try? JSONDecoder().decode(TrainerDeviceSettings.self, from: data) else {
+            return TrainerDeviceSettings()
+        }
+        return settings
+    }
+
+    static func save(_ settings: TrainerDeviceSettings, for id: UUID) {
+        guard let data = try? JSONEncoder().encode(settings) else { return }
+        UserDefaults.standard.set(data, forKey: key(for: id))
+    }
+}

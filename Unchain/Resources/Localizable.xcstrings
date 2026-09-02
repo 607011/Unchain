@@ -1890,6 +1890,96 @@
           }
         }
       }
+    },
+    "Every trainer you've connected to at least once. Tap one to adjust its own settings.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder Trainer, mit dem du dich schon einmal verbunden hast. Tippe einen an, um seine eigenen Einstellungen anzupassen."
+          }
+        }
+      }
+    },
+    "No trainers connected yet.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Trainer verbunden."
+          }
+        }
+      }
+    },
+    "Treadmills": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laufbänder"
+          }
+        }
+      }
+    },
+    "Bike Trainers": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bike-Trainer"
+          }
+        }
+      }
+    },
+    "No device-specific settings yet for this trainer.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine gerätespezifischen Einstellungen für diesen Trainer."
+          }
+        }
+      }
+    },
+    "Incline Response": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steigungsreaktion"
+          }
+        }
+      }
+    },
+    "Seconds per 1° Incline": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekunden pro 1° Steigung"
+          }
+        }
+      }
+    },
+    "e.g. 1.5": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. 1,5"
+          }
+        }
+      }
+    },
+    "How long this treadmill actually takes to reach a new incline once commanded, per degree changed – e.g. 1.5 means a 2° change takes about 3 seconds to settle. Leave empty if you don't know it; a future step will use this to smooth out .zwo incline changes.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie lange dieses Laufband tatsächlich braucht, um nach einem Befehl eine neue Steigung zu erreichen, pro verändertem Grad – 1,5 bedeutet z. B., dass eine Änderung um 2° etwa 3 Sekunden zum Einpendeln braucht. Leer lassen, wenn unbekannt; ein späterer Schritt wird das nutzen, um Steigungsänderungen beim Abspielen von .zwo-Dateien abzufedern."
+          }
+        }
+      }
     }
   },
   "version": "1.1"

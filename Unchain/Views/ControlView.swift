@@ -151,6 +151,15 @@ struct ControlView: View {
         mode = availableModes.first ?? .program
     }
 
+    /// Records this trainer under Settings → Devices (see
+    /// `TrainerDeviceStore`) once its kind is actually known – a no-op
+    /// while `machineKind` is still `.unknown`, so it's safe to call
+    /// unconditionally rather than needing its own "is this known yet"
+    /// guard the way `ensureModeIsAvailable()` needs for `mode` itself.
+    private func rememberConnectedDevice() {
+        TrainerDeviceStore.recordConnection(id: connection.peripheral.identifier, name: connection.deviceName, machineKind: connection.machineKind)
+    }
+
     var body: some View {
         // A ScrollView rather than a fixed VStack: iPad landscape has much
         // less height than portrait (where the iPad type/chart scale above
@@ -287,6 +296,7 @@ struct ControlView: View {
             if connection.supportedFeatures != nil {
                 ensureModeIsAvailable()
             }
+            rememberConnectedDevice()
             configureWatchCompanion()
         }
         .onChange(of: connection.supportedFeatures) { _ in
@@ -294,6 +304,7 @@ struct ControlView: View {
         }
         .onChange(of: connection.machineKind) { _ in
             ensureModeIsAvailable()
+            rememberConnectedDevice()
         }
         // Fires the instant `stop()` sets `pendingSummary` – for a
         // Watch-companion workout this resolves it immediately, silently,
@@ -674,7 +685,7 @@ struct ControlView: View {
 
                 // A plain scrolling list rather than a chart, deliberately –
                 // see `TreadmillProgramSegmentList`'s own doc comment.
-                TreadmillProgramSegmentList(program: program, elapsedSeconds: session.elapsedSeconds, onSelectSegment: session.jump(toElapsedSeconds:))
+                TreadmillProgramSegmentList(program: program, elapsedSeconds: Int(session.programPositionSeconds), onSelectSegment: session.jump(toElapsedSeconds:))
                     .padding(.horizontal)
 
                 Text("\(elapsedTimeLabel) / \(formattedDuration(program.duration))")
@@ -863,7 +874,7 @@ struct ControlView: View {
     /// to align around here, just a read-only display of wherever the file
     /// currently has the treadmill headed.
     private func treadmillProgramTargetLabel(for program: TreadmillWorkoutProgram) -> String {
-        guard let target = program.target(atElapsedSeconds: TimeInterval(session.elapsedSeconds)) else { return "–" }
+        guard let target = program.target(atElapsedSeconds: session.programPositionSeconds) else { return "–" }
         return String(format: "%.1f km/h · %.1f %%", locale: .current, target.speedKmh, target.inclinePercent)
     }
 
@@ -1886,25 +1897,59 @@ private struct TreadmillProgramSegmentList: View {
 
     private func segmentRow(_ segment: TreadmillWorkoutSegment, isCurrent: Bool) -> some View {
         HStack {
-            Text(formattedSegmentDuration(segment.duration))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            // Counts down in 1-second steps while this is the *current*
+            // segment (driven by `elapsedSeconds` ticking, same as every
+            // other live number on this screen) – any other row still
+            // shows its plain total duration, since a countdown only means
+            // something for the interval actually playing right now.
+            Text(formattedSegmentDuration(segment, isCurrent: isCurrent))
                 .frame(width: 44, alignment: .leading)
                 .monospacedDigit()
             Text(String(format: "%.1f km/h", locale: .current, segment.speedKmh))
                 .fontWeight(isCurrent ? .semibold : .regular)
             Spacer()
             Text(String(format: "%.1f %%", locale: .current, segment.inclinePercent))
-                .foregroundStyle(.secondary)
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
-        .background(isCurrent ? Color.accentColor.opacity(0.15) : Color.clear)
+        // The current row's tint doubles as a left-to-right progress bar
+        // for that segment – a light full-row wash (as before) plus a
+        // more saturated overlay whose width grows with
+        // `progressFraction(for:)`, instead of the old flat single-color
+        // highlight.
+        .background(alignment: .leading) {
+            if isCurrent {
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Color.accentColor.opacity(0.15)
+                        Rectangle()
+                            .fill(Color.accentColor.opacity(0.35))
+                            .frame(width: proxy.size.width * progressFraction(for: segment))
+                    }
+                }
+            }
+        }
     }
 
-    private func formattedSegmentDuration(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds)
-        return String(format: "%d:%02d", total / 60, total % 60)
+    private func formattedSegmentDuration(_ segment: TreadmillWorkoutSegment, isCurrent: Bool) -> String {
+        let remaining: Int
+        if isCurrent {
+            let elapsedInSegment = elapsedSeconds - Int(segment.startSeconds)
+            remaining = max(0, Int(segment.duration) - elapsedInSegment)
+        } else {
+            remaining = Int(segment.duration)
+        }
+        return String(format: "%d:%02d", remaining / 60, remaining % 60)
+    }
+
+    /// 0...1 fraction of `segment` elapsed so far – always 0 before it
+    /// starts and 1 once it's finished, so it's safe to call for any
+    /// segment, not just the current one (only the current row's
+    /// background actually reads it today).
+    private func progressFraction(for segment: TreadmillWorkoutSegment) -> CGFloat {
+        guard segment.duration > 0 else { return 0 }
+        let elapsedInSegment = Double(elapsedSeconds) - segment.startSeconds
+        return CGFloat(min(max(elapsedInSegment / segment.duration, 0), 1))
     }
 }
 
@@ -2095,7 +2140,7 @@ private struct HeartRateZonesView: View {
                         let seconds = zoneSeconds[zone] ?? 0
                         if seconds > 0 {
                             Text("\(zone.shortLabel) \(formattedZoneDuration(seconds))")
-                                .font(.system(size: isRegularWidth ? 15 : 10))
+                                .font(.system(size: isRegularWidth ? 23 : 15))
                                 .foregroundStyle(color(for: zone))
                         }
                     }

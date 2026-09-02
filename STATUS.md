@@ -1256,3 +1256,36 @@ would change, roughly in the order it'd need doing:
     `InfoButton` already is) if zone data exists, and a `ShareLink` for the
     `.tcx` export, written to a temp file purely so the share sheet has a
     real file `URL` to hand off
+- [x] Fixed: connecting to a treadmill loaded the last-used *bike* program
+      instead of the last `.zwo` treadmill workout – the same bug shape as
+      the earlier remembered-control-mode fix, just found later, in
+      `loadPersistedOrDefaultProgram()` instead of
+      `ensureModeIsAvailable()`. It ran unconditionally from `.onAppear`,
+      which fires the instant `ControlView` is pushed – before
+      `connection.machineKind`/`supportedFeatures` have resolved (both
+      start `.unknown`/`nil`, settling only once the trainer's own
+      characteristics are actually read back over BLE). That early,
+      `compatibleRecents` evaluates empty regardless of what's actually
+      connected (every filter in it checks `machineKind`), so it fell
+      through to `supportsPowerTarget`'s `?? true` default and silently
+      loaded the bundled power-based ramp test – on a treadmill, *every*
+      time, not just occasionally, since `machineKind` is guaranteed
+      `.unknown` at that exact moment. Worse, once that wrong program
+      landed, the function's own `activeWorkout == nil` guard then
+      permanently blocked correcting it, even after the real capabilities
+      arrived moments later. Fixed with a new
+      `loadPersistedOrDefaultProgramIfCapabilitiesKnown()` guard, called
+      from `.onAppear` only when both are already known plus the same two
+      `.onChange` handlers `ensureModeIsAvailable()` already used for
+      exactly this reason
+- [x] `TrainerFeaturesView`'s "Reported Characteristics" section now shows
+      the device's own actual value under the four "Supported … Range"
+      rows (0x2AD4 Speed, 0x2AD5 Inclination, 0x2AD6 Resistance Level,
+      0x2AD8 Power) instead of just the bare characteristic name/UUID –
+      `TrainerConnection` already parses all four
+      (`speedRangeKmh`/`inclinationRangePercent`/`powerRange`/
+      `resistanceRangeRaw`), just wasn't showing them here yet. Resistance
+      reuses the same ×0.1-native-unit, no-suffix formatting
+      `ControlView.formattedResistanceRange` already uses for this exact
+      range elsewhere, so the two never read differently for the same
+      device

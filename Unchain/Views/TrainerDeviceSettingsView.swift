@@ -25,7 +25,7 @@ struct TrainerDeviceSettingsView: View {
                 } header: {
                     HStack(spacing: 4) {
                         Text("Incline Response")
-                        InfoButton(text: "How long this treadmill actually takes to reach a new incline once commanded, per degree changed – e.g. 1.5 means a 2° change takes about 3 seconds to settle. Leave empty if you don't know it; a future step will use this to smooth out .zwo incline changes.")
+                        InfoButton(text: "How long this treadmill actually takes to reach a new incline once commanded, per degree changed – e.g. 1.5 means a 2° change takes about 3 seconds to settle. Used to pace how fast the belt speed ramps to its next target during a .zwo interval change, instead of jumping there immediately while the incline is still catching up. Leave empty to assume 1 second per degree.")
                     }
                 }
             case .bike, .unknown:

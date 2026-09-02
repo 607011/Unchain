@@ -241,6 +241,38 @@ final class WorkoutSession: ObservableObject {
     /// on every tick to fire the step-change vibration exactly once per new
     /// entry, not continuously while interpolating between two of them.
     private var lastProgramBreakpointIndex: Int?
+    /// Speed-ramp state for a `.treadmillProgram` interval transition – see
+    /// `sendCurrentWorkoutTarget(for:)`'s own note on why speed (not
+    /// incline) is what gets smoothed here. `treadmillSpeedRampDurationSeconds`
+    /// staying `0` (its default, and after a delta-free transition) is what
+    /// keeps the ramp inactive – speed is sent as a flat target whenever
+    /// it's `0`, the same as before this existed.
+    private var treadmillSpeedRampFromKmh: Double?
+    private var treadmillSpeedRampToKmh: Double?
+    private var treadmillSpeedRampStartSeconds: TimeInterval?
+    private var treadmillSpeedRampDurationSeconds: TimeInterval = 0
+    /// The actual speed/incline last sent to a treadmill – as opposed to
+    /// the current segment's own nominal target, which a still-in-progress
+    /// ramp (see above) can differ from. Used as the *next* ramp's starting
+    /// point, so a transition arriving before the previous one's ramp
+    /// finished continues smoothly from wherever the belt actually is.
+    private var lastSentTreadmillSpeedKmh: Double?
+    private var lastSentTreadmillInclinePercent: Double?
+    /// Set by `jump(toElapsedSeconds:)`, consumed (and cleared) by the very
+    /// next `sendCurrentWorkoutTarget(for:)` call. Unlike `didReachNewEntry`
+    /// (used only for vibration/interval-sound, which a jump deliberately
+    /// keeps suppressed – see `jump`'s own note on why) a jump *should*
+    /// still restart the speed ramp toward wherever it landed: the incline
+    /// is genuinely about to change there too, and the belt getting ahead
+    /// of it is exactly the hazard ramping exists to avoid – whether that
+    /// transition was reached by ordinary playback or a manual tap in
+    /// `TreadmillProgramSegmentList` makes no physical difference to the
+    /// treadmill. First left out of `jump` entirely; fixed after realizing
+    /// the "it's just a preview, no need to ramp" reasoning didn't actually
+    /// hold up while a workout is still running – `jump` only works then
+    /// in the first place (see its own `state == .running || .paused`
+    /// guard), so whatever it lands on is being walked/run on for real.
+    private var pendingTreadmillSpeedRampRestart = false
     /// Strong reference to the currently (or most recently) playing interval
     /// beep – `AVAudioPlayer` doesn't keep itself alive, so a purely local
     /// instance would be deallocated, and silenced, right after `play()`
@@ -373,6 +405,11 @@ final class WorkoutSession: ObservableObject {
         // re-establish that from a clean slate instead of possibly firing
         // on a jump spanning many entries at once.
         lastProgramBreakpointIndex = nil
+        // But it *should* still restart the treadmill speed ramp toward
+        // wherever it landed – see `pendingTreadmillSpeedRampRestart`'s own
+        // note on why that's a separate concern from the vibration/sound
+        // suppression right above.
+        pendingTreadmillSpeedRampRestart = true
         if let workout = activeWorkout {
             sendCurrentWorkoutTarget(for: workout)
         }
@@ -452,6 +489,13 @@ final class WorkoutSession: ObservableObject {
         programOffsetSeconds = 0
         intensityAdjustmentPercent = 0
         lastProgramBreakpointIndex = nil
+        treadmillSpeedRampFromKmh = nil
+        treadmillSpeedRampToKmh = nil
+        treadmillSpeedRampStartSeconds = nil
+        treadmillSpeedRampDurationSeconds = 0
+        lastSentTreadmillSpeedKmh = nil
+        lastSentTreadmillInclinePercent = nil
+        pendingTreadmillSpeedRampRestart = false
         powerStats = LiveStat()
         cadenceStats = LiveStat()
         speedStats = LiveStat()
@@ -635,10 +679,56 @@ final class WorkoutSession: ObservableObject {
                 // See the `.program` case's own note above on why this is
                 // explicit – `jump(toElapsedSeconds:)` is exactly why.
                 isProgramFinished = false
-                connection.setTargetSpeed(kmh: target.speedKmh)
+                let index = program.segmentIndex(atElapsedSeconds: elapsed)
+                let didReachNewEntry = index != nil && lastProgramBreakpointIndex != nil && index != lastProgramBreakpointIndex
+                // Reported from real use: jumping straight from e.g. 15 %
+                // incline at 4 km/h to 0 % at 6.5 km/h used to send both
+                // targets at once – the belt speeds up almost instantly,
+                // but the incline motor takes real, measurable time to
+                // physically get there, so for those few seconds the rider
+                // is doing 6.5 km/h on a platform still tilted close to
+                // 15 % – enough to push someone off the back. Only *speed*
+                // is ramped here, linearly, over the incline's own
+                // estimated travel time – incline itself is still sent as
+                // one flat target immediately, same as before, since
+                // nothing here controls how fast the motor itself moves;
+                // this only paces how fast the belt gets ahead of it.
+                // Recomputed fresh on every genuine step transition *and*
+                // on a manual jump (see `pendingTreadmillSpeedRampRestart`'s
+                // own note on why a jump still needs this even though it
+                // suppresses vibration/interval-sound) – the incline is
+                // physically about to change either way, so the hazard
+                // this ramp exists to avoid applies regardless of what
+                // triggered the transition. A tick partway through an
+                // already-running ramp just keeps interpolating using
+                // whichever ramp was started last, so a second transition
+                // arriving before the first ramp finished still continues
+                // smoothly from wherever the belt actually is, not from
+                // the old segment's nominal target.
+                let shouldRestartSpeedRamp = didReachNewEntry || pendingTreadmillSpeedRampRestart
+                pendingTreadmillSpeedRampRestart = false
+                if shouldRestartSpeedRamp {
+                    let previousInclinePercent = lastSentTreadmillInclinePercent ?? target.inclinePercent
+                    let inclineDeltaPercent = abs(target.inclinePercent - previousInclinePercent)
+                    let secondsPerUnit = TrainerDeviceSettingsStore.load(for: connection.peripheral.identifier).effectiveInclineChangeSecondsPerDegree
+                    treadmillSpeedRampFromKmh = lastSentTreadmillSpeedKmh ?? target.speedKmh
+                    treadmillSpeedRampToKmh = target.speedKmh
+                    treadmillSpeedRampStartSeconds = elapsed
+                    treadmillSpeedRampDurationSeconds = inclineDeltaPercent * secondsPerUnit
+                }
+                let speedToSend: Double
+                if let rampFrom = treadmillSpeedRampFromKmh, let rampTo = treadmillSpeedRampToKmh,
+                   let rampStart = treadmillSpeedRampStartSeconds, treadmillSpeedRampDurationSeconds > 0 {
+                    let fraction = min(max((elapsed - rampStart) / treadmillSpeedRampDurationSeconds, 0), 1)
+                    speedToSend = rampFrom + (rampTo - rampFrom) * fraction
+                } else {
+                    speedToSend = target.speedKmh
+                }
+                connection.setTargetSpeed(kmh: speedToSend)
                 connection.setTargetInclination(percent: target.inclinePercent)
-                if let index = program.segmentIndex(atElapsedSeconds: elapsed) {
-                    let didReachNewEntry = lastProgramBreakpointIndex != nil && index != lastProgramBreakpointIndex
+                lastSentTreadmillSpeedKmh = speedToSend
+                lastSentTreadmillInclinePercent = target.inclinePercent
+                if let index {
                     if didReachNewEntry {
                         triggerStepVibrationIfEnabled()
                     }

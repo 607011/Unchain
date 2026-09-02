@@ -53,9 +53,23 @@ struct TrainerDeviceSettings: Codable, Equatable {
     /// How many seconds this treadmill takes to actually reach a new
     /// incline once commanded, per degree changed – e.g. `1.5` means a 2°
     /// change takes about 3 seconds to settle. `nil` until the rider
-    /// measures and enters it; nothing reads this yet, it's prep for
-    /// compensating `.zwo` incline changes for the delay.
+    /// measures and enters it – see `effectiveInclineChangeSecondsPerDegree`
+    /// for what's actually used in the meantime. Read by
+    /// `WorkoutSession.sendCurrentWorkoutTarget(for:)` to pace how fast a
+    /// `.treadmillProgram` interval change ramps the belt *speed* up or
+    /// down, so it doesn't get ahead of an incline that's still physically
+    /// moving.
     var inclineChangeSecondsPerDegree: Double?
+
+    /// Assumed for any treadmill whose actual response time hasn't been
+    /// measured yet – a deliberately conservative placeholder, not `0`
+    /// (which would mean "the incline snaps instantly" and silently skip
+    /// speed ramping altogether for every unmeasured device).
+    static let defaultInclineChangeSecondsPerDegree = 1.0
+
+    var effectiveInclineChangeSecondsPerDegree: Double {
+        inclineChangeSecondsPerDegree ?? Self.defaultInclineChangeSecondsPerDegree
+    }
 }
 
 enum TrainerDeviceSettingsStore {

@@ -14,6 +14,19 @@ struct TrainerFeaturesView: View {
     /// confused this app's bike-vs-treadmill detection, and there was no
     /// way to see that from within the app itself until now.
     let discoveredCharacteristics: [CBUUID]
+    /// The device's own reported ranges for the four "Supported … Range"
+    /// characteristics (0x2AD4/0x2AD5/0x2AD6/0x2AD8) – shown as a value
+    /// under the matching row in `characteristicRow(_:)` rather than just
+    /// the bare characteristic name, since a range is exactly the kind of
+    /// thing worth cross-checking against the spec/another app here. Each
+    /// still starts at `TrainerConnection`'s own placeholder default until
+    /// the real read completes, same as everywhere else these are used
+    /// (e.g. `ControlView`'s manual +/- controls) – not specially guarded
+    /// against here either.
+    let speedRangeKmh: ClosedRange<Double>
+    let inclinationRangePercent: ClosedRange<Double>
+    let powerRange: ClosedRange<Int>
+    let resistanceRangeRaw: ClosedRange<Int>
 
     @Environment(\.dismiss) private var dismiss
 
@@ -70,12 +83,42 @@ struct TrainerFeaturesView: View {
     }
 
     private func characteristicRow(_ uuid: CBUUID) -> some View {
-        HStack {
-            Text(FTMS.characteristicName(for: uuid))
-            Spacer()
-            Text(uuid.uuidString)
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(FTMS.characteristicName(for: uuid))
+                Spacer()
+                Text(uuid.uuidString)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            if let value = rangeValue(for: uuid) {
+                Text(value)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// The device's own reported value for the four "Supported … Range"
+    /// characteristics – `nil` (no second line shown) for every other
+    /// characteristic in `discoveredCharacteristics`, which have no single
+    /// scalar/range value worth summarizing this way.
+    private func rangeValue(for uuid: CBUUID) -> String? {
+        switch uuid {
+        case FTMS.supportedSpeedRange:
+            return String(format: "%.1f–%.1f km/h", locale: .current, speedRangeKmh.lowerBound, speedRangeKmh.upperBound)
+        case FTMS.supportedInclinationRange:
+            return String(format: "%.1f–%.1f %%", locale: .current, inclinationRangePercent.lowerBound, inclinationRangePercent.upperBound)
+        case FTMS.supportedPowerRange:
+            return "\(powerRange.lowerBound)–\(powerRange.upperBound) W"
+        case FTMS.supportedResistanceLevelRange:
+            // Same ×0.1 native-FTMS-unit scaling, no unit suffix, as
+            // `ControlView.formattedResistanceRange` already uses for this
+            // same range elsewhere – resistance level has no physical unit
+            // of its own, just a device-defined scale.
+            return String(format: "%.1f–%.1f", locale: .current, Double(resistanceRangeRaw.lowerBound) / 10, Double(resistanceRangeRaw.upperBound) / 10)
+        default:
+            return nil
         }
     }
 

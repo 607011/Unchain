@@ -251,7 +251,15 @@ struct ControlView: View {
             }
         }
         .sheet(isPresented: $isShowingFeatures) {
-            TrainerFeaturesView(deviceName: connection.deviceName, features: connection.supportedFeatures, discoveredCharacteristics: connection.discoveredCharacteristics)
+            TrainerFeaturesView(
+                deviceName: connection.deviceName,
+                features: connection.supportedFeatures,
+                discoveredCharacteristics: connection.discoveredCharacteristics,
+                speedRangeKmh: connection.speedRangeKmh,
+                inclinationRangePercent: connection.inclinationRangePercent,
+                powerRange: connection.powerRange,
+                resistanceRangeRaw: connection.resistanceRangeRaw
+            )
         }
         .sheet(isPresented: $isShowingRecentWorkouts) {
             RecentWorkoutsView(recents: compatibleRecents, onSelect: loadRecentEntry, onDelete: deleteRecentEntry)

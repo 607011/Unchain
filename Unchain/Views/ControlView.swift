@@ -2109,8 +2109,9 @@ private struct GradeProfileChart: View {
 /// elapsed time (so far, or for a finished workout) splits across heart rate
 /// zones. Empty/hidden until there's at least one classified second – happens
 /// before a max heart rate estimate is available, or before an HR strap is
-/// connected.
-private struct HeartRateZonesView: View {
+/// connected. Not `private` – `WorkoutHistoryView` reuses it too, same
+/// "shared with another file" reasoning as `InfoButton`.
+struct HeartRateZonesView: View {
     let zoneSeconds: [HeartRateZone: Int]
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 

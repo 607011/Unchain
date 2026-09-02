@@ -23,7 +23,7 @@ import Foundation
 /// `SettingsView.prefillHeartRateZonesIfNeeded`, which materializes that
 /// default into the stored setting the first time it's shown, exactly like
 /// `SettingsView.maxHeartRateBPMKey`'s own Tanaka-formula default.
-enum HeartRateZone: Int, CaseIterable, Identifiable {
+enum HeartRateZone: Int, CaseIterable, Identifiable, Codable {
     case one = 1
     case two = 2
     case three = 3

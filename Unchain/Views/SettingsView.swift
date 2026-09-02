@@ -84,6 +84,7 @@ struct SettingsView: View {
     @AppStorage(speedDisplayUnitKey) private var speedDisplayUnit = SpeedDisplayUnit.kmh
     @State private var isShowingLogWorkout = false
     @State private var isShowingDiagnostics = false
+    @State private var isShowingWorkoutHistory = false
     /// Reloaded on every appearance (not just once) – `TrainerDeviceStore`
     /// is plain `UserDefaults`, not something SwiftUI observes on its own,
     /// so a trainer connected for the first time since this screen was last
@@ -278,6 +279,15 @@ struct SettingsView: View {
                 // Settings itself is reachable from, not buried behind one.
                 Section {
                     Button {
+                        isShowingWorkoutHistory = true
+                    } label: {
+                        Label("Workout History", systemImage: "clock.arrow.circlepath")
+                    }
+                } footer: {
+                    Text("Every workout you finish, saved locally on this device regardless of whether you also save it to Apple Health – export any of them as a .tcx file.")
+                }
+                Section {
+                    Button {
                         isShowingLogWorkout = true
                     } label: {
                         Label("Log a Workout…", systemImage: "square.and.pencil")
@@ -308,6 +318,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $isShowingDiagnostics) {
             DiagnosticsView()
+        }
+        .sheet(isPresented: $isShowingWorkoutHistory) {
+            WorkoutHistoryView()
         }
         .onAppear {
             knownDevices = TrainerDeviceStore.loadAll()

@@ -1980,6 +1980,96 @@
           }
         }
       }
+    },
+    "Workout History": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workout-Verlauf"
+          }
+        }
+      }
+    },
+    "No workouts saved yet": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Workouts gespeichert"
+          }
+        }
+      }
+    },
+    "Every workout you finish is kept here automatically, whether or not you also save it to Apple Health.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedes abgeschlossene Workout wird hier automatisch aufbewahrt – unabhängig davon, ob du es zusätzlich in Apple Health speicherst."
+          }
+        }
+      }
+    },
+    "Every workout you finish, saved locally on this device regardless of whether you also save it to Apple Health – export any of them as a .tcx file.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedes abgeschlossene Workout wird lokal auf diesem Gerät gespeichert – unabhängig davon, ob du es zusätzlich in Apple Health sicherst. Jedes davon lässt sich als .tcx-Datei exportieren."
+          }
+        }
+      }
+    },
+    "Date": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datum"
+          }
+        }
+      }
+    },
+    "Distance": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distanz"
+          }
+        }
+      }
+    },
+    "Work Done": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geleistete Arbeit"
+          }
+        }
+      }
+    },
+    "Export as .tcx": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als .tcx exportieren"
+          }
+        }
+      }
+    },
+    "A standard file most training/analysis tools (Strava, TrainingPeaks, Golden Cheetah, …) can import.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Standarddatei, die die meisten Trainings-/Analyse-Tools (Strava, TrainingPeaks, Golden Cheetah, …) importieren können."
+          }
+        }
+      }
     }
   },
   "version": "1.1"

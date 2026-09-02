@@ -34,6 +34,12 @@ struct HeartRateSample {
     let bpm: Int
 }
 
+/// One second-resolution speed reading – see `WorkoutSession.speedHistory`.
+struct SpeedSample {
+    let timeSeconds: TimeInterval
+    let kmh: Double
+}
+
 enum WorkoutState: Equatable {
     case idle
     case running
@@ -152,6 +158,10 @@ final class WorkoutSession: ObservableObject {
     /// heart rate trace on its own (secondary) axis alongside Target/Actual
     /// – only populated while a heart rate strap is actually connected.
     @Published private(set) var heartRateHistory: [HeartRateSample] = []
+    /// Same "at most one entry per elapsed second" shape again – exists for
+    /// `WorkoutHistoryStore` to build a `.tcx` export's per-trackpoint
+    /// distance/speed from (see `reset()`), not shown live anywhere itself.
+    @Published private(set) var speedHistory: [SpeedSample] = []
     /// Live active-energy (calorie) estimate, updated every sample tick –
     /// shown in the metrics row in place of the speed tile once Speed
     /// Display is set to "Off" (see `SettingsView.speedDisplayUnitKey`).
@@ -468,13 +478,38 @@ final class WorkoutSession: ObservableObject {
     /// Called once the save/discard dialog has been resolved, to reset for a
     /// new workout. Deliberately leaves `activeWorkout` loaded – re-running
     /// the same ramp test or route shouldn't require picking the file again.
+    ///
+    /// Also where a finished workout gets saved to `WorkoutHistoryStore` –
+    /// deliberately here, not in `stop()`: `stop()` can still be undone via
+    /// `cancelStop()` (the confirmation dialog's own Cancel button), and
+    /// `reset()` is the one place every path that actually *keeps* a stop –
+    /// Save to Health, Discard, and the silent Watch-companion one (see
+    /// `ControlView`'s `.onReceive(session.$pendingSummary)`) – all funnel
+    /// through, always, regardless of what (if anything) got saved to
+    /// Health. The two are independent by design: declining Health here
+    /// doesn't lose the workout, it just stays out of Health.
     func reset() {
+        if let summary = pendingSummary {
+            WorkoutHistoryStore.save(WorkoutRecord(
+                id: summary.id,
+                machineKind: summary.machineKind,
+                startDate: summary.startDate,
+                endDate: summary.endDate,
+                activeDuration: summary.activeDuration,
+                distanceMeters: summary.distanceMeters,
+                workDoneKilojoules: summary.workDoneKilojoules,
+                programName: summary.programName,
+                heartRateZoneSeconds: summary.heartRateZoneSeconds,
+                samples: mergedWorkoutSamples()
+            ))
+        }
         pendingSummary = nil
         state = .idle
         elapsedSeconds = 0
         distanceMeters = 0
         powerHistory.removeAll()
         heartRateHistory.removeAll()
+        speedHistory.removeAll()
         liveActiveEnergyKcal = nil
         workDoneJoules = 0
         heartRateSamples.removeAll()
@@ -516,6 +551,27 @@ final class WorkoutSession: ObservableObject {
         guard let startDate else { return 0 }
         let pausedSoFar = totalPausedDuration + (pauseDate.map { now.timeIntervalSince($0) } ?? 0)
         return max(0, Int((now.timeIntervalSince(startDate) - pausedSoFar).rounded(.down)))
+    }
+
+    /// Merges `powerHistory`/`heartRateHistory`/`speedHistory` – three
+    /// independently-deduped-to-one-per-second arrays, each only as long as
+    /// its own metric was actually being reported – into one row per
+    /// distinct elapsed second, for `WorkoutHistoryStore`/`TCXExporter`.
+    /// Called from `reset()`, before those three get cleared a few lines
+    /// later.
+    private func mergedWorkoutSamples() -> [WorkoutSample] {
+        let powerBySecond = Dictionary(uniqueKeysWithValues: powerHistory.map { ($0.timeSeconds, $0.watts) })
+        let heartRateBySecond = Dictionary(uniqueKeysWithValues: heartRateHistory.map { ($0.timeSeconds, $0.bpm) })
+        let speedBySecond = Dictionary(uniqueKeysWithValues: speedHistory.map { ($0.timeSeconds, $0.kmh) })
+        let allSeconds = Set(powerBySecond.keys).union(heartRateBySecond.keys).union(speedBySecond.keys)
+        return allSeconds.sorted().map { second in
+            WorkoutSample(
+                elapsedSeconds: second,
+                heartRateBPM: heartRateBySecond[second],
+                powerWatts: powerBySecond[second],
+                speedKmh: speedBySecond[second]
+            )
+        }
     }
 
     /// Starts (or resumes) tracking: a foreground `Timer` for the normal
@@ -571,6 +627,15 @@ final class WorkoutSession: ObservableObject {
         if let speedKmh = metrics.instantaneousSpeedKmh {
             distanceMeters += speedKmh * 1000 / 3600 * sampleDuration
             speedStats.record(speedKmh)
+            // Same "at most one entry per elapsed second" dedup as
+            // `powerHistory`/`heartRateHistory` below – exists purely so
+            // `WorkoutHistoryStore` (see `reset()`) has a real per-second
+            // speed trace to build `.tcx` trackpoints from, not shown live
+            // anywhere itself (unlike the other two, which back their own
+            // charts).
+            if speedHistory.last?.timeSeconds != TimeInterval(elapsedSeconds) {
+                speedHistory.append(SpeedSample(timeSeconds: TimeInterval(elapsedSeconds), kmh: speedKmh))
+            }
         }
         if let power = metrics.instantaneousPowerWatts {
             workDoneJoules += Double(power) * sampleDuration // that many joules over sampleDuration seconds

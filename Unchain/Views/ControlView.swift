@@ -662,6 +662,34 @@ struct ControlView: View {
 
                 workoutSourceButtons
             }
+        case .treadmillProgram(let program):
+            VStack(spacing: 12) {
+                Text(program.name)
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+
+                Text(treadmillProgramTargetLabel(for: program))
+                    .font(.system(size: isRegularWidth ? 44 : 30, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+
+                // A plain scrolling list rather than a chart, deliberately –
+                // see `TreadmillProgramSegmentList`'s own doc comment.
+                TreadmillProgramSegmentList(program: program, elapsedSeconds: session.elapsedSeconds, onSelectSegment: session.jump(toElapsedSeconds:))
+                    .padding(.horizontal)
+
+                Text("\(elapsedTimeLabel) / \(formattedDuration(program.duration))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+
+                if session.isProgramFinished {
+                    Label("Workout complete", systemImage: "checkmark.seal.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+
+                workoutSourceButtons
+            }
         case nil:
             VStack(spacing: 12) {
                 Text(emptyWorkoutStateDescription)
@@ -698,12 +726,19 @@ struct ControlView: View {
 
     /// Which file types "Load from File" offers, matching only the targets
     /// the connected machine actually supports — `.erg` needs Power Target,
-    /// `.mrc` needs Resistance Target, `.gpx` needs Indoor Bike Simulation.
+    /// `.mrc` needs Resistance Target, `.gpx` needs Indoor Bike Simulation,
+    /// `.zwo` needs a treadmill with Speed or Inclination Target support
+    /// (see `ZWOWorkoutParser`'s own note on why this is treadmill-only,
+    /// not the genuine Zwift cycling %FTP format too).
     private var allowedFileContentTypes: [UTType] {
         var types: [UTType] = []
         if supportsPowerTarget, let erg = WorkoutProgramParser.ergContentType { types.append(erg) }
         if supportsResistanceTarget, let mrc = WorkoutProgramParser.mrcContentType { types.append(mrc) }
         if supportsIndoorBikeSimulation { types.append(contentsOf: GPXParser.supportedContentTypes) }
+        if connection.machineKind == .treadmill, supportsSpeedTarget || supportsInclinationTarget,
+           let zwo = ZWOWorkoutParser.contentType {
+            types.append(zwo)
+        }
         return types
     }
 
@@ -734,6 +769,9 @@ struct ControlView: View {
         if supportsPowerTarget { extensions.append(".erg") }
         if supportsResistanceTarget { extensions.append(".mrc") }
         if supportsIndoorBikeSimulation { extensions.append(".gpx") }
+        if connection.machineKind == .treadmill, supportsSpeedTarget || supportsInclinationTarget {
+            extensions.append(".zwo")
+        }
         guard !extensions.isEmpty else {
             return String(localized: "This trainer doesn't report support for any target type Unchain can drive from a file.")
         }
@@ -747,15 +785,17 @@ struct ControlView: View {
         }
     }
 
-    /// Recently used programs *and* routes compatible with the currently
-    /// connected machine, excluding whatever's already loaded, merged and
-    /// sorted by recency. Filtered two ways: `.erg`/`.mrc`/GPX-derived routes
-    /// are all cycling-trainer-only today (see `ProgramTargetKind
-    /// .compatibleMachineKind` and `GradeProfile.compatibleMachineKind`), so
-    /// this list is empty while connected to a treadmill; and further gated
-    /// on whether the specific target that entry needs (Power/Resistance/
-    /// Indoor Bike Simulation) is actually supported, since a file used with
-    /// a *previous* trainer might not work with the one connected now.
+    /// Recently used programs, routes, *and* treadmill workouts compatible
+    /// with the currently connected machine, excluding whatever's already
+    /// loaded, merged and sorted by recency. Filtered two ways: `.erg`/
+    /// `.mrc`/GPX-derived routes are all cycling-trainer-only (see
+    /// `ProgramTargetKind.compatibleMachineKind` and `GradeProfile
+    /// .compatibleMachineKind`), `.zwo`-derived treadmill workouts the
+    /// mirror image (treadmill-only) – so only one of the two groups is
+    /// ever non-empty for a given connection; and further gated on whether
+    /// the specific target that entry needs is actually supported, since a
+    /// file used with a *previous* trainer might not work with the one
+    /// connected now.
     private var compatibleRecents: [CombinedRecentEntry] {
         let programs: [CombinedRecentEntry] = WorkoutProgramStore.loadRecents().compactMap { recent in
             guard recent.program.targetKind.compatibleMachineKind == connection.machineKind,
@@ -768,13 +808,18 @@ struct ControlView: View {
                   !isActiveWorkout(.route(recent.route)) else { return nil }
             return CombinedRecentEntry(id: recent.id, name: recent.route.name, lastUsedDate: recent.lastUsedDate, kind: .route(recent.route))
         } : []
-        return (programs + routes).sorted { $0.lastUsedDate > $1.lastUsedDate }
+        let treadmillPrograms: [CombinedRecentEntry] = (connection.machineKind == .treadmill && (supportsSpeedTarget || supportsInclinationTarget)) ? TreadmillWorkoutProgramStore.loadRecents().compactMap { recent in
+            guard !isActiveWorkout(.treadmillProgram(recent.program)) else { return nil }
+            return CombinedRecentEntry(id: recent.id, name: recent.program.name, lastUsedDate: recent.lastUsedDate, kind: .treadmillProgram(recent.program))
+        } : []
+        return (programs + routes + treadmillPrograms).sorted { $0.lastUsedDate > $1.lastUsedDate }
     }
 
     private func isActiveWorkout(_ candidate: RecentWorkoutKind) -> Bool {
         switch (candidate, session.activeWorkout) {
         case (.program(let p), .program(let active)): return p == active
         case (.route(let r), .route(let active)): return r == active
+        case (.treadmillProgram(let p), .treadmillProgram(let active)): return p == active
         default: return false
         }
     }
@@ -813,6 +858,15 @@ struct ControlView: View {
         return String(format: "%.1f %%", locale: .current, grade)
     }
 
+    /// Both targets in one line ("6.5 km/h · 3.0 %") rather than
+    /// `treadmillControls`' two separate stacked numbers – there's no +/-
+    /// to align around here, just a read-only display of wherever the file
+    /// currently has the treadmill headed.
+    private func treadmillProgramTargetLabel(for program: TreadmillWorkoutProgram) -> String {
+        guard let target = program.target(atElapsedSeconds: TimeInterval(session.elapsedSeconds)) else { return "–" }
+        return String(format: "%.1f km/h · %.1f %%", locale: .current, target.speedKmh, target.inclinePercent)
+    }
+
     private func formattedDuration(_ seconds: TimeInterval) -> String {
         let total = Int(seconds)
         return String(format: "%02d:%02d", total / 60, total % 60)
@@ -830,23 +884,18 @@ struct ControlView: View {
     /// if Power Target is supported) so Program mode isn't empty-handed.
     private func loadPersistedOrDefaultProgram() {
         guard session.activeWorkout == nil else { return }
-        let recentProgram = WorkoutProgramStore.loadRecents().first { isProgramSupported($0.program) }
-        let recentRoute = supportsIndoorBikeSimulation ? RouteStore.loadRecents().first : nil
-        switch (recentProgram, recentRoute) {
-        case (let program?, let route?):
-            if program.lastUsedDate >= route.lastUsedDate {
-                loadProgramIntoSession(program.program)
-            } else {
-                loadRouteIntoSession(route.route)
-            }
-        case (let program?, nil):
-            loadProgramIntoSession(program.program)
-        case (nil, let route?):
-            loadRouteIntoSession(route.route)
-        case (nil, nil):
-            if supportsPowerTarget {
-                loadSampleRampTest()
-            }
+        // `compatibleRecents` already merges and sorts all three sources by
+        // recency – and since `.erg`/`.mrc`/`.gpx` recents are bike-only and
+        // `.zwo` recents are treadmill-only (mutually exclusive per
+        // `connection.machineKind`), there's no ambiguity to hand-resolve
+        // between "most recent program" vs. "most recent treadmill workout"
+        // the way there used to be between program and route.
+        if let mostRecent = compatibleRecents.first {
+            loadRecentEntry(mostRecent)
+            return
+        }
+        if supportsPowerTarget {
+            loadSampleRampTest()
         }
     }
 
@@ -854,6 +903,7 @@ struct ControlView: View {
         switch entry.kind {
         case .program(let program): loadProgramIntoSession(program)
         case .route(let route): loadRouteIntoSession(route)
+        case .treadmillProgram(let program): loadTreadmillProgramIntoSession(program)
         }
     }
 
@@ -861,6 +911,7 @@ struct ControlView: View {
         switch entry.kind {
         case .program: WorkoutProgramStore.removeRecent(withID: entry.id)
         case .route: RouteStore.removeRecent(withID: entry.id)
+        case .treadmillProgram: TreadmillWorkoutProgramStore.removeRecent(withID: entry.id)
         }
     }
 
@@ -876,6 +927,12 @@ struct ControlView: View {
     private func loadRouteIntoSession(_ route: GradeProfile) {
         session.loadRoute(route)
         RouteStore.recordUsage(of: route)
+    }
+
+    /// The `TreadmillWorkoutProgram` counterpart to `loadProgramIntoSession(_:)`.
+    private func loadTreadmillProgramIntoSession(_ program: TreadmillWorkoutProgram) {
+        session.loadTreadmillProgram(program)
+        TreadmillWorkoutProgramStore.recordUsage(of: program)
     }
 
     private func loadSampleRampTest() {
@@ -896,12 +953,16 @@ struct ControlView: View {
     }
 
     /// Dispatches by extension: `.gpx` is XML parsed into a distance-based
-    /// `GradeProfile`, anything else is treated as the `.erg`/`.mrc` text
-    /// format and parsed into a time-based `WorkoutProgram`.
+    /// `GradeProfile`, `.zwo` is XML parsed into a time-based
+    /// `TreadmillWorkoutProgram`, anything else is treated as the `.erg`/
+    /// `.mrc` text format and parsed into a time-based `WorkoutProgram`.
     private func loadWorkout(contentsOf url: URL) {
-        if url.pathExtension.lowercased() == "gpx" {
+        switch url.pathExtension.lowercased() {
+        case "gpx":
             loadRoute(fromGPXContentsOf: url)
-        } else {
+        case "zwo":
+            loadTreadmillProgram(fromZWOContentsOf: url)
+        default:
             loadProgram(fromTextContentsOf: url)
         }
     }
@@ -943,6 +1004,25 @@ struct ControlView: View {
                     return
                 }
                 loadRouteIntoSession(route)
+            case .failure(let error):
+                loadError = LoadErrorAlert(message: error.localizedDescription)
+            }
+        } catch {
+            loadError = LoadErrorAlert(message: String(localized: "Couldn't read the file: \(error.localizedDescription)"))
+        }
+    }
+
+    private func loadTreadmillProgram(fromZWOContentsOf url: URL) {
+        guard connection.machineKind == .treadmill, supportsSpeedTarget || supportsInclinationTarget else {
+            loadError = LoadErrorAlert(message: String(localized: "This trainer doesn't support Speed or Inclination targets, so .zwo workouts can't be used."))
+            return
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            let fallbackName = url.deletingPathExtension().lastPathComponent
+            switch ZWOWorkoutParser.parse(data: data, fallbackName: fallbackName) {
+            case .success(let program):
+                loadTreadmillProgramIntoSession(program)
             case .failure(let error):
                 loadError = LoadErrorAlert(message: error.localizedDescription)
             }
@@ -1037,6 +1117,10 @@ struct ControlView: View {
             case .route(let route):
                 guard let grade = route.grade(atDistanceMeters: session.distanceMeters) else { return }
                 connection.setSimulationGrade(percent: grade)
+            case .treadmillProgram(let program):
+                guard let target = program.target(atElapsedSeconds: TimeInterval(session.elapsedSeconds)) else { return }
+                connection.setTargetSpeed(kmh: target.speedKmh)
+                connection.setTargetInclination(percent: target.inclinePercent)
             case nil:
                 return
             }
@@ -1248,6 +1332,7 @@ private struct WorkoutProgramDocument: FileDocument {
 private enum RecentWorkoutKind {
     case program(WorkoutProgram)
     case route(GradeProfile)
+    case treadmillProgram(TreadmillWorkoutProgram)
 }
 
 /// One row's worth of data for `RecentWorkoutsView` – built by merging
@@ -1347,6 +1432,10 @@ private struct RecentWorkoutsView: View {
             Label("Grade", systemImage: "mountain.2.fill")
                 .font(.caption)
                 .foregroundStyle(.green)
+        case .treadmillProgram:
+            Label("Speed & Incline", systemImage: "figure.run")
+                .font(.caption)
+                .foregroundStyle(.purple)
         }
     }
 }
@@ -1739,6 +1828,83 @@ private struct WorkoutProgramChart: View {
         guard showsActualPower else { return isRegularWidth ? 260 : 140 }
         let pointsPerWatt: CGFloat = isRegularWidth ? 1.3 : 0.7
         return CGFloat(yCeiling) * pointsPerWatt
+    }
+}
+
+/// A plain scrolling list of a `.zwo` workout's segments, auto-scrolling to
+/// keep the current one in view – the `TreadmillWorkoutProgram` counterpart
+/// to `WorkoutProgramChart`/`GradeProfileChart`, deliberately simpler (no
+/// chart) for this first version: a genuine dual-axis speed/incline chart,
+/// using the same rescale technique `WorkoutProgramChart`'s heart rate
+/// overlay already established, is a reasonable next step – just not
+/// something this needed to ship with.
+private struct TreadmillProgramSegmentList: View {
+    let program: TreadmillWorkoutProgram
+    let elapsedSeconds: Int
+    /// Tapping a row jumps playback straight to that segment (see
+    /// `WorkoutSession.jump(toElapsedSeconds:)`) – a no-op there while not
+    /// actually running/paused, so this stays harmless to call regardless
+    /// of state rather than needing its own separate "is this tappable
+    /// right now" gate here too.
+    let onSelectSegment: (TimeInterval) -> Void
+
+    private var currentIndex: Int? {
+        program.segmentIndex(atElapsedSeconds: TimeInterval(elapsedSeconds))
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(program.segments.enumerated()), id: \.offset) { index, segment in
+                        Button {
+                            onSelectSegment(segment.startSeconds)
+                        } label: {
+                            segmentRow(segment, isCurrent: index == currentIndex)
+                        }
+                        .buttonStyle(.plain)
+                        .id(index)
+                        if index < program.segments.count - 1 {
+                            Divider()
+                        }
+                    }
+                }
+            }
+            .frame(height: 180)
+            .background(Color(.secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            // Keeps the current segment scrolled into view as the workout
+            // progresses, without fighting a rider who's manually scrolled
+            // to look ahead – only re-centers when `currentIndex` itself
+            // actually changes (a new segment reached), not on every tick.
+            .onChange(of: currentIndex) { newIndex in
+                guard let newIndex else { return }
+                withAnimation { proxy.scrollTo(newIndex, anchor: .center) }
+            }
+        }
+    }
+
+    private func segmentRow(_ segment: TreadmillWorkoutSegment, isCurrent: Bool) -> some View {
+        HStack {
+            Text(formattedSegmentDuration(segment.duration))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 44, alignment: .leading)
+                .monospacedDigit()
+            Text(String(format: "%.1f km/h", locale: .current, segment.speedKmh))
+                .fontWeight(isCurrent ? .semibold : .regular)
+            Spacer()
+            Text(String(format: "%.1f %%", locale: .current, segment.inclinePercent))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(isCurrent ? Color.accentColor.opacity(0.15) : Color.clear)
+    }
+
+    private func formattedSegmentDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds)
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 }
 

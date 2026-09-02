@@ -42,16 +42,19 @@ enum WorkoutState: Equatable {
 }
 
 /// What the Program tab currently has loaded: a time-based power/resistance
-/// schedule (`.erg`/`.mrc`) or a distance-based grade profile (GPX). Mutually
-/// exclusive – loading one replaces the other.
+/// schedule (`.erg`/`.mrc`), a distance-based grade profile (GPX), or a
+/// time-based speed/incline schedule for a treadmill (`.zwo`). Mutually
+/// exclusive – loading one replaces whichever was loaded before.
 enum ActiveWorkout {
     case program(WorkoutProgram)
     case route(GradeProfile)
+    case treadmillProgram(TreadmillWorkoutProgram)
 
     var name: String {
         switch self {
         case .program(let program): return program.name
         case .route(let route): return route.name
+        case .treadmillProgram(let program): return program.name
         }
     }
 }
@@ -285,6 +288,19 @@ final class WorkoutSession: ObservableObject {
         intensityAdjustmentPercent = 0
     }
 
+    /// Loads a `.zwo`-derived treadmill speed/incline schedule. Same rules
+    /// as `loadProgram(_:)` – `intensityAdjustmentPercent` is reset too,
+    /// even though nothing currently lets the rider actually adjust it for
+    /// this workout kind (see `sendCurrentWorkoutTarget(for:)`'s own note),
+    /// just so it can't carry over a stale nonzero value from an earlier
+    /// `.program` run into this one.
+    func loadTreadmillProgram(_ program: TreadmillWorkoutProgram) {
+        guard state == .idle else { return }
+        activeWorkout = .treadmillProgram(program)
+        isProgramFinished = false
+        intensityAdjustmentPercent = 0
+    }
+
     /// Nudges `intensityAdjustmentPercent` by `delta` (1 per +/- tap),
     /// floored at `minIntensityAdjustmentPercent` but with no ceiling.
     /// Kind-agnostic – works the same for a power-kind or resistance-kind
@@ -326,6 +342,35 @@ final class WorkoutSession: ObservableObject {
         connection.startOrResumeWorkout()
         state = .running
         startTracking()
+    }
+
+    /// Skips playback to `target` seconds into the workout – e.g. tapping a
+    /// row in `TreadmillProgramSegmentList` to jump straight to that
+    /// segment, rather than only ever moving forward one second at a time.
+    /// Only meaningful while actually following a loaded workout
+    /// (`isDrivenByProgram`); a no-op for a plain manual session, which has
+    /// no file position to jump within.
+    ///
+    /// `elapsedSeconds` isn't a plain counter – it's recomputed from
+    /// `startDate` (see `currentElapsedSeconds(at:)`) every refresh, so
+    /// "jumping" it means shifting `startDate` itself by the same delta,
+    /// rather than assigning `elapsedSeconds` directly and having the very
+    /// next tick silently overwrite it back to the real wall-clock
+    /// position.
+    func jump(toElapsedSeconds target: TimeInterval) {
+        guard isDrivenByProgram, state == .running || state == .paused, let startDate else { return }
+        let now = Date()
+        let currentElapsed = TimeInterval(currentElapsedSeconds(at: now))
+        self.startDate = startDate.addingTimeInterval(currentElapsed - target)
+        elapsedSeconds = Int(target)
+        // A big jump shouldn't itself count as "reached a new entry" for
+        // vibration/interval-sound purposes – let the next regular tick
+        // re-establish that from a clean slate instead of possibly firing
+        // on a jump spanning many entries at once.
+        lastProgramBreakpointIndex = nil
+        if let workout = activeWorkout {
+            sendCurrentWorkoutTarget(for: workout)
+        }
     }
 
     func stop() {
@@ -524,15 +569,22 @@ final class WorkoutSession: ObservableObject {
     }
 
     /// Looks up and sends the target for `workout` at the current position –
-    /// elapsed time for a `.program`, distance covered so far for a `.route`
-    /// (reusing the same `distanceMeters` this session already tracks for the
-    /// post-workout summary). Marks `isProgramFinished` once past the end
-    /// instead of sending anything further.
+    /// elapsed time for a `.program`/`.treadmillProgram`, distance covered so
+    /// far for a `.route` (reusing the same `distanceMeters` this session
+    /// already tracks for the post-workout summary). Marks
+    /// `isProgramFinished` once past the end instead of sending anything
+    /// further.
     private func sendCurrentWorkoutTarget(for workout: ActiveWorkout) {
         switch workout {
         case .program(let program):
             let elapsed = TimeInterval(elapsedSeconds)
             if let target = program.target(atElapsedSeconds: elapsed) {
+                // Explicit, not just "stays false in the ordinary case" –
+                // `jump(toElapsedSeconds:)` can move `elapsed` *backward*
+                // too, e.g. back into range after having already run past
+                // the end, and this is what un-sticks a stale "complete"
+                // state from before that jump.
+                isProgramFinished = false
                 sendProgramTarget(adjustedTargetValue(target), kind: program.targetKind)
                 if let index = program.breakpointIndex(atElapsedSeconds: elapsed) {
                     let didReachNewEntry = lastProgramBreakpointIndex != nil && index != lastProgramBreakpointIndex
@@ -549,7 +601,37 @@ final class WorkoutSession: ObservableObject {
             }
         case .route(let route):
             if let grade = route.grade(atDistanceMeters: distanceMeters) {
+                isProgramFinished = false
                 connection.setSimulationGrade(percent: grade)
+            } else {
+                isProgramFinished = true
+            }
+        case .treadmillProgram(let program):
+            // Same step-transition handling as `.program` above (vibration/
+            // interval sound, `lastProgramBreakpointIndex` reused as-is –
+            // safe since only one `ActiveWorkout` case is ever loaded at a
+            // time) – but no `adjustedTargetValue(_:)` call: that scales a
+            // single `Int`, and this sends two `Double` targets at once.
+            // Session-local intensity adjustment for this workout kind is
+            // simply out of scope for now, not silently dropped – nothing
+            // in `ControlView` exposes the +/- for it either.
+            let elapsed = TimeInterval(elapsedSeconds)
+            if let target = program.target(atElapsedSeconds: elapsed) {
+                // See the `.program` case's own note above on why this is
+                // explicit – `jump(toElapsedSeconds:)` is exactly why.
+                isProgramFinished = false
+                connection.setTargetSpeed(kmh: target.speedKmh)
+                connection.setTargetInclination(percent: target.inclinePercent)
+                if let index = program.segmentIndex(atElapsedSeconds: elapsed) {
+                    let didReachNewEntry = lastProgramBreakpointIndex != nil && index != lastProgramBreakpointIndex
+                    if didReachNewEntry {
+                        triggerStepVibrationIfEnabled()
+                    }
+                    let secondsUntilNextEntry = program.nextTransitionTimeSeconds(afterIndex: index)
+                        .map { Int(($0 - elapsed).rounded()) }
+                    playIntervalSoundIfNeeded(secondsUntilNextEntry: secondsUntilNextEntry, didReachNewEntry: didReachNewEntry)
+                    lastProgramBreakpointIndex = index
+                }
             } else {
                 isProgramFinished = true
             }

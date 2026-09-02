@@ -19,6 +19,11 @@ protocol), but hasn't been verified here.
 
 - Horizon Paragon X (425A)
 
+### HR chest straps
+
+- Polar H10
+- Garmin HRM Dual
+
 ## Status (MVP, Phase 1)
 
 - [x] BLE scan for FTMS devices

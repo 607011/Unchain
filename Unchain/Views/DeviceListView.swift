@@ -82,6 +82,10 @@ struct DeviceListView: View {
                 ProgressView()
                 Text("Searching for trainers & HR straps …")
                     .foregroundStyle(.secondary)
+                Text("Turn on your trainer or treadmill and keep it within Bluetooth range.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
                 Button("Cancel search") {
                     bluetooth.stopScan()
                 }
@@ -103,7 +107,7 @@ struct DeviceListView: View {
 
     private var deviceList: some View {
         List {
-            Section("Smart Trainer") {
+            Section {
                 if bluetooth.trainerDevices.isEmpty {
                     Text("No trainer found")
                         .foregroundStyle(.secondary)
@@ -126,9 +130,13 @@ struct DeviceListView: View {
                     }
                     .foregroundStyle(.primary)
                 }
+            } header: {
+                Text("Smart Trainer")
+            } footer: {
+                Text("Unchain controls and monitors FTMS-compatible smart trainers and treadmills over Bluetooth.")
             }
 
-            Section("Heart Rate Strap") {
+            Section {
                 if bluetooth.heartRateDevices.isEmpty {
                     Text("No strap found")
                         .foregroundStyle(.secondary)
@@ -136,6 +144,10 @@ struct DeviceListView: View {
                 ForEach(bluetooth.heartRateDevices) { device in
                     HeartRateDeviceRow(device: device, bluetooth: bluetooth)
                 }
+            } header: {
+                Text("Heart Rate Strap")
+            } footer: {
+                Text("Optional – shows heart rate zones during your workout and is recorded to the Health app when you save it.")
             }
         }
         .refreshable { bluetooth.startScan() }

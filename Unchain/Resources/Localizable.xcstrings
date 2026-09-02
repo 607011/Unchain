@@ -1810,6 +1810,76 @@
           }
         }
       }
+    },
+    "Turn on your trainer or treadmill and keep it within Bluetooth range.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schalte deinen Trainer oder dein Laufband ein und halte es in Bluetooth-Reichweite."
+          }
+        }
+      }
+    },
+    "Unchain controls and monitors FTMS-compatible smart trainers and treadmills over Bluetooth.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unchain steuert und überwacht FTMS-fähige Smart-Trainer und Laufbänder per Bluetooth."
+          }
+        }
+      }
+    },
+    "Optional – shows heart rate zones during your workout and is recorded to the Health app when you save it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional – zeigt Trainingszonen während des Workouts an und wird beim Speichern in die Health-App übernommen."
+          }
+        }
+      }
+    },
+    "This trainer doesn't support Speed or Inclination targets, so .zwo workouts can't be used.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Trainer unterstützt keine Geschwindigkeits- oder Steigungs-Zielwerte, daher können .zwo-Workouts nicht verwendet werden."
+          }
+        }
+      }
+    },
+    "The file couldn't be parsed as a .zwo workout.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Datei konnte nicht als .zwo-Workout gelesen werden."
+          }
+        }
+      }
+    },
+    "No Warmup/SteadyState/Cooldown blocks with Pace/Incline found in this .zwo file – a cycling (Power-based) .zwo isn't supported yet.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In dieser .zwo-Datei wurden keine Warmup-/SteadyState-/Cooldown-Blöcke mit Pace/Incline gefunden – eine leistungsbasierte Rad-.zwo-Datei wird noch nicht unterstützt."
+          }
+        }
+      }
+    },
+    "This .zwo file uses a \"%@\" block Unchain doesn't support yet – only Warmup, SteadyState, and Cooldown (flat Pace/Incline, no ramping or repeats) are.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese .zwo-Datei verwendet einen „%@\"-Block, den Unchain noch nicht unterstützt – nur Warmup, SteadyState und Cooldown (konstante Pace/Incline, keine Rampen oder Wiederholungen) werden unterstützt."
+          }
+        }
+      }
     }
   },
   "version": "1.1"

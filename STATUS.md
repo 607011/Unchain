@@ -1174,3 +1174,36 @@ would change, roughly in the order it'd need doing:
       actually takes to physically get there. Bike trainers get a plain
       "nothing here yet" placeholder rather than an empty screen, since
       there's no equivalent setting for them so far
+- [x] **That next step**: reported from real use – jumping straight from a
+      steep incline at a slow pace to flat at a fast one (e.g. 15 % at
+      4 km/h to 0 % at 6.5 km/h) used to send both targets at once. The
+      belt speeds up almost instantly; the incline motor takes real,
+      measurable time to physically get there – for those few seconds the
+      rider was doing 6.5 km/h on a platform still tilted close to 15 %,
+      enough to push someone off the back. `WorkoutSession
+      .sendCurrentWorkoutTarget(for:)`'s `.treadmillProgram` case now
+      ramps *speed* linearly across a `.zwo` interval boundary, over the
+      incline's own estimated travel time (`|Δ incline| ×
+      TrainerDeviceSettings.effectiveInclineChangeSecondsPerDegree`, the
+      per-device setting added above – `1.0` s/° assumed for any
+      unmeasured treadmill, per instruction, rather than `0`, which would
+      silently skip ramping altogether). Incline itself is still sent as
+      one flat target immediately, same as before – nothing here controls
+      how fast the motor itself moves; this only paces how fast the belt
+      gets ahead of it. A tick partway through an already-running ramp
+      keeps interpolating from wherever the belt actually last was
+      commanded to (`lastSentTreadmillSpeedKmh`/`lastSentTreadmillInclinePercent`),
+      not the old segment's nominal target, so a second transition
+      arriving before the first ramp finished still continues smoothly.
+      Initially left a manual `jump(toElapsedSeconds:)` (the segment-list
+      tap-to-jump) out of this entirely, reasoning it was "just a preview" –
+      wrong: `jump` only works while the workout is actually running or
+      paused, so whatever it lands on is being walked/run on for real, and
+      the treadmill's incline motor doesn't know or care whether a target
+      change came from ordinary playback or a tap. Fixed the same day, once
+      asked to justify it (#diskussion) – added a separate
+      `pendingTreadmillSpeedRampRestart` flag so `jump` still restarts the
+      ramp toward wherever it landed, while keeping its existing,
+      unrelated suppression of vibration/interval-sound (via
+      `lastProgramBreakpointIndex = nil`, so a big skip doesn't fire a
+      burst of buzzing for every entry jumped over) untouched

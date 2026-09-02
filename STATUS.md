@@ -4,6 +4,21 @@ Feature history, App Store readiness checklist, and the reasoning behind
 notable implementation decisions – moved out of [README.md](README.md) to keep
 that focused on what a new contributor or user actually needs first.
 
+## Tested hardware
+
+Not exhaustive – just what's actually been ridden/walked on. Any other
+FTMS-compliant trainer or treadmill should work in principle (that's the
+point of building against the open standard rather than a vendor-specific
+protocol), but hasn't been verified here.
+
+### Bike trainers
+
+- Wahoo Kickr Core
+
+### Treadmills
+
+- Horizon Paragon X (425A)
+
 ## Status (MVP, Phase 1)
 
 - [x] BLE scan for FTMS devices

@@ -1,5 +1,7 @@
 # Unchain
 
+[![CI](https://github.com/607011/Unchain/actions/workflows/ci.yml/badge.svg)](https://github.com/607011/Unchain/actions/workflows/ci.yml)
+
 <img src="Unchain/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png" width="96" alt="Unchain app icon">
 
 Lean iOS app for controlling smart trainers (Kickr & co.) via the open

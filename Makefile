@@ -4,9 +4,11 @@
 #
 # `run` and `debug` target a real device rather than the Simulator on
 # purpose: Bluetooth doesn't work in the iOS Simulator at all, and this app
-# is useless without it. `DEVICE` defaults to Oliver's iPhone; override on
-# the command line for a different device, e.g. `make run DEVICE=Eipättpro`.
-# `xcrun devicectl list devices` shows what's currently paired/connected.
+# is useless without it. `DEVICE` auto-detects whichever iPhone is currently
+# connected via USB (see `CONNECTED_DEVICE` below) – override on the command
+# line for a different, not-currently-plugged-in device, e.g. `make run
+# DEVICE=Eipättpro`. `xcrun devicectl list devices` shows what's currently
+# paired/connected.
 #
 # Note on this Mac: scheme/destination-based `xcodebuild` fails here
 # ("Supported platforms for the buildables in the current scheme is empty"),
@@ -26,7 +28,21 @@
 TARGET        := Unchain
 CONFIGURATION := Debug
 BUNDLE_ID     := net.ersatzworld.unchain
-DEVICE        ?= Fourteen
+# Auto-detects the iPhone currently connected via USB, so `make run` picks
+# up whichever of Oliver's or his wife's phones is actually plugged in right
+# now, without needing `DEVICE=...` on the command line every time it's the
+# other one. `--filter "connectionProperties.transportType == 'wired'"` is
+# what actually distinguishes a live USB connection from a Wi-Fi-paired-but-
+# not-connected device (both otherwise show up in `xcrun devicectl list
+# devices` the same way); `awk 'NF==1{print; exit}'` guards against
+# `devicectl`'s own "No devices found." message (several words, not one)
+# being mistaken for a device name when nothing's plugged in, and – if
+# somehow more than one device is wired at once – takes only the first.
+CONNECTED_DEVICE := $(shell xcrun devicectl list devices --filter "connectionProperties.transportType == 'wired'" --columns Name --hide-default-columns --hide-headers 2>/dev/null | awk 'NF==1{print; exit}')
+# Falls back to WD14 if nothing's connected by USB right now – override on
+# the command line the same way as before if that's ever wrong, e.g.
+# `make run DEVICE=Fourteen`.
+DEVICE        ?= $(if $(CONNECTED_DEVICE),$(CONNECTED_DEVICE),WD14)
 BUILD_DIR     := build
 APP_PATH      := $(BUILD_DIR)/$(CONFIGURATION)-iphoneos/$(TARGET).app
 LAUNCH_JSON   := $(BUILD_DIR)/devicectl-launch.json

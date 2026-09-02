@@ -1108,3 +1108,69 @@ would change, roughly in the order it'd need doing:
       broader FTMS device compatibility is unverified
 - [ ] *(recommended, not required)* **Crash reporting** – zero visibility
       into post-launch crashes otherwise
+- [x] **Watch app icon looked too small** after the chain-link redesign –
+      correctly sized on the iPhone Home Screen, but visibly smaller/lighter
+      on the Watch. watchOS pads its circular icon mask more aggressively
+      than iOS pads its squircle, and the new glyph's content didn't reach
+      as close to the edges as the old arrow-based design did, so the same
+      1024×1024 asset that worked fine for iOS read as shrunken there. Fixed
+      with a watchOS-only variant, `assets/Icon-Watch.svg` – the same glyph
+      uniformly scaled up ~16 % around its own center (which, as a side
+      effect, thickens the strokes too, helping legibility at the Watch's
+      much smaller physical icon size) – checked to stay just inside the
+      circular safe area (max radius ≈ 95 % of the canvas half-width, so
+      nothing gets clipped by the mask) rather than picking a scale factor
+      by eye alone. The iPhone/docs icon is untouched, since only the Watch
+      one was reported as wrong.
+- [x] **CI badge** at the top of README.md, linking to the `ci.yml` GitHub
+      Actions workflow run history
+- [x] Real-workout feedback from a walking session, all in `ControlView`:
+      the `HeartRateZonesView` zone-duration labels (shared by bike and
+      treadmill, live and post-workout) were hard to read mid-workout at a
+      glance – bumped ~50 % (15→23pt regular width, 10→15pt compact).
+      `TreadmillProgramSegmentList`'s interval rows had three different
+      text treatments (small gray duration, default-styled speed, gray
+      incline) for no real reason – all three now share one plain style.
+      The left-hand duration for the *current* segment now counts down in
+      1-second steps (`elapsedSeconds`-driven, same ticking source as
+      everything else on screen) instead of showing a static total – other
+      rows still show their plain total, since counting down a segment
+      that hasn't started yet wouldn't mean anything. And the current
+      row's highlight is now a genuine left-to-right progress bar for that
+      segment (a light full-row wash plus a more saturated overlay whose
+      width tracks `progressFraction(for:)`), not just a flat single-color
+      background
+- [x] Fixed: tapping a row in `TreadmillProgramSegmentList` to jump used to
+      make the overall elapsed-time display jump too, forward or backward,
+      instead of continuing to count real walked/run time. Root cause was
+      `WorkoutSession.jump(toElapsedSeconds:)` shifting `startDate` itself
+      – which `elapsedSeconds` is recomputed from every refresh – so a
+      preview jump permanently redefined "how long has this workout been
+      running" along with "where is playback". Introduced a separate
+      `programOffsetSeconds` (and public `programPositionSeconds =
+      elapsedSeconds + programOffsetSeconds`): `jump` now only moves the
+      offset, `elapsedSeconds` itself is never touched by it again.
+      `sendCurrentWorkoutTarget(for:)`'s `.program`/`.treadmillProgram`
+      cases, the segment list, and `treadmillProgramTargetLabel` all read
+      `programPositionSeconds` (so jumping still changes which segment is
+      current/highlighted and what target gets sent); every other elapsed-
+      time consumer (the on-screen clock, `powerHistory`/`heartRateHistory`
+      timestamps, the final `WorkoutSummary.activeDuration`) keeps reading
+      `elapsedSeconds`, so those can no longer be corrupted by a jump
+      either – previously latent, since nothing exercised it this way yet
+- [x] **New Settings → Devices section** – every trainer this app has ever
+      connected to (`TrainerDeviceStore`, plain `UserDefaults`, keyed by
+      `CBPeripheral.identifier` – same stable-across-launches ID
+      `BluetoothManager` already relies on for the last-used HR strap),
+      grouped into Treadmills/Bike Trainers, no live connection required to
+      see or open one (`ControlView` records a device the moment
+      `machineKind` resolves, in the existing `.onAppear`/`.onChange(of:
+      connection.machineKind)` handlers). Tapping a row opens a new
+      `TrainerDeviceSettingsView` for that specific device – for now, just
+      one treadmill-only setting, seconds-per-degree incline response time
+      (`TrainerDeviceSettings.inclineChangeSecondsPerDegree`, persisted per
+      device ID). Nothing reads this value yet – it's prep for a next step,
+      compensating `.zwo` incline changes for how long a given treadmill
+      actually takes to physically get there. Bike trainers get a plain
+      "nothing here yet" placeholder rather than an empty screen, since
+      there's no equivalent setting for them so far

@@ -1207,3 +1207,52 @@ would change, roughly in the order it'd need doing:
       unrelated suppression of vibration/interval-sound (via
       `lastProgramBreakpointIndex = nil`, so a big skip doesn't fire a
       burst of buzzing for every entry jumped over) untouched
+- [x] **Local workout history, independent of Apple Health** – every
+      finished workout is now saved on-device regardless of what (if
+      anything) also gets saved to Health, so declining/skipping Health
+      never means losing the workout:
+  - New `WorkoutRecord`/`WorkoutSample` (`WorkoutHistoryStore.swift`) –
+    richer than the transient `WorkoutSummary` a live session hands to the
+    post-workout dialog, since it also carries a real per-second
+    heart-rate/power/speed trace (`WorkoutSession.mergedWorkoutSamples()`,
+    merging the session's own `powerHistory`/`heartRateHistory` with a new
+    `speedHistory` – added purely for this, previously nothing tracked a
+    live speed *time series*, only the running total `distanceMeters`).
+    `HeartRateZone` gained `Codable` conformance for this (was
+    `Int, CaseIterable, Identifiable` only).
+  - `WorkoutHistoryStore` persists one JSON file per workout under this
+    app's own Application Support directory (`FileManager`, plain
+    read/write/delete – deliberately not `UserDefaults`, which doesn't
+    scale to a growing history of per-second samples, and not the
+    Documents directory either, which would surface raw JSON in the Files
+    app for no reason – `.tcx` export is the actual "get it out of the
+    app" path). No new `PrivacyInfo.xcprivacy` entry needed – plain file
+    I/O isn't one of Apple's required-reason API categories, unlike
+    `UserDefaults`.
+  - **Where it hooks in**: not `WorkoutSession.stop()` – that can still be
+    undone via `cancelStop()` (the confirmation dialog's own Cancel
+    button) – but `reset()`, the one place every path that actually
+    *keeps* a stop (Save to Health, Discard, and the silent
+    Watch-companion one) all funnel through regardless of the Health
+    decision.
+  - New `TCXExporter.swift` – hand-built XML (no library; the document
+    shape is small and fixed enough not to need one), producing a
+    Trackpoint per stored sample with `HeartRateBpm` and a Garmin `TPX`
+    extension (`Speed` in m/s, `Watts`) wherever each is actually present.
+    Per-trackpoint `DistanceMeters` is integrated after the fact from the
+    stored speed trace – the same `speed × Δt` approach
+    `WorkoutSession.refreshWorkoutState` already uses live, just replayed
+    from `samples` instead of BLE notifications. `Sport` maps
+    bike→"Biking", treadmill→"Running" (TCX has no Walk/Run distinction
+    either, matching FTMS itself), unknown→"Other"; `Calories` (required
+    by the schema) reuses the existing cycling kJ≈kcal estimate when
+    available, `0` otherwise – same "no accurate figure means no invented
+    one" rule as `liveActiveEnergyKcal`.
+  - New `WorkoutHistoryView.swift` – a list of saved workouts (swipe to
+    delete) reached from a new "Workout History" button in `SettingsView`,
+    same placement as "Log a Workout…"/"Diagnostics"; tapping one opens a
+    detail screen with the summary stats, `HeartRateZonesView` (now
+    non-`private` in `ControlView.swift`, reused here the same way
+    `InfoButton` already is) if zone data exists, and a `ShareLink` for the
+    `.tcx` export, written to a temp file purely so the share sheet has a
+    real file `URL` to hand off

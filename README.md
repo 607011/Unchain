@@ -17,8 +17,8 @@ always optional — the app itself never asks.
 Unchain has grown through two rough phases – MVP bike-trainer control, then
 treadmill/FTMS/workout-file support and beyond – tracked as a running,
 dated decision log rather than a snapshot. See
-[STATUS.md](STATUS.md) for the full feature history and the
-App Store readiness checklist.
+[STATUS.md](STATUS.md) for a list of supported smart trainers, the full
+feature history and the App Store readiness checklist.
 
 ## Generating the project
 

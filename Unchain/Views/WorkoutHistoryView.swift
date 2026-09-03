@@ -128,6 +128,16 @@ struct WorkoutHistoryDetailView: View {
                     Text("Time in Heart Rate Zones")
                 }
             }
+            if let estimatedVO2Max = record.estimatedVO2Max {
+                Section {
+                    LabeledContent("Estimated VO2max", value: String(format: "%.1f ml/kg/min", estimatedVO2Max))
+                } header: {
+                    HStack(spacing: 4) {
+                        Text("Fitness")
+                        InfoButton(text: "Estimated from a held steady-effort segment of this workout's .zwo program, using your Max/Resting Heart Rate – not a measurement (that needs lab equipment analyzing your actual breath), typically ±10–15% off a real test. Never saved to Apple Health.")
+                    }
+                }
+            }
             Section {
                 ShareLink(item: exportURL, preview: SharePreview(TCXExporter.suggestedFileName(for: record))) {
                     Label("Export as .tcx", systemImage: "square.and.arrow.up")

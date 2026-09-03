@@ -1309,6 +1309,39 @@ would change, roughly in the order it'd need doing:
       paused-interval folding (used by `resume()`/`cancelStop()`, both of
       which send another Start/Resume too) gets the same countdown added,
       so resuming from pause is covered the same way
+- [x] **Estimated VO2max** in `WorkoutHistoryDetailView`, for a `.zwo`
+      treadmill program with a genuinely held `SteadyState` segment –
+      prompted by realizing Unchain already has everything the Heart Rate
+      Reserve estimation method (ACSM's Guidelines for Exercise Testing and
+      Prescription) needs: Resting Heart Rate (Health), age-predicted Max
+      Heart Rate (Tanaka formula, already prefilled in `SettingsView`), and
+      – now that `.zwo` incline is tracked live – a known, held pace and
+      grade to compute submaximal VO2 from via the ACSM walking/running
+      metabolic equations (same family `EnergyEstimator
+      .walkRunActiveEnergyKcal` uses, with the grade term that one omits
+      – no live incline reaches it there – kept in the new
+      `VO2MaxEstimator`). Body weight and biological sex turned out *not*
+      to actually be needed for this – Unchain doesn't even read
+      biological sex from Health at all, contrary to the assumption that
+      prompted this. New `TreadmillSegmentKind` (`.warmup`/`.steadyState`/
+      `.cooldown`) on `TreadmillWorkoutSegment`, populated by
+      `ZWOWorkoutParser` from which `.zwo` element a segment came from –
+      previously discarded once parsed – lets `VO2MaxEstimator` find the
+      longest genuinely-`SteadyState` block (≥3 minutes) and use only its
+      *settled* heart-rate window (skipping the first 90s/half, whichever
+      is more) rather than an unsettled reading. Made `Optional` rather
+      than required, so a `.zwo` program saved to `TreadmillWorkoutProgramStore`
+      before this existed still decodes – it just never qualifies, instead
+      of the whole recents list failing to load. Walking vs. running ACSM
+      equation is picked per-segment by speed (≥8 km/h, the classic
+      walk-to-run crossover), not from the one-time "Indoor Walk"/"Indoor
+      Run" choice at Start, which `WorkoutSession` doesn't track anyway and
+      which a single `.zwo` program's own segments can easily cross (e.g. a
+      brisk uphill interval within an otherwise easy walk). Clearly labeled
+      as an estimate (±10–15 % off a lab result is typical for this
+      method) with an `InfoButton` explaining the method; never written to
+      HealthKit, per instruction – too uncertain a number to silently feed
+      into Health's own Cardio Fitness trend
 - [x] **Workout Builder** (`docs/builder.html`, linked from the landing
       page) – a browser-based companion tool, prompted by trying several
       web workout builders and finding them all tedious to use (fill in a

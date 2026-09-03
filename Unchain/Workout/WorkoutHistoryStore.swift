@@ -35,6 +35,12 @@ struct WorkoutRecord: Codable, Identifiable {
     let programName: String?
     let heartRateZoneSeconds: [HeartRateZone: Int]
     let samples: [WorkoutSample]
+    /// See `VO2MaxEstimator` – `nil` unless this was a `.zwo` treadmill
+    /// program with a genuinely held `SteadyState` segment and Max/Resting
+    /// Heart Rate were both set at the time. An estimate, not a
+    /// measurement – shown labeled as such in `WorkoutHistoryDetailView`,
+    /// never written to HealthKit.
+    let estimatedVO2Max: Double?
 }
 
 /// Persists finished workouts as one JSON file per record under this app's

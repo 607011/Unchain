@@ -505,6 +505,7 @@ final class WorkoutSession: ObservableObject {
     /// doesn't lose the workout, it just stays out of Health.
     func reset() {
         if let summary = pendingSummary {
+            let samples = mergedWorkoutSamples()
             WorkoutHistoryStore.save(WorkoutRecord(
                 id: summary.id,
                 machineKind: summary.machineKind,
@@ -515,7 +516,8 @@ final class WorkoutSession: ObservableObject {
                 workDoneKilojoules: summary.workDoneKilojoules,
                 programName: summary.programName,
                 heartRateZoneSeconds: summary.heartRateZoneSeconds,
-                samples: mergedWorkoutSamples()
+                samples: samples,
+                estimatedVO2Max: estimatedVO2Max(samples: samples)
             ))
         }
         pendingSummary = nil
@@ -596,6 +598,19 @@ final class WorkoutSession: ObservableObject {
                 speedKmh: speedBySecond[second]
             )
         }
+    }
+
+    /// `nil` unless this run actually followed a `.zwo` treadmill program
+    /// (`activeWorkout` might still be a leftover `.treadmillProgram` from
+    /// an earlier run even for a plain manual session – `isDrivenByProgram`
+    /// is what says whether *this* run actually followed it, same guard
+    /// `sendCurrentWorkoutTarget(for:)` itself relies on). See
+    /// `VO2MaxEstimator`'s own doc comment for the method/caveats.
+    private func estimatedVO2Max(samples: [WorkoutSample]) -> Double? {
+        guard isDrivenByProgram, case .treadmillProgram(let program) = activeWorkout else { return nil }
+        let maxHR = UserDefaults.standard.integer(forKey: SettingsView.maxHeartRateBPMKey)
+        let restingHR = UserDefaults.standard.integer(forKey: SettingsView.restingHeartRateBPMKey)
+        return VO2MaxEstimator.estimate(program: program, samples: samples, restingHeartRateBPM: restingHR, maxHeartRateBPM: maxHR)
     }
 
     /// Starts (or resumes) tracking: a foreground `Timer` for the normal

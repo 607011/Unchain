@@ -1,6 +1,20 @@
 import Foundation
 import UniformTypeIdentifiers
 
+/// Which `.zwo` block a `TreadmillWorkoutSegment` came from – used by
+/// `VO2MaxEstimator` to pick only a genuinely held, steady-effort segment
+/// (not a Warmup/Cooldown, which by definition aren't representative of a
+/// stable submaximal load) as its basis. `Optional` on the segment itself
+/// rather than required, so a `TreadmillWorkoutProgram` persisted before
+/// this existed (`TreadmillWorkoutProgramStore`'s saved recents) still
+/// decodes – such a segment just never qualifies, rather than the whole
+/// list of recents failing to load.
+enum TreadmillSegmentKind: String, Codable {
+    case warmup
+    case steadyState
+    case cooldown
+}
+
 /// One flat-value block of a treadmill workout: a target speed and
 /// inclination held constant for `duration` seconds. Unlike
 /// `WorkoutProgram` (`.erg`/`.mrc`, where a value ramps linearly *between*
@@ -14,6 +28,7 @@ struct TreadmillWorkoutSegment: Codable, Equatable {
     let duration: TimeInterval
     let speedKmh: Double
     let inclinePercent: Double
+    let kind: TreadmillSegmentKind?
 }
 
 /// A structured treadmill workout loaded from a `.zwo` file (Zwift's XML
@@ -150,7 +165,13 @@ enum ZWOWorkoutParser {
                 guard let duration = attributeDict["Duration"].flatMap(Double.init), duration > 0,
                       let pace = attributeDict["Pace"].flatMap(Double.init),
                       let incline = attributeDict["Incline"].flatMap(Double.init) else { return }
-                segments.append(TreadmillWorkoutSegment(startSeconds: cursorSeconds, duration: duration, speedKmh: pace, inclinePercent: incline))
+                let kind: TreadmillSegmentKind? = switch name {
+                case "Warmup": .warmup
+                case "SteadyState": .steadyState
+                case "Cooldown": .cooldown
+                default: nil
+                }
+                segments.append(TreadmillWorkoutSegment(startSeconds: cursorSeconds, duration: duration, speedKmh: pace, inclinePercent: incline, kind: kind))
                 cursorSeconds += duration
             case let name where Self.knownUnsupportedSegmentElements.contains(name):
                 unsupportedSegmentName = name

@@ -396,7 +396,13 @@ final class WorkoutSession: ObservableObject {
     func pause() {
         guard state == .running else { return }
         connection.pauseWorkout()
-        elapsedSeconds = currentElapsedSeconds() // freeze at the moment Pause was tapped, not the last refresh
+        // `max(...)`, not a flat overwrite – freezes at the moment Pause
+        // was tapped, not the last refresh, same as before, but without
+        // regressing *below* whatever `elapsedSeconds` was last published
+        // as. That published value can be treadmill-sourced (see
+        // `refreshWorkoutState`'s own note) and momentarily ahead of what
+        // this purely local, `startDate`-based recompute alone would say.
+        elapsedSeconds = max(currentElapsedSeconds(), elapsedSeconds)
         state = .paused
         stopTracking()
     }
@@ -453,7 +459,8 @@ final class WorkoutSession: ObservableObject {
         guard state == .running || state == .paused else { return }
         stateBeforeStop = state
         connection.stopWorkout()
-        elapsedSeconds = currentElapsedSeconds() // freeze at the moment Stop was tapped, not the last refresh
+        // See `pause()`'s own note on why `max(...)`, not a flat overwrite.
+        elapsedSeconds = max(currentElapsedSeconds(), elapsedSeconds)
         stopTracking()
         let end = Date()
         pendingSummary = WorkoutSummary(
@@ -586,9 +593,21 @@ final class WorkoutSession: ObservableObject {
     /// Called from `reset()`, before those three get cleared a few lines
     /// later.
     private func mergedWorkoutSamples() -> [WorkoutSample] {
-        let powerBySecond = Dictionary(uniqueKeysWithValues: powerHistory.map { ($0.timeSeconds, $0.watts) })
-        let heartRateBySecond = Dictionary(uniqueKeysWithValues: heartRateHistory.map { ($0.timeSeconds, $0.bpm) })
-        let speedBySecond = Dictionary(uniqueKeysWithValues: speedHistory.map { ($0.timeSeconds, $0.kmh) })
+        // `uniquingKeysWith:` (keep whichever duplicate appears *last*),
+        // not `uniqueKeysWithValues:` – the latter fatal-errors outright on
+        // a duplicate `timeSeconds`. A real crash on a long workout
+        // confirmed these three arrays weren't *quite* guaranteed never to
+        // contain one (`elapsedSeconds` briefly stepping backward, back
+        // when `refreshWorkoutState` used to nudge `startDate` to
+        // resync against the connected machine's own elapsed-time counter – fixed
+        // at the source since, `elapsedSeconds` is published straight from
+        // that counter now, never derived by shifting `startDate` toward
+        // it). Belt and braces: keeping the latest value on a duplicate is
+        // a harmless, sensible fallback regardless of the cause, worlds
+        // better than crashing over it.
+        let powerBySecond = Dictionary(powerHistory.map { ($0.timeSeconds, $0.watts) }, uniquingKeysWith: { _, latest in latest })
+        let heartRateBySecond = Dictionary(heartRateHistory.map { ($0.timeSeconds, $0.bpm) }, uniquingKeysWith: { _, latest in latest })
+        let speedBySecond = Dictionary(speedHistory.map { ($0.timeSeconds, $0.kmh) }, uniquingKeysWith: { _, latest in latest })
         let allSeconds = Set(powerBySecond.keys).union(heartRateBySecond.keys).union(speedBySecond.keys)
         return allSeconds.sorted().map { second in
             WorkoutSample(
@@ -678,7 +697,58 @@ final class WorkoutSession: ObservableObject {
     /// metrics notification – see `startTracking()`.
     private func refreshWorkoutState(metrics: TrainerMetrics) {
         let now = Date()
-        elapsedSeconds = currentElapsedSeconds(at: now)
+        // The connected machine's own elapsed-time counter (see
+        // `TrainerMetrics.deviceElapsedSeconds`'s own doc comment – both
+        // Indoor Bike Data and Treadmill Data can report one, so this
+        // isn't treadmill-only), when reported, *is* the workout duration
+        // as far as the machine's own console is concerned – so it's used
+        // directly, not as a target to slowly correct the local
+        // `startDate`-based clock toward. An earlier version of this tried
+        // exactly that (nudging `startDate` to chase it every refresh) –
+        // needlessly complicated, carried a real crash risk (a large
+        // correction could step `elapsedSeconds` *backward*, and
+        // `powerHistory`/`heartRateHistory`/`speedHistory` each dedupe by
+        // comparing only against their own *last* entry, so a backward
+        // step reintroduced an already-recorded second once forward
+        // ticking resumed – `mergedWorkoutSamples()`'s `Dictionary` build
+        // fatal-errors on the resulting duplicate key), and had its own
+        // quiet side effect: shifting `startDate` also shifts the
+        // workout's own reported *start time* (`stop()` uses it for
+        // `WorkoutSummary.startDate`, which becomes the Health workout's
+        // start timestamp) – not something a display-sync feature should
+        // be touching at all.
+        //
+        // `max(deviceElapsedSeconds, elapsedSeconds)` – never regresses
+        // `elapsedSeconds` below what's already been published, same
+        // invariant the history arrays' dedup relies on, just enforced
+        // directly on the published value instead of via `startDate`
+        // gymnastics.
+        //
+        // Only actually considered once the local, `startDate`-based
+        // `currentElapsedSeconds(at:)` itself shows genuine forward
+        // progress since the last refresh (`localElapsedSeconds >
+        // elapsedSeconds` below) – i.e. once whichever countdown hold is
+        // currently in effect, if any, has actually lifted. `start()`'s
+        // own initial countdown and a post-`resume()` one (folded into
+        // `totalPausedDuration` – see `startTracking()`) both already make
+        // the local computation hold flat at its pre-hold value for
+        // exactly this long, so checking "did it move" covers either kind
+        // of hold without this needing to know which one, if any, is
+        // active. Deliberately not superseded by the device's own value
+        // during a hold, in case a particular machine's own elapsed-time
+        // counter runs through its own console countdown rather than only
+        // once it's actually moving – this keeps "hold the program at
+        // 0/frozen until it's actually moving" intact either way. The
+        // local value is also the fallback whenever nothing's reported at
+        // all (a machine that simply doesn't include this optional field,
+        // or one that does but hasn't sent its first notification with it
+        // yet).
+        let localElapsedSeconds = currentElapsedSeconds(at: now)
+        if let deviceElapsedSeconds = metrics.deviceElapsedSeconds, localElapsedSeconds > elapsedSeconds {
+            elapsedSeconds = max(deviceElapsedSeconds, elapsedSeconds)
+        } else {
+            elapsedSeconds = localElapsedSeconds
+        }
         let sampleDuration = lastMetricsSampleDate.map { now.timeIntervalSince($0) } ?? 0
         lastMetricsSampleDate = now
 

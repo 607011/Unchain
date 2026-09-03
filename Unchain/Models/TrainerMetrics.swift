@@ -10,13 +10,29 @@ struct TrainerMetrics: Equatable {
     var instantaneousPowerWatts: Int?
     var instantaneousCadenceRPM: Double?
     var instantaneousSpeedKmh: Double?
+    /// The connected machine's *own* elapsed-workout-time counter, whole
+    /// seconds – reported by both FTMS data characteristics this app reads
+    /// (Indoor Bike Data's own Elapsed Time field, `init(data:)`; Treadmill
+    /// Data's, `init(treadmillData:)`), each only while that specific
+    /// device actually includes the optional field at all. `WorkoutSession`
+    /// uses this directly as `elapsedSeconds` once available (see
+    /// `refreshWorkoutState`), rather than only ever computing it from the
+    /// iPhone's own system clock – the two run on independent clocks (the
+    /// phone's vs. whatever timer the machine's own microcontroller
+    /// keeps), and even a small relative rate difference between them
+    /// compounds over a long workout instead of just being a fixed offset.
+    var deviceElapsedSeconds: Int?
 
     static let empty = TrainerMetrics()
 
     init() {}
 
     /// Parses the raw data according to the FTMS specification (section 4.9.1).
-    /// Which fields are present in `data` depends on the flags bit field at the start.
+    /// Which fields are present in `data` depends on the flags bit field at
+    /// the start. Reads through to and including Elapsed Time (bit 11,
+    /// `deviceElapsedSeconds`) – Remaining Time (bit 12) is the only field
+    /// that could still follow it, and this doesn't need it, so it's never
+    /// skipped for on purpose.
     init(data: Data) {
         guard data.count >= 2 else { return }
         let bytes = [UInt8](data)
@@ -33,6 +49,8 @@ struct TrainerMetrics: Equatable {
         let averagePowerPresent = (flags & 0x0080) != 0
         let expendedEnergyPresent = (flags & 0x0100) != 0
         let heartRatePresent = (flags & 0x0200) != 0
+        let metabolicEquivalentPresent = (flags & 0x0400) != 0
+        let elapsedTimePresent = (flags & 0x0800) != 0
 
         func readUInt16() -> UInt16? {
             guard offset + 2 <= bytes.count else { return nil }
@@ -62,19 +80,26 @@ struct TrainerMetrics: Equatable {
         if averagePowerPresent { skip(2) }
         if expendedEnergyPresent { skip(5) }
         if heartRatePresent { skip(1) }
+        if metabolicEquivalentPresent { skip(1) }
+        if elapsedTimePresent, let raw = readUInt16() {
+            deviceElapsedSeconds = Int(raw) // resolution 1 second, same field shape as Treadmill Data's own
+        }
     }
 
     /// Parses the Treadmill Data characteristic (FTMS spec, section 4.4).
     /// Extracts Instantaneous Speed (same "More Data" bit and 0.01 km/h
-    /// resolution as the bike's Indoor Bike Data) and, since some treadmills
-    /// – e.g. the Paragon X this was verified against – report it too,
-    /// Instantaneous Power. `instantaneousCadenceRPM` is deliberately never
-    /// set here: FTMS defines no cadence/RPM field at all for a treadmill
-    /// (there's nothing rotating to count), unlike Indoor Bike Data.
+    /// resolution as the bike's Indoor Bike Data), Elapsed Time (see
+    /// `deviceElapsedSeconds`'s own doc comment), and, since some
+    /// treadmills – e.g. the Paragon X this was verified against – report
+    /// it too, Instantaneous Power. `instantaneousCadenceRPM` is
+    /// deliberately never set here: FTMS defines no cadence/RPM field at
+    /// all for a treadmill (there's nothing rotating to count), unlike
+    /// Indoor Bike Data.
     ///
-    /// Every optional field between Speed and Power has to be skipped in
-    /// exactly the order and byte width the spec defines, or Power would be
-    /// read from the wrong offset entirely – silently wrong numbers, not an
+    /// Every optional field between Speed and Power has to be skipped (or,
+    /// for Elapsed Time, read) in exactly the order and byte width the
+    /// spec defines, or Power would be read from the wrong offset entirely
+    /// – silently wrong numbers, not an
     /// obvious failure. Sizes/order per the Bluetooth GATT Specification
     /// Supplement's `org.bluetooth.characteristic.treadmill_data` field
     /// table: Average Speed (uint16), Total Distance (uint24), Inclination
@@ -130,7 +155,9 @@ struct TrainerMetrics: Equatable {
         if expendedEnergyPresent { skip(5) } // Total (2) + Per Hour (2) + Per Minute (1)
         if heartRatePresent { skip(1) }
         if metabolicEquivalentPresent { skip(1) }
-        if elapsedTimePresent { skip(2) }
+        if elapsedTimePresent, let raw = readUInt16() {
+            deviceElapsedSeconds = Int(raw) // resolution 1 second
+        }
         if remainingTimePresent { skip(2) }
         if forceAndPowerPresent {
             skip(2) // Force on Belt – not needed

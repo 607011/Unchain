@@ -1309,6 +1309,26 @@ would change, roughly in the order it'd need doing:
       paused-interval folding (used by `resume()`/`cancelStop()`, both of
       which send another Start/Resume too) gets the same countdown added,
       so resuming from pause is covered the same way
+- [x] **Ongoing clock-sync against the connected machine's own elapsed
+      time** – the Start Countdown fix above got the two clocks close
+      (~0.5 s apart) right at the start of a workout, but they were still
+      about 4 seconds apart after 48 minutes: `elapsedSeconds` is computed
+      purely from the iPhone's system clock (`Date()`), while the machine
+      keeps its own, independent timer – even a small relative *rate*
+      difference between the two compounds over a long workout, unlike a
+      fixed offset. FTMS's data characteristics optionally report the
+      device's own Elapsed Time field (whole seconds, counted from
+      whenever it actually started moving) – previously parsed only far
+      enough to *skip* it on the way to Power, if parsed at all. **This
+      entry describes the first version shipped; a later entry below
+      ("Fixed a real crash…") replaces its mechanism entirely after a real
+      crash surfaced a flaw in it – read that one for the design Unchain
+      actually ships with.** First version: read into a new
+      `TrainerMetrics.treadmillElapsedSeconds`, with
+      `WorkoutSession.refreshWorkoutState` re-anchoring `startDate` to
+      match it on every refresh whenever reported – the same
+      `startDate`-shifting trick `jump(toElapsedSeconds:)` already uses,
+      just driven by the trainer's own live feedback instead of a tap.
 - [x] **Estimated VO2max** in `WorkoutHistoryDetailView`, for a `.zwo`
       treadmill program with a genuinely held `SteadyState` segment –
       prompted by realizing Unchain already has everything the Heart Rate
@@ -1434,3 +1454,78 @@ would change, roughly in the order it'd need doing:
       a new `savedWorkoutVO2Max` alongside `savedSummary` for exactly that
       reason, rather than trying to read it from (by then already reset)
       session state once the sheet actually appears.
+- [x] **Fixed a real crash**, reported right after a long (~28 min) VO2max
+      test run – then, once the fix exposed how convoluted the original
+      design was, replaced that design outright rather than just patching
+      around the bug. The crash: the treadmill clock-drift correction (see
+      the entry above) could step `elapsedSeconds` *backward* – if the
+      iPhone's clock was already running ahead by several seconds when the
+      correction landed (more likely the longer a workout runs), the shift
+      needed to resync could exceed a whole second in one go.
+      `powerHistory`/`heartRateHistory`/`speedHistory` each dedupe by
+      comparing a new sample only against their own *last* entry, which
+      assumes `elapsedSeconds` never goes backward – a single backward
+      step reintroduced an already-recorded second once forward ticking
+      resumed, and `mergedWorkoutSamples()` (freshly exercised by the
+      previous entry's `estimatedVO2MaxForCurrentWorkout()`, which is
+      exactly what was running at the moment of the crash) builds a
+      `Dictionary` from these arrays that fatal-errors outright on a
+      duplicate key.
+      - First fix attempt: keep nudging `startDate`, but only when doing so
+        wouldn't step `elapsedSeconds` backward – i.e. skip a
+        would-be-regressive correction instead of applying it. Wrong, on
+        reflection: since the iPhone's clock genuinely running fast
+        relative to the treadmill's is the whole premise of this feature,
+        that version would've blocked *every* subsequent correction for
+        the rest of the workout the first time it triggered once, not just
+        the one problematic tick.
+      - Second attempt: target `max(treadmillElapsedSeconds,
+        elapsedSeconds)` instead of the reported value directly, so a
+        behind-published reading makes `elapsedSeconds` *hold* (not
+        advance, but not regress either) rather than being skipped
+        outright – converges correctly instead of getting stuck. Correct,
+        but asking "wait, shouldn't the app just show what the device
+        itself sends?" while reviewing it exposed that the whole
+        `startDate`-nudging mechanism this was built on was more
+        complicated than it needed to be – and had its own quiet,
+        previously-unnoticed side effect: shifting `startDate` also
+        shifts the workout's own reported *start time* (`stop()` uses it
+        for `WorkoutSummary.startDate`, which becomes the Health workout's
+        start timestamp), which a display-sync feature had no business
+        touching at all.
+      - **Final design – the drift-correction mechanism is gone
+        entirely**: `refreshWorkoutState` now publishes the device's own
+        `deviceElapsedSeconds` *directly* as `elapsedSeconds` whenever it's
+        available (via `max(deviceElapsedSeconds, elapsedSeconds)`, the
+        same never-regress guarantee as before, just applied to the
+        published value instead of to `startDate`), falling back to the
+        local `startDate`-based `currentElapsedSeconds(at:)` only when
+        nothing's reported (or not yet). That local computation remains
+        the gate for *whether* to trust the device's value at all: only
+        once it itself shows genuine forward progress since the last
+        refresh (`localElapsedSeconds > elapsedSeconds`) – i.e. once
+        whichever countdown hold is active, if any, has actually lifted.
+        Covers both `start()`'s own initial countdown and a post-`resume()`
+        one (folded into `totalPausedDuration`) without needing to know
+        which kind is active, and stays correct even if a given machine's
+        own elapsed-time counter runs through its console countdown rather
+        than only once it's actually moving. `pause()`/`stop()` no longer
+        blindly recompute `currentElapsedSeconds()` either – `max(...)`
+        against the already-published value, so they can't regress below
+        a device-sourced reading either.
+      - **Generalized beyond treadmills while at it**: prompted by
+        realizing Indoor Bike Data (0x2AD2) has its own optional Elapsed
+        Time field too (bit 11), same as Treadmill Data's – previously
+        never parsed at all for bike. `TrainerMetrics.treadmillElapsedSeconds`
+        renamed to `deviceElapsedSeconds` and now populated from both
+        `init(data:)` and `init(treadmillData:)`, so any bike trainer that
+        happens to report it benefits from the same direct-trust sync, not
+        just treadmills.
+      - Defense in depth, kept regardless: `mergedWorkoutSamples()` builds
+        its three dictionaries with `Dictionary(_:uniquingKeysWith:)`
+        (keeps whichever duplicate is last) instead of
+        `Dictionary(uniqueKeysWithValues:)` (fatal-errors on any
+        duplicate) – so a *different*, not-yet-known cause of a duplicate
+        `timeSeconds` would degrade gracefully instead of crashing, rather
+        than relying solely on the one cause that's now fixed at the
+        source.

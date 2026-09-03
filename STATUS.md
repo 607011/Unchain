@@ -1422,3 +1422,15 @@ would change, roughly in the order it'd need doing:
     mid-edit would overwrite the rider's own typing and reset the caret;
     the next chart-side action (painting, a toolbar control) resyncs the
     textarea normally.
+- [x] **Estimated VO2max also shown right after the workout**, in
+      `SavedWorkoutSummaryView` under the heart rate zone bar – requested
+      while actively iterating on VO2max test protocols, so checking the
+      result doesn't need a trip to Workout History every time. New
+      `WorkoutSession.estimatedVO2MaxForCurrentWorkout()` – a public
+      wrapper around the same private computation `reset()` itself uses to
+      save into `WorkoutHistoryStore` – has to be called from `ControlView
+      .save(_:as:)` *before* `session.reset()` runs, since `reset()` is
+      what clears the raw samples/`activeWorkout` it reads; captured into
+      a new `savedWorkoutVO2Max` alongside `savedSummary` for exactly that
+      reason, rather than trying to read it from (by then already reset)
+      session state once the sheet actually appears.

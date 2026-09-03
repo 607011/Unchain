@@ -613,6 +613,19 @@ final class WorkoutSession: ObservableObject {
         return VO2MaxEstimator.estimate(program: program, samples: samples, restingHeartRateBPM: restingHR, maxHeartRateBPM: maxHR)
     }
 
+    /// The public entry point for the same estimate `reset()` itself saves
+    /// into `WorkoutHistoryStore` – lets `ControlView` show it immediately
+    /// in `SavedWorkoutSummaryView`, right after the workout, instead of
+    /// only ever being visible after navigating to Workout History. Has to
+    /// be called *before* `reset()` runs (i.e. while `stop()`'s pending
+    /// summary is still showing) – `reset()` clears `powerHistory`/
+    /// `heartRateHistory`/`speedHistory` this reads via
+    /// `mergedWorkoutSamples()`, and `activeWorkout`/`isDrivenByProgram`
+    /// this itself needs.
+    func estimatedVO2MaxForCurrentWorkout() -> Double? {
+        estimatedVO2Max(samples: mergedWorkoutSamples())
+    }
+
     /// Starts (or resumes) tracking: a foreground `Timer` for the normal
     /// once-a-second cadence while the app is on screen, plus a subscription
     /// to the trainer's live metrics that fires `refreshWorkoutState` on

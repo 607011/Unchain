@@ -39,6 +39,12 @@ struct ControlView: View {
     @AppStorage(SettingsView.speedDisplayUnitKey) private var speedDisplayUnit = SpeedDisplayUnit.kmh
     @State private var saveResult: SaveResultAlert?
     @State private var savedSummary: WorkoutSummary?
+    /// Captured alongside `savedSummary` in `save(_:as:)` – *before*
+    /// `session.reset()` runs, which is what `estimatedVO2MaxForCurrentWorkout()`
+    /// itself needs still intact. Shown in `SavedWorkoutSummaryView` right
+    /// under the heart rate zone bar, so a `.zwo` VO2max test doesn't need
+    /// a trip to Workout History just to see the number.
+    @State private var savedWorkoutVO2Max: Double?
     @State private var isShowingFeatures = false
     @State private var isShowingSettings = false
     @State private var isShowingFileImporter = false
@@ -368,7 +374,7 @@ struct ControlView: View {
             Alert(title: Text(result.title), message: Text(result.message), dismissButton: .default(Text("OK")))
         }
         .sheet(item: $savedSummary) { summary in
-            SavedWorkoutSummaryView(summary: summary)
+            SavedWorkoutSummaryView(summary: summary, estimatedVO2Max: savedWorkoutVO2Max)
         }
         .fileImporter(
             isPresented: $isShowingFileImporter,
@@ -1204,11 +1210,18 @@ struct ControlView: View {
 
     private func save(_ summary: WorkoutSummary, as activityType: HKWorkoutActivityType) {
         isSaving = true
+        // Before `session.reset()` (below) clears the raw samples/`activeWorkout`
+        // this itself reads – same value `reset()` independently computes
+        // and saves into `WorkoutHistoryStore`, just captured here too so
+        // it can be shown immediately rather than only after a trip to
+        // Workout History.
+        let vo2Max = session.estimatedVO2MaxForCurrentWorkout()
         HealthKitManager.shared.save(summary, as: activityType) { result in
             isSaving = false
             switch result {
             case .success:
                 savedSummary = summary
+                savedWorkoutVO2Max = vo2Max
             case .failure(let error):
                 saveResult = SaveResultAlert(title: String(localized: "Not Saved"), message: error.localizedDescription)
             }
@@ -2205,6 +2218,11 @@ private func formattedZoneDuration(_ seconds: Int) -> String {
 /// itself has no equivalent view for non-Watch-recorded workouts).
 private struct SavedWorkoutSummaryView: View {
     let summary: WorkoutSummary
+    /// See `ControlView.savedWorkoutVO2Max`'s own doc comment – `nil` for
+    /// anything but a `.zwo` treadmill program with a qualifying
+    /// `SteadyState` segment, same condition `VO2MaxEstimator` itself
+    /// gates on.
+    let estimatedVO2Max: Double?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -2223,6 +2241,16 @@ private struct SavedWorkoutSummaryView: View {
                         HeartRateZonesView(zoneSeconds: summary.heartRateZoneSeconds)
                     }
                     .padding(.horizontal)
+                }
+                if let estimatedVO2Max {
+                    VStack(spacing: 2) {
+                        Text("Estimated VO2max")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.1f ml/kg/min", estimatedVO2Max))
+                            .font(.title2.weight(.semibold))
+                            .monospacedDigit()
+                    }
                 }
                 Spacer()
             }

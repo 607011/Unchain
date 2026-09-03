@@ -2070,6 +2070,46 @@
           }
         }
       }
+    },
+    "e.g. 3": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. 3"
+          }
+        }
+      }
+    },
+    "Start Countdown (seconds)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start-Countdown (Sekunden)"
+          }
+        }
+      }
+    },
+    "Start Countdown": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start-Countdown"
+          }
+        }
+      }
+    },
+    "How many seconds this treadmill counts down on its own console (\"3, 2, 1, go\") after Unchain sends Start/Resume, before the belt actually starts moving. Used to hold the workout program's own clock at 0 for that long too, so its displayed elapsed time and interval changes stay in sync with when the treadmill is actually moving, instead of running ahead of it. Leave empty (0 seconds) if this treadmill starts immediately.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie viele Sekunden dieses Laufband auf seiner eigenen Konsole herunterzählt (\"3, 2, 1, los\"), nachdem Unchain Start/Fortsetzen gesendet hat, bevor sich das Band tatsächlich zu bewegen beginnt. Wird genutzt, um die eigene Uhr des Workout-Programms ebenso lange bei 0 zu halten, damit die angezeigte verstrichene Zeit und Intervallwechsel synchron zu dem bleiben, wann sich das Laufband tatsächlich bewegt, statt ihm vorauszulaufen. Leer lassen (0 Sekunden), wenn dieses Laufband sofort startet."
+          }
+        }
+      }
     }
   },
   "version": "1.1"

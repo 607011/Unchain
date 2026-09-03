@@ -70,6 +70,25 @@ struct TrainerDeviceSettings: Codable, Equatable {
     var effectiveInclineChangeSecondsPerDegree: Double {
         inclineChangeSecondsPerDegree ?? Self.defaultInclineChangeSecondsPerDegree
     }
+
+    /// How many seconds this treadmill spends counting down on its own
+    /// console ("3, 2, 1, go") after receiving a Start/Resume command
+    /// before the belt actually starts moving. Read by `WorkoutSession
+    /// .start(usingProgram:)`/`startTracking()` to delay `elapsedSeconds`
+    /// (and, via `programPositionSeconds`, the workout program's own
+    /// target-sending/segment advancement) by the same amount – without
+    /// this, the app's displayed elapsed time and the workout program
+    /// would both run ahead of the treadmill by however long it spends
+    /// counting down. `nil` until measured; unlike
+    /// `inclineChangeSecondsPerDegree`, defaults to `0` (no delay) rather
+    /// than a conservative non-zero guess – plenty of trainers react
+    /// immediately, and assuming a countdown that isn't really there would
+    /// introduce a *new* sync error instead of fixing one.
+    var startCountdownSeconds: Double?
+
+    var effectiveStartCountdownSeconds: Double {
+        startCountdownSeconds ?? 0
+    }
 }
 
 enum TrainerDeviceSettingsStore {

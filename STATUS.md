@@ -1289,6 +1289,26 @@ would change, roughly in the order it'd need doing:
       `ControlView.formattedResistanceRange` already uses for this exact
       range elsewhere, so the two never read differently for the same
       device
+- [x] **New device setting: Start Countdown (seconds)** – some treadmills
+      count down on their own console ("3, 2, 1, go") after receiving
+      Unchain's Start/Resume command, before the belt actually starts
+      moving; without accounting for that, the app's displayed elapsed
+      time (and, following it, the `.zwo` program's own target-sending)
+      runs ahead of the treadmill by however long that countdown takes.
+      `WorkoutSession.start(usingProgram:)` now sets `startDate` into the
+      *future* by `TrainerDeviceSettings.effectiveStartCountdownSeconds`
+      (default `0`, unlike the incline setting's conservative non-zero
+      default – plenty of treadmills react immediately, and assuming a
+      countdown that isn't real would introduce a new sync error instead
+      of fixing one) rather than to `Date()` directly –
+      `currentElapsedSeconds(at:)` already clamps a negative
+      `now.timeIntervalSince(startDate)` to `0`, so `elapsedSeconds`
+      (and `programPositionSeconds` through it) simply holds at `0`,
+      i.e. the workout program doesn't start *advancing*, until real time
+      catches up – no new state needed. `startTracking()`'s existing
+      paused-interval folding (used by `resume()`/`cancelStop()`, both of
+      which send another Start/Resume too) gets the same countdown added,
+      so resuming from pause is covered the same way
 - [x] **Workout Builder** (`docs/builder.html`, linked from the landing
       page) – a browser-based companion tool, prompted by trying several
       web workout builders and finding them all tedious to use (fill in a

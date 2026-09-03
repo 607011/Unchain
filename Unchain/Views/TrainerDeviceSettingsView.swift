@@ -16,6 +16,20 @@ struct TrainerDeviceSettingsView: View {
             case .treadmill:
                 Section {
                     LabeledContent {
+                        TextField("e.g. 3", text: startCountdownSecondsText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                    } label: {
+                        Text("Start Countdown (seconds)")
+                    }
+                } header: {
+                    HStack(spacing: 4) {
+                        Text("Start Countdown")
+                        InfoButton(text: "How many seconds this treadmill counts down on its own console (\"3, 2, 1, go\") after Unchain sends Start/Resume, before the belt actually starts moving. Used to hold the workout program's own clock at 0 for that long too, so its displayed elapsed time and interval changes stay in sync with when the treadmill is actually moving, instead of running ahead of it. Leave empty (0 seconds) if this treadmill starts immediately.")
+                    }
+                }
+                Section {
+                    LabeledContent {
                         TextField("e.g. 1.5", text: inclineSecondsText)
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
@@ -56,6 +70,15 @@ struct TrainerDeviceSettingsView: View {
         Binding(
             get: { settings.inclineChangeSecondsPerDegree.map { String(format: "%.1f", $0) } ?? "" },
             set: { settings.inclineChangeSecondsPerDegree = Double($0.replacingOccurrences(of: ",", with: ".")) }
+        )
+    }
+
+    /// Same comma-accepting, empty-means-unset shape as `inclineSecondsText`
+    /// above.
+    private var startCountdownSecondsText: Binding<String> {
+        Binding(
+            get: { settings.startCountdownSeconds.map { String(format: "%.1f", $0) } ?? "" },
+            set: { settings.startCountdownSeconds = Double($0.replacingOccurrences(of: ",", with: ".")) }
         )
     }
 }

@@ -309,7 +309,22 @@ final class WorkoutSession: ObservableObject {
         isProgramFinished = false
         programOffsetSeconds = 0
         connection.startOrResumeWorkout()
-        startDate = Date()
+        // `startDate` in the future, not `Date()` – some treadmills count
+        // down on their own console ("3, 2, 1, go") after this command
+        // before the belt actually moves; `TrainerDeviceSettings
+        // .effectiveStartCountdownSeconds` is how long that takes for this
+        // one. `currentElapsedSeconds(at:)` already clamps a negative
+        // `now.timeIntervalSince(startDate)` to `0`, so `elapsedSeconds`
+        // (and, through it, `programPositionSeconds` –
+        // `sendCurrentWorkoutTarget(for:)`'s own `elapsed`) simply holds at
+        // `0` for the rest of this method's `sendCurrentWorkoutTarget`
+        // call below and every tick after it, until real time actually
+        // reaches `startDate` – no separate "waiting" state needed, the
+        // workout program only starts *advancing* once the treadmill is
+        // actually moving. Defaults to `0` (no delay) for any device this
+        // hasn't been measured for, so behavior is unchanged unless it's
+        // deliberately set.
+        startDate = Date().addingTimeInterval(startCountdownSeconds)
         state = .running
         startTracking()
         // Send the starting target immediately rather than waiting for the
@@ -539,6 +554,15 @@ final class WorkoutSession: ObservableObject {
         heartRateZoneSecondsAccumulator = [:]
     }
 
+    /// Fresh from `TrainerDeviceSettingsStore` every call, not cached – the
+    /// rider can tweak this in Settings between workouts (or even mid-ride,
+    /// though it only actually matters at the next Start/Resume), same
+    /// "read at the point of use" pattern `refreshWorkoutState` already
+    /// uses for the Heart Rate Zone boundaries.
+    private var startCountdownSeconds: TimeInterval {
+        TrainerDeviceSettingsStore.load(for: connection.peripheral.identifier).effectiveStartCountdownSeconds
+    }
+
     /// Elapsed *active* seconds at `now` – total time since `startDate`,
     /// minus every paused interval (completed ones already folded into
     /// `totalPausedDuration`, plus the one currently in progress if
@@ -581,7 +605,13 @@ final class WorkoutSession: ObservableObject {
     /// that second path matters once the app is backgrounded.
     private func startTracking() {
         if let pauseDate {
-            totalPausedDuration += Date().timeIntervalSince(pauseDate)
+            // Folding in `startCountdownSeconds` too, not just the real
+            // paused interval – `resume()`/`cancelStop()` both send another
+            // `startOrResumeWorkout()` right alongside this, so the same
+            // console countdown `start()`'s own note explains almost
+            // certainly plays again here, and `elapsedSeconds` shouldn't
+            // resume ticking until it's actually done either.
+            totalPausedDuration += Date().timeIntervalSince(pauseDate) + startCountdownSeconds
             self.pauseDate = nil
         }
         lastMetricsSampleDate = Date()

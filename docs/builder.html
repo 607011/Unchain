@@ -1,0 +1,1381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unchain – Interval Sketch</title>
+<meta name="description" content="Draw a power or speed/incline profile by dragging across a time grid, then export it as .erg, .mrc, or .zwo — no account, nothing uploaded.">
+<style>
+  :root {
+    --bg: #eef1ec;
+    --panel: #ffffff;
+    --panel-2: #e4e8e1;
+    --line: #c7cec2;
+    --grid: #d3d9cd;
+    --ink: #1c231d;
+    --ink-muted: #5b6559;
+    --accent-power: #c76b1e;
+    --accent-power-glow: rgba(199, 107, 30, 0.18);
+    --accent-speed: #1c7f7a;
+    --accent-speed-glow: rgba(28, 127, 122, 0.16);
+    --accent-incline: #7a4fb5;
+    --accent-incline-glow: rgba(122, 79, 181, 0.16);
+    --band: rgba(28, 35, 29, 0.05);
+    --focus: #1c7f7a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12140f;
+      --panel: #1a1d16;
+      --panel-2: #21251c;
+      --line: #35392e;
+      --grid: #2a2e23;
+      --ink: #ecefe6;
+      --ink-muted: #9aa392;
+      --accent-power: #f0913f;
+      --accent-power-glow: rgba(240, 145, 63, 0.22);
+      --accent-speed: #4fd6cd;
+      --accent-speed-glow: rgba(79, 214, 205, 0.18);
+      --accent-incline: #b090e8;
+      --accent-incline-glow: rgba(176, 144, 232, 0.18);
+      --band: rgba(236, 239, 230, 0.06);
+      --focus: #4fd6cd;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 20px 24px 56px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .home-link { font-size: 13px; }
+  .home-link a { color: var(--ink-muted); text-decoration: none; }
+  .home-link a:hover { color: var(--focus); }
+
+  header.masthead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 14px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand img {
+    width: 40px;
+    height: 40px;
+    border-radius: 9px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    display: block;
+  }
+  .masthead .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  h1 {
+    font-family: "Big Shoulders Display", "Arial Narrow", sans-serif;
+    font-weight: 700;
+    font-size: clamp(30px, 4.6vw, 42px);
+    letter-spacing: 0.01em;
+    margin: 2px 0 0;
+    text-wrap: balance;
+    line-height: 0.95;
+  }
+  .masthead-sub {
+    max-width: 34ch;
+    font-size: 13.5px;
+    color: var(--ink-muted);
+    line-height: 1.45;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: flex-end;
+    gap: 22px;
+    flex-wrap: wrap;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 14px 18px;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .field label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  .segmented {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .segmented button {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    padding: 7px 13px;
+    background: var(--panel);
+    color: var(--ink-muted);
+    border: none;
+    border-right: 1px solid var(--line);
+    cursor: pointer;
+  }
+  .segmented button:last-child { border-right: none; }
+  .segmented button.active {
+    background: var(--ink);
+    color: var(--panel);
+  }
+  .segmented button:focus-visible,
+  button:focus-visible,
+  input:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .numfield {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--panel);
+  }
+  .numfield input {
+    width: 46px;
+    border: none;
+    padding: 7px 6px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    color: var(--ink);
+    background: transparent;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+  }
+  .numfield span {
+    padding: 0 9px 0 0;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: var(--ink-muted);
+  }
+  .numfield button {
+    border: none;
+    background: var(--panel-2);
+    color: var(--ink);
+    width: 24px;
+    height: 30px;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+  }
+  .numfield button:first-of-type { border-right: 1px solid var(--line); }
+  .numfield button:last-of-type { border-left: 1px solid var(--line); }
+  .spacer { flex: 1 1 auto; }
+  .totalread {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    color: var(--ink-muted);
+    align-self: center;
+  }
+  .totalread b { color: var(--ink); font-weight: 600; }
+
+  .scope-wrap {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 16px 16px 10px;
+    position: relative;
+  }
+  .scope-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .lane-label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 2px 2px;
+  }
+  .lane-label.power { color: var(--accent-power); }
+  .lane-label.speed { color: var(--accent-speed); }
+  .lane-label.incline { color: var(--accent-incline); }
+  svg.lane { display: block; touch-action: none; cursor: crosshair; }
+  .lane + .lane-label { margin-top: 10px; }
+
+  .readout {
+    position: absolute;
+    pointer-events: none;
+    background: var(--ink);
+    color: var(--bg);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    padding: 5px 8px;
+    border-radius: 3px;
+    white-space: nowrap;
+    transform: translate(-50%, calc(-100% - 10px));
+    opacity: 0;
+    transition: opacity 0.08s ease;
+    z-index: 5;
+  }
+  .readout.visible { opacity: 1; }
+
+  .hint {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: var(--ink-muted);
+    padding: 10px 2px 0;
+  }
+
+  .export-row {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .jack {
+    flex: 1 1 180px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .jack .fmt {
+    font-family: "Big Shoulders Display", sans-serif;
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .jack p {
+    margin: 0;
+    font-size: 12px;
+    color: var(--ink-muted);
+    line-height: 1.4;
+    min-height: 2.6em;
+  }
+  .jack-actions { display: flex; gap: 8px; }
+  .jack button {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    border-radius: 3px;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--panel);
+    cursor: pointer;
+    min-width: 78px;
+  }
+  .jack button:hover { opacity: 0.85; }
+  .jack button.copy-btn {
+    background: transparent;
+    color: var(--ink);
+  }
+
+  .preview {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 12px 16px 14px;
+  }
+  .preview-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .preview .lane-label { margin: 0; }
+  .sync-status {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    color: var(--ink-muted);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  .sync-status.visible { opacity: 1; }
+  .sync-status.error { color: var(--accent-power); }
+  .preview textarea {
+    display: block;
+    width: 100%;
+    height: 190px;
+    margin: 0;
+    padding: 0;
+    resize: vertical;
+    border: none;
+    background: transparent;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    line-height: 1.55;
+    color: var(--ink-muted);
+    white-space: pre;
+  }
+  .preview textarea:focus { color: var(--ink); outline: none; }
+
+  footer {
+    font-size: 11.5px;
+    color: var(--ink-muted);
+    border-top: 1px solid var(--line);
+    padding-top: 14px;
+    line-height: 1.5;
+  }
+  footer code {
+    font-family: "IBM Plex Mono", monospace;
+    background: var(--panel-2);
+    padding: 1px 5px;
+    border-radius: 2px;
+  }
+</style>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+<div class="app">
+  <p class="home-link"><a href="index.html">← Unchain</a></p>
+
+  <header class="masthead">
+    <div class="brand">
+      <img src="assets/icon.png" alt="Unchain">
+      <div>
+        <div class="eyebrow">Unchain — Workout Builder</div>
+        <h1>Interval Sketch</h1>
+      </div>
+    </div>
+    <p class="masthead-sub">Drag across the grid to draw a target profile, then export it as a file your trainer app already reads.</p>
+  </header>
+
+  <div class="toolbar">
+    <div class="field">
+      <label for="mode-toggle">Profile</label>
+      <div class="segmented" id="mode-toggle" role="group" aria-label="Profile type">
+        <button data-mode="bike" class="active" type="button">Bike · Power</button>
+        <button data-mode="treadmill" type="button">Treadmill · Speed &amp; Incline</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="bin-select">Interval length</label>
+      <div class="segmented" id="bin-select" role="group" aria-label="Interval length">
+        <button data-bin="30" type="button">30s</button>
+        <button data-bin="60" class="active" type="button">60s</button>
+        <button data-bin="300" type="button">5m</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="bins-count">Intervals</label>
+      <div class="numfield">
+        <button id="bins-minus" type="button" aria-label="Fewer intervals">–</button>
+        <input id="bins-count" type="text" inputmode="numeric" value="20" readonly>
+        <button id="bins-plus" type="button" aria-label="More intervals">+</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="warmup-count">Warm-up</label>
+      <div class="numfield">
+        <button id="warmup-minus" type="button" aria-label="Fewer warm-up intervals">–</button>
+        <input id="warmup-count" type="text" inputmode="numeric" value="4" readonly>
+        <button id="warmup-plus" type="button" aria-label="More warm-up intervals">+</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="cooldown-count">Cool-down</label>
+      <div class="numfield">
+        <button id="cooldown-minus" type="button" aria-label="Fewer cool-down intervals">–</button>
+        <input id="cooldown-count" type="text" inputmode="numeric" value="3" readonly>
+        <button id="cooldown-plus" type="button" aria-label="More cool-down intervals">+</button>
+      </div>
+    </div>
+    <div class="field" id="ftp-field">
+      <label for="ftp-input">FTP</label>
+      <div class="numfield">
+        <input id="ftp-input" type="text" inputmode="numeric" value="250">
+        <span>W</span>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <div class="totalread">Total <b id="total-read">20:00</b></div>
+  </div>
+
+  <div class="scope-wrap">
+    <div id="lanes-bike">
+      <div class="lane-label power">Power target — 0–500 W</div>
+      <div class="scope-scroll"><svg class="lane" id="svg-power" height="200"></svg></div>
+    </div>
+    <div id="lanes-treadmill" style="display:none;">
+      <div class="lane-label speed">Speed target — 0–20 km/h</div>
+      <div class="scope-scroll"><svg class="lane" id="svg-speed" height="140"></svg></div>
+      <div class="lane-label incline">Incline target — 0–20 %</div>
+      <div class="scope-scroll"><svg class="lane" id="svg-incline" height="140"></svg></div>
+    </div>
+    <div class="readout" id="readout"></div>
+    <div class="hint">Drag vertically to set a value, sideways to draw across intervals. Drag the ⋮ handle at either shaded edge to resize Warm-up/Cool-down — everything between exports as <code>SteadyState</code>.</div>
+  </div>
+
+  <div class="export-row">
+    <div class="jack">
+      <div class="fmt">.erg</div>
+      <p>Absolute watts, minute-by-minute. Reads directly as a Power target.</p>
+      <div class="jack-actions">
+        <button data-fmt="erg" type="button">Download</button>
+        <button class="copy-btn" data-copy="erg" type="button">Copy</button>
+      </div>
+    </div>
+    <div class="jack">
+      <div class="fmt">.mrc</div>
+      <p>Percent of the FTP above, minute-by-minute. Same shape as TrainerDay's exports.</p>
+      <div class="jack-actions">
+        <button data-fmt="mrc" type="button">Download</button>
+        <button class="copy-btn" data-copy="mrc" type="button">Copy</button>
+      </div>
+    </div>
+    <div class="jack">
+      <div class="fmt">.zwo</div>
+      <p>Zwift-style XML — Warmup/SteadyState/Cooldown blocks, adjacent equal intervals merged into one.</p>
+      <div class="jack-actions">
+        <button data-fmt="zwo" type="button">Download</button>
+        <button class="copy-btn" data-copy="zwo" type="button">Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="preview">
+    <div class="preview-header">
+      <div class="lane-label" id="preview-label" style="color:var(--ink-muted)">Preview — .erg</div>
+      <span class="sync-status" id="sync-status"></span>
+    </div>
+    <textarea id="preview-text" spellcheck="false"></textarea>
+  </div>
+
+  <footer>
+    Output is written to match Unchain's own <code>WorkoutProgramParser</code> and <code>ZWOWorkoutParser</code> — load the exported file straight into the app's Program tab. Only a <code>SteadyState</code> block long enough and held steady counts toward Unchain's estimated VO2max. Nothing here is uploaded anywhere; the file is generated entirely in your browser.
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var WORKOUT_NAME = "Interval Sketch workout";
+
+  var state = {
+    mode: "bike",
+    binSeconds: 60,
+    bins: 20,
+    warmupBins: 4,
+    cooldownBins: 3,
+    ftp: 250,
+    power: [],
+    speed: [],
+    incline: []
+  };
+
+  function sampleBike(n) {
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var t = i / (n - 1);
+      if (t < 0.2) out.push(Math.round(110 + t / 0.2 * 70));
+      else if (t > 0.85) out.push(Math.round(180 - (t - 0.85) / 0.15 * 90));
+      else {
+        var cyclePos = Math.floor((t - 0.2) / 0.1) % 2;
+        out.push(cyclePos === 0 ? 260 : 130);
+      }
+    }
+    return out;
+  }
+  function sampleTreadmillSpeed(n) {
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var t = i / (n - 1);
+      if (t < 0.2) out.push(+(4 + t / 0.2 * 1.5).toFixed(1));
+      else if (t > 0.85) out.push(+(6 - (t - 0.85) / 0.15 * 2.5).toFixed(1));
+      else out.push(Math.floor((t - 0.2) / 0.1) % 2 === 0 ? 6.5 : 4.5);
+    }
+    return out;
+  }
+  function sampleTreadmillIncline(n) {
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var t = i / (n - 1);
+      if (t < 0.2 || t > 0.85) out.push(1);
+      else out.push(Math.floor((t - 0.2) / 0.1) % 2 === 0 ? 6 : 0);
+    }
+    return out;
+  }
+
+  // Restores the last-edited workout from localStorage, if there is one –
+  // falls back to the bundled sample profiles otherwise. `loadStateFromStorage`
+  // is defined later in this file but callable here regardless: function
+  // declarations are hoisted through this whole IIFE's scope, and this
+  // only actually *runs* once the script has fully parsed anyway.
+  var restored = loadStateFromStorage();
+  if (restored) {
+    state.mode = restored.mode === "treadmill" ? "treadmill" : "bike";
+    state.binSeconds = [30, 60, 300].indexOf(restored.binSeconds) !== -1 ? restored.binSeconds : state.binSeconds;
+    state.bins = Math.max(2, Math.min(96, restored.bins || state.bins));
+    state.warmupBins = Math.max(0, restored.warmupBins || 0);
+    state.cooldownBins = Math.max(0, restored.cooldownBins || 0);
+    state.ftp = restored.ftp > 0 ? restored.ftp : state.ftp;
+    state.power = restored.power.length ? restored.power : sampleBike(state.bins);
+    state.speed = restored.speed.length ? restored.speed : sampleTreadmillSpeed(state.bins);
+    state.incline = restored.incline.length ? restored.incline : sampleTreadmillIncline(state.bins);
+  } else {
+    state.power = sampleBike(state.bins);
+    state.speed = sampleTreadmillSpeed(state.bins);
+    state.incline = sampleTreadmillIncline(state.bins);
+  }
+
+  var lanes = {
+    power: { key: "power", svg: document.getElementById("svg-power"), min: 0, max: 500, step: 5, unit: "W", accent: "--accent-power", glow: "--accent-power-glow", fmt: function (v) { return Math.round(v) + " W"; }, hasBoundaryHandles: true },
+    speed: { key: "speed", svg: document.getElementById("svg-speed"), min: 0, max: 20, step: 0.1, unit: "km/h", accent: "--accent-speed", glow: "--accent-speed-glow", fmt: function (v) { return v.toFixed(1) + " km/h"; }, hasBoundaryHandles: true },
+    incline: { key: "incline", svg: document.getElementById("svg-incline"), min: 0, max: 20, step: 0.5, unit: "%", accent: "--accent-incline", glow: "--accent-incline-glow", fmt: function (v) { return v.toFixed(1) + " %"; }, hasBoundaryHandles: false }
+  };
+
+  var PX_PER_BIN = 42;
+  var MIN_PX_PER_BIN = 16;
+
+  function css(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  function binTimeLabel(sec) {
+    var m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  function classify(i) {
+    if (i < state.warmupBins) return "Warmup";
+    if (i >= state.bins - state.cooldownBins) return "Cooldown";
+    return "SteadyState";
+  }
+
+  var svgNS = "http://www.w3.org/2000/svg";
+
+  // Sets up the persistent interaction layer for `lane` exactly once – a
+  // transparent hit-rect plus its pointer listeners. This has to survive
+  // `renderLane`'s own repeated redraws untouched: `Element.setPointerCapture`
+  // is released the instant its element is removed from the DOM (per spec),
+  // so a `hit` rect that got destroyed and recreated on every single
+  // painted bin – as an earlier version of this did, by clearing and
+  // rebuilding the *entire* <svg> including the hit-rect on every
+  // `applyPaint` call – silently lost pointer capture after the very first
+  // value change: only the initial click ever painted anything, every
+  // subsequent `pointermove` (i.e. the actual drag) went nowhere. Reads
+  // current geometry from `lane.geom`, which `renderLane` refreshes on
+  // every call, so this stays correct across resizes/bin-count changes
+  // without itself needing to re-run.
+  function ensureLaneSetup(lane) {
+    if (lane.hit) return;
+
+    var visualGroup = document.createElementNS(svgNS, "g");
+    lane.svg.appendChild(visualGroup);
+    lane.visualGroup = visualGroup;
+
+    var hit = document.createElementNS(svgNS, "rect");
+    hit.setAttribute("fill", "transparent");
+    lane.svg.appendChild(hit);
+    lane.hit = hit;
+
+    var painting = false, lastBin = null, lastVal = null;
+    var readout = document.getElementById("readout");
+    var wrap = document.querySelector(".scope-wrap");
+
+    function eventToBinValue(evt) {
+      var g = lane.geom;
+      var rect = lane.svg.getBoundingClientRect();
+      var scaleX = (g.plotW + g.padLeft) / rect.width;
+      var scaleY = g.h / rect.height;
+      var x = (evt.clientX - rect.left) * scaleX;
+      var y = (evt.clientY - rect.top) * scaleY;
+      var bin = Math.floor((x - g.padLeft) / g.pxPerBin);
+      bin = Math.max(0, Math.min(g.n - 1, bin));
+      var v = lane.min + (g.padTop + g.plotH - y) / g.plotH * (lane.max - lane.min);
+      v = Math.max(lane.min, Math.min(lane.max, v));
+      v = Math.round(v / lane.step) * lane.step;
+      return { bin: bin, value: v, clientX: evt.clientX, clientY: evt.clientY };
+    }
+
+    function showReadout(bin, value, clientX, clientY) {
+      var wrect = wrap.getBoundingClientRect();
+      readout.style.left = (clientX - wrect.left) + "px";
+      readout.style.top = (clientY - wrect.top) + "px";
+      readout.textContent = binTimeLabel(bin * state.binSeconds) + "–" + binTimeLabel((bin + 1) * state.binSeconds) + "  " + lane.fmt(value) + "  ·  " + classify(bin);
+      readout.classList.add("visible");
+    }
+    function hideReadout() { readout.classList.remove("visible"); }
+
+    function applyPaint(bin, value) {
+      var values = state[lane.key];
+      if (lastBin !== null && Math.abs(bin - lastBin) > 1) {
+        var step = bin > lastBin ? 1 : -1;
+        for (var bb = lastBin + step; bb !== bin; bb += step) {
+          var frac = (bb - lastBin) / (bin - lastBin);
+          values[bb] = Math.round((lastVal + (value - lastVal) * frac) / lane.step) * lane.step;
+        }
+      }
+      values[bin] = value;
+      lastBin = bin; lastVal = value;
+      renderLane(lane);
+      updatePreview();
+    }
+
+    hit.addEventListener("pointerdown", function (evt) {
+      painting = true;
+      // Capture on `hit` itself – the same element the listeners live on
+      // and that never gets removed/recreated after this point, unlike
+      // capturing on `lane.svg` (an ancestor `hit` doesn't bubble *up*
+      // into, so its own listeners would simply stop receiving events
+      // once capture moved the target away from it).
+      hit.setPointerCapture(evt.pointerId);
+      var bv = eventToBinValue(evt);
+      lastBin = null; lastVal = null;
+      applyPaint(bv.bin, bv.value);
+      showReadout(bv.bin, bv.value, bv.clientX, bv.clientY);
+      evt.preventDefault();
+    });
+    hit.addEventListener("pointermove", function (evt) {
+      var bv = eventToBinValue(evt);
+      if (painting) applyPaint(bv.bin, bv.value);
+      showReadout(bv.bin, bv.value, bv.clientX, bv.clientY);
+    });
+    hit.addEventListener("pointerup", function (evt) {
+      painting = false; lastBin = null; lastVal = null;
+      try { hit.releasePointerCapture(evt.pointerId); } catch (e) { /* already released */ }
+    });
+    hit.addEventListener("pointerleave", function () { if (!painting) hideReadout(); });
+
+    // Warm-up/Cool-down boundary handles – dragged directly on the chart,
+    // the same "point at what you mean" idea as painting a value, rather
+    // than only through the small stepper fields in the toolbar (easy to
+    // miss entirely, and not obviously connected to the shaded bands once
+    // found). Only set up on the "primary" lane per mode (Power for bike,
+    // Speed for treadmill) – both counts are shared across every lane in
+    // a mode, so a second set of handles on the Incline lane would just
+    // be a redundant, confusing second way to move the same boundary.
+    if (lane.hasBoundaryHandles) {
+      setupBoundaryHandle(lane, "warmup");
+      setupBoundaryHandle(lane, "cooldown");
+    }
+  }
+
+  function setupBoundaryHandle(lane, kind) {
+    var readout = document.getElementById("readout");
+    var wrap = document.querySelector(".scope-wrap");
+    var group = document.createElementNS(svgNS, "g");
+    group.setAttribute("class", "boundary-handle boundary-handle-" + kind);
+    lane.svg.appendChild(group);
+
+    var grabArea = document.createElementNS(svgNS, "rect");
+    grabArea.setAttribute("fill", "transparent");
+    grabArea.style.cursor = "ew-resize";
+    group.appendChild(grabArea);
+
+    var line = document.createElementNS(svgNS, "line");
+    line.setAttribute("stroke-width", "2");
+    group.appendChild(line);
+
+    var grip = document.createElementNS(svgNS, "rect");
+    grip.setAttribute("rx", "3");
+    grip.setAttribute("width", "16");
+    grip.setAttribute("height", "12");
+    group.appendChild(grip);
+
+    // Two short notches on the grip pill, the standard "this is a drag
+    // handle" affordance – without them the pill reads as just another
+    // (unclickable-looking) chart decoration.
+    var notch1 = document.createElementNS(svgNS, "line");
+    var notch2 = document.createElementNS(svgNS, "line");
+    [notch1, notch2].forEach(function (n) {
+      n.setAttribute("stroke", "var(--panel)");
+      n.setAttribute("stroke-width", "1.5");
+      group.appendChild(n);
+    });
+
+    lane[kind + "HandleGroup"] = group;
+    lane[kind + "HandleLine"] = line;
+    lane[kind + "HandleGrip"] = grip;
+    lane[kind + "HandleGrab"] = grabArea;
+    lane[kind + "HandleNotch1"] = notch1;
+    lane[kind + "HandleNotch2"] = notch2;
+
+    var dragging = false;
+
+    function boundaryBinFromEvent(evt) {
+      var g = lane.geom;
+      var rect = lane.svg.getBoundingClientRect();
+      var scaleX = (g.plotW + g.padLeft) / rect.width;
+      var x = (evt.clientX - rect.left) * scaleX;
+      var bin = Math.round((x - g.padLeft) / g.pxPerBin);
+      return Math.max(0, Math.min(g.n, bin));
+    }
+
+    function showBoundaryReadout(evt, label, count) {
+      var wrect = wrap.getBoundingClientRect();
+      readout.style.left = (evt.clientX - wrect.left) + "px";
+      readout.style.top = (evt.clientY - wrect.top) + "px";
+      readout.textContent = label + ": " + count + (count === 1 ? " interval" : " intervals") + " (" + binTimeLabel(0) + "–" + binTimeLabel(count * state.binSeconds) + ")";
+      readout.classList.add("visible");
+    }
+
+    grabArea.addEventListener("pointerdown", function (evt) {
+      dragging = true;
+      grabArea.setPointerCapture(evt.pointerId);
+      evt.preventDefault();
+      evt.stopPropagation();
+    });
+    grabArea.addEventListener("pointermove", function (evt) {
+      if (!dragging) return;
+      var bin = boundaryBinFromEvent(evt);
+      if (kind === "warmup") {
+        setWarmup(bin);
+        showBoundaryReadout(evt, "Warm-up", state.warmupBins);
+      } else {
+        setCooldown(state.bins - bin);
+        showBoundaryReadout(evt, "Cool-down", state.cooldownBins);
+      }
+    });
+    grabArea.addEventListener("pointerup", function (evt) {
+      dragging = false;
+      readout.classList.remove("visible");
+      try { grabArea.releasePointerCapture(evt.pointerId); } catch (e) { /* already released */ }
+    });
+  }
+
+  function renderLane(lane) {
+    var n = state.bins;
+    var pxPerBin = Math.max(MIN_PX_PER_BIN, PX_PER_BIN);
+    var w = n * pxPerBin;
+    var h = parseInt(lane.svg.getAttribute("height"), 10);
+    var padLeft = 34, padBottom = 20, padTop = 8;
+    var plotH = h - padBottom - padTop;
+    var plotW = w;
+    lane.svg.setAttribute("width", plotW + padLeft);
+    lane.svg.setAttribute("viewBox", "0 0 " + (plotW + padLeft) + " " + h);
+    lane.svg.style.minWidth = (plotW + padLeft) + "px";
+    lane.geom = { n: n, pxPerBin: pxPerBin, padLeft: padLeft, padTop: padTop, plotW: plotW, plotH: plotH, h: h };
+
+    ensureLaneSetup(lane);
+    lane.hit.setAttribute("x", padLeft);
+    lane.hit.setAttribute("y", padTop);
+    lane.hit.setAttribute("width", plotW);
+    lane.hit.setAttribute("height", plotH);
+
+    var values = state[lane.key];
+    var accent = css(lane.accent);
+    var gridColor = css("--grid");
+    var lineColor = css("--line");
+    var inkMuted = css("--ink-muted");
+    var bandColor = css("--band");
+
+    function xAt(i) { return padLeft + i * pxPerBin; }
+    function yAt(v) { return padTop + plotH - (v - lane.min) / (lane.max - lane.min) * plotH; }
+
+    if (lane.hasBoundaryHandles) {
+      var handleColor = css("--ink");
+      var positionHandle = function (kind, boundaryX) {
+        lane[kind + "HandleGrab"].setAttribute("x", boundaryX - 12);
+        lane[kind + "HandleGrab"].setAttribute("y", padTop);
+        lane[kind + "HandleGrab"].setAttribute("width", 24);
+        lane[kind + "HandleGrab"].setAttribute("height", plotH);
+        lane[kind + "HandleLine"].setAttribute("x1", boundaryX); lane[kind + "HandleLine"].setAttribute("x2", boundaryX);
+        lane[kind + "HandleLine"].setAttribute("y1", padTop); lane[kind + "HandleLine"].setAttribute("y2", padTop + plotH);
+        lane[kind + "HandleLine"].setAttribute("stroke", handleColor);
+        lane[kind + "HandleGrip"].setAttribute("x", boundaryX - 8);
+        lane[kind + "HandleGrip"].setAttribute("y", padTop + plotH / 2 - 6);
+        lane[kind + "HandleGrip"].setAttribute("fill", handleColor);
+        var gripCenterY = padTop + plotH / 2;
+        lane[kind + "HandleNotch1"].setAttribute("x1", boundaryX - 3); lane[kind + "HandleNotch1"].setAttribute("x2", boundaryX - 3);
+        lane[kind + "HandleNotch1"].setAttribute("y1", gripCenterY - 3); lane[kind + "HandleNotch1"].setAttribute("y2", gripCenterY + 3);
+        lane[kind + "HandleNotch2"].setAttribute("x1", boundaryX + 3); lane[kind + "HandleNotch2"].setAttribute("x2", boundaryX + 3);
+        lane[kind + "HandleNotch2"].setAttribute("y1", gripCenterY - 3); lane[kind + "HandleNotch2"].setAttribute("y2", gripCenterY + 3);
+      };
+      positionHandle("warmup", xAt(state.warmupBins));
+      positionHandle("cooldown", xAt(state.bins - state.cooldownBins));
+    }
+
+    var group = lane.visualGroup;
+    while (group.firstChild) group.removeChild(group.firstChild);
+
+    var defs = document.createElementNS(svgNS, "defs");
+    var gradId = "grad-" + lane.key;
+    var grad = document.createElementNS(svgNS, "linearGradient");
+    grad.setAttribute("id", gradId);
+    grad.setAttribute("x1", "0"); grad.setAttribute("y1", "0");
+    grad.setAttribute("x2", "0"); grad.setAttribute("y2", "1");
+    var s0 = document.createElementNS(svgNS, "stop");
+    s0.setAttribute("offset", "0%"); s0.setAttribute("stop-color", accent); s0.setAttribute("stop-opacity", "0.38");
+    var s1 = document.createElementNS(svgNS, "stop");
+    s1.setAttribute("offset", "100%"); s1.setAttribute("stop-color", accent); s1.setAttribute("stop-opacity", "0.02");
+    grad.appendChild(s0); grad.appendChild(s1);
+    defs.appendChild(grad);
+    group.appendChild(defs);
+
+    // warm-up / cool-down bands (behind everything else)
+    if (state.warmupBins > 0) {
+      var wRect = document.createElementNS(svgNS, "rect");
+      wRect.setAttribute("x", xAt(0)); wRect.setAttribute("y", padTop);
+      wRect.setAttribute("width", xAt(state.warmupBins) - xAt(0)); wRect.setAttribute("height", plotH);
+      wRect.setAttribute("fill", bandColor);
+      group.appendChild(wRect);
+      var wLabel = document.createElementNS(svgNS, "text");
+      wLabel.setAttribute("x", xAt(0) + 4); wLabel.setAttribute("y", padTop + 11);
+      wLabel.setAttribute("font-family", "IBM Plex Mono, monospace");
+      wLabel.setAttribute("font-size", "8.5"); wLabel.setAttribute("letter-spacing", "0.06em");
+      wLabel.setAttribute("fill", inkMuted);
+      wLabel.textContent = "WARM-UP";
+      group.appendChild(wLabel);
+    }
+    if (state.cooldownBins > 0) {
+      var cStart = state.bins - state.cooldownBins;
+      var cRect = document.createElementNS(svgNS, "rect");
+      cRect.setAttribute("x", xAt(cStart)); cRect.setAttribute("y", padTop);
+      cRect.setAttribute("width", xAt(state.bins) - xAt(cStart)); cRect.setAttribute("height", plotH);
+      cRect.setAttribute("fill", bandColor);
+      group.appendChild(cRect);
+      var cLabel = document.createElementNS(svgNS, "text");
+      cLabel.setAttribute("x", xAt(state.bins) - 4); cLabel.setAttribute("y", padTop + 11);
+      cLabel.setAttribute("text-anchor", "end");
+      cLabel.setAttribute("font-family", "IBM Plex Mono, monospace");
+      cLabel.setAttribute("font-size", "8.5"); cLabel.setAttribute("letter-spacing", "0.06em");
+      cLabel.setAttribute("fill", inkMuted);
+      cLabel.textContent = "COOL-DOWN";
+      group.appendChild(cLabel);
+    }
+
+    // horizontal gridlines + labels
+    var gridStep = lane.max <= 20 ? 5 : 100;
+    for (var gv = lane.min; gv <= lane.max; gv += gridStep) {
+      var gy = yAt(gv);
+      var gline = document.createElementNS(svgNS, "line");
+      gline.setAttribute("x1", padLeft); gline.setAttribute("x2", plotW + padLeft);
+      gline.setAttribute("y1", gy); gline.setAttribute("y2", gy);
+      gline.setAttribute("stroke", gridColor); gline.setAttribute("stroke-width", "1");
+      group.appendChild(gline);
+      var glabel = document.createElementNS(svgNS, "text");
+      glabel.setAttribute("x", padLeft - 6); glabel.setAttribute("y", gy + 3);
+      glabel.setAttribute("text-anchor", "end");
+      glabel.setAttribute("font-family", "IBM Plex Mono, monospace");
+      glabel.setAttribute("font-size", "9.5");
+      glabel.setAttribute("fill", inkMuted);
+      glabel.textContent = String(gv);
+      group.appendChild(glabel);
+    }
+
+    // vertical bin separators (feint) + time labels every few bins
+    var labelEvery = Math.max(1, Math.ceil(4 * 42 / pxPerBin));
+    for (var i = 0; i <= n; i++) {
+      var vx = xAt(i);
+      var vline = document.createElementNS(svgNS, "line");
+      vline.setAttribute("x1", vx); vline.setAttribute("x2", vx);
+      vline.setAttribute("y1", padTop); vline.setAttribute("y2", padTop + plotH);
+      vline.setAttribute("stroke", gridColor); vline.setAttribute("stroke-width", "1");
+      group.appendChild(vline);
+      if (i < n && i % labelEvery === 0) {
+        var tlabel = document.createElementNS(svgNS, "text");
+        tlabel.setAttribute("x", vx + 2); tlabel.setAttribute("y", h - 5);
+        tlabel.setAttribute("font-family", "IBM Plex Mono, monospace");
+        tlabel.setAttribute("font-size", "9.5");
+        tlabel.setAttribute("fill", inkMuted);
+        tlabel.textContent = binTimeLabel(i * state.binSeconds);
+        group.appendChild(tlabel);
+      }
+    }
+
+    // baseline
+    var baseline = document.createElementNS(svgNS, "line");
+    baseline.setAttribute("x1", padLeft); baseline.setAttribute("x2", plotW + padLeft);
+    baseline.setAttribute("y1", padTop + plotH); baseline.setAttribute("y2", padTop + plotH);
+    baseline.setAttribute("stroke", lineColor); baseline.setAttribute("stroke-width", "1.5");
+    group.appendChild(baseline);
+
+    // step path + fill
+    var stepPts = [];
+    for (var b = 0; b < n; b++) {
+      stepPts.push([xAt(b), yAt(values[b])]);
+      stepPts.push([xAt(b + 1), yAt(values[b])]);
+    }
+    var d = "M " + xAt(0) + " " + (padTop + plotH);
+    stepPts.forEach(function (p) { d += " L " + p[0] + " " + p[1]; });
+    d += " L " + xAt(n) + " " + (padTop + plotH) + " Z";
+    var fillPath = document.createElementNS(svgNS, "path");
+    fillPath.setAttribute("d", d);
+    fillPath.setAttribute("fill", "url(#" + gradId + ")");
+    fillPath.setAttribute("stroke", "none");
+    group.appendChild(fillPath);
+
+    var strokeD = "M " + stepPts[0][0] + " " + stepPts[0][1];
+    for (var k = 1; k < stepPts.length; k++) strokeD += " L " + stepPts[k][0] + " " + stepPts[k][1];
+    var strokePath = document.createElementNS(svgNS, "path");
+    strokePath.setAttribute("d", strokeD);
+    strokePath.setAttribute("fill", "none");
+    strokePath.setAttribute("stroke", accent);
+    strokePath.setAttribute("stroke-width", "2.5");
+    strokePath.setAttribute("stroke-linejoin", "round");
+    group.appendChild(strokePath);
+  }
+
+  function renderAll() {
+    if (state.mode === "bike") {
+      document.getElementById("lanes-bike").style.display = "";
+      document.getElementById("lanes-treadmill").style.display = "none";
+      renderLane(lanes.power);
+    } else {
+      document.getElementById("lanes-bike").style.display = "none";
+      document.getElementById("lanes-treadmill").style.display = "";
+      renderLane(lanes.speed);
+      renderLane(lanes.incline);
+    }
+    var totalSec = state.bins * state.binSeconds;
+    document.getElementById("total-read").textContent = binTimeLabel(totalSec);
+    document.getElementById("ftp-field").style.display = state.mode === "bike" ? "" : "none";
+  }
+
+  // ---- export generation ----
+
+  function mergeRuns(n, keyFn) {
+    var runs = [];
+    var start = 0;
+    for (var i = 1; i <= n; i++) {
+      if (i === n || keyFn(i) !== keyFn(start)) {
+        runs.push({ start: start, length: i - start });
+        start = i;
+      }
+    }
+    return runs;
+  }
+
+  function ergLikeBody(values, toPercentOfFtp) {
+    var lines = [];
+    var binMin = state.binSeconds / 60;
+    for (var i = 0; i < values.length; i++) {
+      var v = toPercentOfFtp ? Math.round(values[i] / state.ftp * 100) : Math.round(values[i]);
+      var t0 = i * binMin;
+      var t1 = (i + 1) * binMin - 0.01;
+      lines.push(t0.toFixed(2) + "\t" + v);
+      lines.push(t1.toFixed(2) + "\t" + v);
+    }
+    return lines.join("\n");
+  }
+
+  function buildErg() {
+    var header = [
+      "[COURSE HEADER]",
+      "VERSION = 2",
+      "UNITS = ENGLISH",
+      "DESCRIPTION = " + WORKOUT_NAME,
+      "FILE NAME = interval-sketch.erg",
+      "MINUTES\tWATTS",
+      "[END COURSE HEADER]"
+    ].join("\n");
+    return header + "\n[COURSE DATA]\n" + ergLikeBody(state.power, false) + "\n[END COURSE DATA]\n";
+  }
+
+  function buildMrc() {
+    var header = [
+      "[COURSE HEADER]",
+      "VERSION = 2",
+      "UNITS = ENGLISH",
+      "DESCRIPTION = " + WORKOUT_NAME,
+      "FTP = " + state.ftp,
+      "MINUTES\tPERCENT",
+      "[END COURSE HEADER]"
+    ].join("\n");
+    return header + "\n[COURSE DATA]\n" + ergLikeBody(state.power, true) + "\n[END COURSE DATA]\n";
+  }
+
+  function buildZwo() {
+    var lines = [];
+    lines.push('<workout_file>');
+    lines.push('  <author>Unchain Workout Builder</author>');
+    lines.push('  <name>' + WORKOUT_NAME + '</name>');
+    lines.push('  <description>Drawn with Unchain\'s Interval Sketch.</description>');
+    if (state.mode === "bike") {
+      lines.push('  <sportType>bike</sportType>');
+      lines.push('  <workout>');
+      var runs = mergeRuns(state.bins, function (i) { return state.power[i] + "|" + classify(i); });
+      runs.forEach(function (r) {
+        var duration = r.length * state.binSeconds;
+        var fraction = (state.power[r.start] / state.ftp).toFixed(3);
+        lines.push('    <' + classify(r.start) + ' Duration="' + duration + '" Power="' + fraction + '"/>');
+      });
+      lines.push('  </workout>');
+    } else {
+      lines.push('  <sportType>run</sportType>');
+      lines.push('  <workout>');
+      var runs2 = mergeRuns(state.bins, function (i) { return state.speed[i] + "|" + state.incline[i] + "|" + classify(i); });
+      runs2.forEach(function (r) {
+        var duration = r.length * state.binSeconds;
+        lines.push('    <' + classify(r.start) + ' Duration="' + duration + '" Pace="' + state.speed[r.start].toFixed(1) + '" Incline="' + state.incline[r.start].toFixed(1) + '"/>');
+      });
+      lines.push('  </workout>');
+    }
+    lines.push('</workout_file>');
+    return lines.join("\n") + "\n";
+  }
+
+  var builders = { erg: buildErg, mrc: buildMrc, zwo: buildZwo };
+
+  // ---- persistence ----
+
+  var STORAGE_KEY = "interval-sketch-state-v1";
+
+  function saveStateToStorage() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) { /* private browsing, quota, or storage disabled – fine, just don't persist */ }
+  }
+
+  function loadStateFromStorage() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      var loaded = JSON.parse(raw);
+      if (!loaded || !Array.isArray(loaded.power) || !Array.isArray(loaded.speed) || !Array.isArray(loaded.incline)) return null;
+      return loaded;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function syncControlsFromState() {
+    document.querySelectorAll("#mode-toggle button").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-mode") === state.mode); });
+    document.querySelectorAll("#bin-select button").forEach(function (b) { b.classList.toggle("active", parseInt(b.getAttribute("data-bin"), 10) === state.binSeconds); });
+    document.getElementById("bins-count").value = String(state.bins);
+    document.getElementById("warmup-count").value = String(state.warmupBins);
+    document.getElementById("cooldown-count").value = String(state.cooldownBins);
+    document.getElementById("ftp-input").value = String(state.ftp);
+  }
+
+  // ---- parsing the preview back into a profile (typed or pasted) ----
+
+  // Reads every "minutes\tvalue" row inside [COURSE DATA]…[END COURSE
+  // DATA], for both .erg and .mrc – they're the same shape, just watts vs.
+  // percent-of-FTP. Not assuming this tool's own two-rows-per-interval
+  // convention: any valid file (a real TrainerDay/TrainerRoad export, a
+  // hand-edited one, ramps and all) works too, since the result is
+  // resampled as a piecewise-linear curve below, the same interpretation
+  // `WorkoutProgram.target(atElapsedSeconds:)` already gives these files
+  // in the app itself.
+  function parseErgLikeRows(text) {
+    var lines = text.split(/\r?\n/);
+    var inData = false;
+    var rows = [];
+    lines.forEach(function (line) {
+      var trimmed = line.trim();
+      if (/^\[COURSE DATA\]/i.test(trimmed)) { inData = true; return; }
+      if (/^\[END COURSE DATA\]/i.test(trimmed)) { inData = false; return; }
+      if (!inData || trimmed === "") return;
+      var parts = trimmed.split(/\s+/);
+      if (parts.length < 2) return;
+      var minutes = parseFloat(parts[0]);
+      var value = parseFloat(parts[1]);
+      if (isFinite(minutes) && isFinite(value)) rows.push({ minutes: minutes, value: value });
+    });
+    rows.sort(function (a, b) { return a.minutes - b.minutes; });
+    return rows;
+  }
+
+  function valueAtMinutes(rows, minutes) {
+    if (minutes <= rows[0].minutes) return rows[0].value;
+    for (var i = 0; i < rows.length - 1; i++) {
+      if (minutes >= rows[i].minutes && minutes <= rows[i + 1].minutes) {
+        var span = rows[i + 1].minutes - rows[i].minutes;
+        if (span <= 0) return rows[i + 1].value;
+        var frac = (minutes - rows[i].minutes) / span;
+        return rows[i].value + (rows[i + 1].value - rows[i].value) * frac;
+      }
+    }
+    return rows[rows.length - 1].value;
+  }
+
+  // Resamples a parsed [minutes, value] curve onto `count` bins of
+  // `state.binSeconds` each, reading the value at each bin's *midpoint* –
+  // avoids landing exactly on a breakpoint seam, where a naive reader
+  // could pick either side depending on rounding.
+  function resampleToBins(rows, count) {
+    var out = [];
+    for (var i = 0; i < count; i++) {
+      var tMin = (i + 0.5) * state.binSeconds / 60;
+      out.push(valueAtMinutes(rows, tMin));
+    }
+    return out;
+  }
+
+  function applyErgLikeText(text, isPercent) {
+    var rows = parseErgLikeRows(text);
+    if (rows.length < 2) throw new Error("No [COURSE DATA] rows found");
+    var totalMinutes = rows[rows.length - 1].minutes;
+    var newBins = Math.max(2, Math.min(96, Math.round(totalMinutes * 60 / state.binSeconds)));
+    var ftpMatch = text.match(/FTP\s*=\s*(\d+(?:\.\d+)?)/i);
+    var ftp = ftpMatch ? parseFloat(ftpMatch[1]) : state.ftp;
+    var raw = resampleToBins(rows, newBins);
+    var power = raw.map(function (v) {
+      var watts = isPercent ? (v / 100 * ftp) : v;
+      watts = Math.max(lanes.power.min, Math.min(lanes.power.max, watts));
+      return Math.round(watts / lanes.power.step) * lanes.power.step;
+    });
+    state.mode = "bike";
+    state.ftp = ftp;
+    state.power = power;
+    state.bins = newBins;
+    clampWarmupCooldown();
+    syncControlsFromState();
+  }
+
+  // Real XML parsing (`DOMParser`, built into every browser) rather than
+  // regex – this is the one format with actual nesting/escaping rules
+  // worth respecting properly.
+  function applyZwoText(text) {
+    var doc = new DOMParser().parseFromString(text, "application/xml");
+    if (doc.querySelector("parsererror")) throw new Error("Malformed XML");
+    var workout = doc.querySelector("workout");
+    if (!workout) throw new Error("No <workout> element");
+    var els = Array.prototype.slice.call(workout.children).filter(function (el) {
+      return ["Warmup", "SteadyState", "Cooldown"].indexOf(el.tagName) !== -1;
+    });
+    if (els.length === 0) throw new Error("No Warmup/SteadyState/Cooldown blocks");
+    var sportType = (doc.querySelector("sportType") || {}).textContent || "";
+    var isBike = sportType.trim().toLowerCase() === "bike";
+
+    var segments = els.map(function (el) {
+      return {
+        kind: el.tagName,
+        duration: parseFloat(el.getAttribute("Duration")) || 0,
+        power: parseFloat(el.getAttribute("Power")),
+        pace: parseFloat(el.getAttribute("Pace")),
+        incline: parseFloat(el.getAttribute("Incline"))
+      };
+    });
+    var totalSeconds = segments.reduce(function (sum, s) { return sum + s.duration; }, 0);
+    if (totalSeconds <= 0) throw new Error("Zero total duration");
+    var newBins = Math.max(2, Math.min(96, Math.round(totalSeconds / state.binSeconds)));
+
+    function segmentAt(elapsedSeconds) {
+      var t = 0;
+      for (var i = 0; i < segments.length; i++) {
+        t += segments[i].duration;
+        if (elapsedSeconds < t || i === segments.length - 1) return segments[i];
+      }
+      return segments[segments.length - 1];
+    }
+
+    var warmupBins = 0, cooldownBins = 0;
+    for (var i = 0; i < newBins; i++) {
+      var kind = segmentAt((i + 0.5) * state.binSeconds).kind;
+      if (kind === "Warmup" && i === warmupBins) warmupBins++;
+    }
+    for (var j = newBins - 1; j >= 0; j--) {
+      var kind2 = segmentAt((j + 0.5) * state.binSeconds).kind;
+      if (kind2 === "Cooldown" && j === newBins - 1 - cooldownBins) cooldownBins++;
+    }
+    if (warmupBins + cooldownBins >= newBins) cooldownBins = Math.max(0, newBins - 1 - warmupBins);
+
+    if (isBike) {
+      var ftp = state.ftp;
+      state.power = Array.from({ length: newBins }, function (_, i) {
+        var seg = segmentAt((i + 0.5) * state.binSeconds);
+        var watts = isFinite(seg.power) ? seg.power * ftp : lanes.power.min;
+        watts = Math.max(lanes.power.min, Math.min(lanes.power.max, watts));
+        return Math.round(watts / lanes.power.step) * lanes.power.step;
+      });
+      state.mode = "bike";
+    } else {
+      state.speed = Array.from({ length: newBins }, function (_, i) {
+        var seg = segmentAt((i + 0.5) * state.binSeconds);
+        var v = isFinite(seg.pace) ? seg.pace : lanes.speed.min;
+        v = Math.max(lanes.speed.min, Math.min(lanes.speed.max, v));
+        return Math.round(v / lanes.speed.step) * lanes.speed.step;
+      });
+      state.incline = Array.from({ length: newBins }, function (_, i) {
+        var seg = segmentAt((i + 0.5) * state.binSeconds);
+        var v = isFinite(seg.incline) ? seg.incline : lanes.incline.min;
+        v = Math.max(lanes.incline.min, Math.min(lanes.incline.max, v));
+        return Math.round(v / lanes.incline.step) * lanes.incline.step;
+      });
+      state.mode = "treadmill";
+    }
+    state.bins = newBins;
+    state.warmupBins = warmupBins;
+    state.cooldownBins = cooldownBins;
+    syncControlsFromState();
+  }
+
+  var previewEditTimer = null;
+  function handlePreviewEdit() {
+    clearTimeout(previewEditTimer);
+    previewEditTimer = setTimeout(function () {
+      var active = document.querySelector(".jack button.active-fmt");
+      var fmt = active ? active.getAttribute("data-fmt") : "erg";
+      var text = document.getElementById("preview-text").value;
+      var statusEl = document.getElementById("sync-status");
+      try {
+        if (fmt === "erg") applyErgLikeText(text, false);
+        else if (fmt === "mrc") applyErgLikeText(text, true);
+        else applyZwoText(text);
+        // Redraws the chart from the newly-applied state, but deliberately
+        // *not* `updatePreview()` here – that would overwrite this
+        // textarea's own content (and reset the caret) with the
+        // regenerated canonical text while the rider might still be
+        // mid-edit. The next chart-side action (painting, a toolbar
+        // control) re-syncs it normally.
+        renderAll();
+        saveStateToStorage();
+        statusEl.textContent = "✓ synced to chart";
+        statusEl.classList.remove("error");
+        statusEl.classList.add("visible");
+      } catch (err) {
+        statusEl.textContent = "⚠ couldn't parse yet – " + err.message;
+        statusEl.classList.add("error", "visible");
+      }
+    }, 400);
+  }
+  document.getElementById("preview-text").addEventListener("input", handlePreviewEdit);
+
+  function updatePreview() {
+    var active = document.querySelector(".jack button.active-fmt");
+    var fmt = active ? active.getAttribute("data-fmt") : "erg";
+    document.getElementById("preview-label").textContent = "Preview — ." + fmt;
+    document.getElementById("preview-text").value = builders[fmt]();
+    document.getElementById("sync-status").classList.remove("visible", "error");
+    saveStateToStorage();
+  }
+
+  function flashStatus(el, text, revertAfterMs) {
+    var original = el.textContent;
+    el.textContent = text;
+    setTimeout(function () { el.textContent = original; }, revertAfterMs || 1600);
+  }
+
+  document.querySelectorAll(".jack button[data-fmt]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var fmt = btn.getAttribute("data-fmt");
+      document.querySelectorAll(".jack button[data-fmt]").forEach(function (b) { b.classList.remove("active-fmt"); });
+      btn.classList.add("active-fmt");
+      updatePreview();
+      var text = builders[fmt]();
+      var blob = new Blob([text], { type: "text/plain" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "interval-sketch." + fmt;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      flashStatus(btn, "Downloaded ↓");
+    });
+  });
+  document.querySelector('.jack button[data-fmt="erg"]').classList.add("active-fmt");
+
+  document.querySelectorAll(".jack .copy-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var fmt = btn.getAttribute("data-copy");
+      var text = builders[fmt]();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text)
+          .then(function () { flashStatus(btn, "Copied"); })
+          .catch(function () { flashStatus(btn, "Couldn't copy"); });
+      } else {
+        flashStatus(btn, "Copy unavailable");
+      }
+    });
+  });
+
+  document.getElementById("mode-toggle").addEventListener("click", function (evt) {
+    var btn = evt.target.closest("button[data-mode]");
+    if (!btn) return;
+    state.mode = btn.getAttribute("data-mode");
+    document.querySelectorAll("#mode-toggle button").forEach(function (b) { b.classList.toggle("active", b === btn); });
+    renderAll();
+    updatePreview();
+  });
+
+  document.getElementById("bin-select").addEventListener("click", function (evt) {
+    var btn = evt.target.closest("button[data-bin]");
+    if (!btn) return;
+    state.binSeconds = parseInt(btn.getAttribute("data-bin"), 10);
+    document.querySelectorAll("#bin-select button").forEach(function (b) { b.classList.toggle("active", b === btn); });
+    renderAll();
+    updatePreview();
+  });
+
+  function clampWarmupCooldown() {
+    var maxTotal = state.bins - 1;
+    if (state.warmupBins + state.cooldownBins > maxTotal) {
+      var overflow = state.warmupBins + state.cooldownBins - maxTotal;
+      state.cooldownBins = Math.max(0, state.cooldownBins - overflow);
+      overflow = state.warmupBins + state.cooldownBins - maxTotal;
+      if (overflow > 0) state.warmupBins = Math.max(0, state.warmupBins - overflow);
+    }
+    document.getElementById("warmup-count").value = String(state.warmupBins);
+    document.getElementById("cooldown-count").value = String(state.cooldownBins);
+  }
+
+  function resizeBins(newCount) {
+    newCount = Math.max(2, Math.min(96, newCount));
+    ["power", "speed", "incline"].forEach(function (key) {
+      var arr = state[key];
+      while (arr.length < newCount) arr.push(arr.length ? arr[arr.length - 1] : (key === "power" ? 150 : key === "speed" ? 6 : 1));
+      arr.length = newCount;
+    });
+    state.bins = newCount;
+    document.getElementById("bins-count").value = String(newCount);
+    clampWarmupCooldown();
+    renderAll();
+    updatePreview();
+  }
+  document.getElementById("bins-plus").addEventListener("click", function () { resizeBins(state.bins + 1); });
+  document.getElementById("bins-minus").addEventListener("click", function () { resizeBins(state.bins - 1); });
+
+  function setWarmup(v) {
+    state.warmupBins = Math.max(0, Math.min(state.bins - 1 - state.cooldownBins, v));
+    document.getElementById("warmup-count").value = String(state.warmupBins);
+    renderAll(); updatePreview();
+  }
+  function setCooldown(v) {
+    state.cooldownBins = Math.max(0, Math.min(state.bins - 1 - state.warmupBins, v));
+    document.getElementById("cooldown-count").value = String(state.cooldownBins);
+    renderAll(); updatePreview();
+  }
+  document.getElementById("warmup-plus").addEventListener("click", function () { setWarmup(state.warmupBins + 1); });
+  document.getElementById("warmup-minus").addEventListener("click", function () { setWarmup(state.warmupBins - 1); });
+  document.getElementById("cooldown-plus").addEventListener("click", function () { setCooldown(state.cooldownBins + 1); });
+  document.getElementById("cooldown-minus").addEventListener("click", function () { setCooldown(state.cooldownBins - 1); });
+
+  document.getElementById("ftp-input").addEventListener("change", function () {
+    var v = parseInt(this.value, 10);
+    if (!isFinite(v) || v <= 0) v = 250;
+    state.ftp = v;
+    updatePreview();
+  });
+
+  syncControlsFromState();
+  renderAll();
+  updatePreview();
+  window.addEventListener("resize", renderAll);
+})();
+</script>
+</body>
+</html>

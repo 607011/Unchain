@@ -1289,3 +1289,83 @@ would change, roughly in the order it'd need doing:
       `ControlView.formattedResistanceRange` already uses for this exact
       range elsewhere, so the two never read differently for the same
       device
+- [x] **Workout Builder** (`docs/builder.html`, linked from the landing
+      page) – a browser-based companion tool, prompted by trying several
+      web workout builders and finding them all tedious to use (fill in a
+      table row by row, or click prefab blocks together). Instead: drag
+      across a grid of discrete time intervals (30 s/60 s/5 min, or any
+      count) to *draw* a target profile freehand, like an automation lane
+      in a DAW – dragging fast between two intervals linearly interpolates
+      the ones skipped over, so it draws smooth ramps, not just flat
+      steps. Two profile modes – Bike (Power) and Treadmill (Speed &
+      Incline) – deliberately not a bike Grade/elevation profile too: a
+      *time*-indexed grid only makes sense for a target a trainer holds
+      for a fixed duration regardless of effort (ERG-mode power, or a
+      treadmill's motor-driven belt speed) – simulated grade is
+      *distance*-indexed (how long a "climb" lasts depends on how fast the
+      rider actually climbs it), which is exactly why `GradeProfile` is
+      GPX/distance-based in the app itself, not time-based. Exports
+      `.erg`/`.mrc`/`.zwo`, hand-written to match this repo's own
+      `WorkoutProgramParser`/`ZWOWorkoutParser` byte-for-byte (`.mrc` via
+      the same `FTP = <value>` header convention the app's own parser
+      already reads); adjacent equal-value intervals merge into one
+      `.zwo` block rather than emitting one tiny segment per interval.
+      Adjustable Warm-up/Cool-down interval counts tag the first/last
+      stretch as `<Warmup>`/`<Cooldown>` instead of `<SteadyState>` (shown
+      as a shaded band on the chart) – lets the *rest* of the workout
+      correctly qualify as `SteadyState` for the app's own VO2max
+      estimate above. No account, no upload, no build step – a single
+      static HTML file, generated/prototyped first as a Claude Artifact to
+      test the drag feel before committing it to the repo; the app's icon
+      (`docs/assets/icon.png`, already used by the landing page) appears
+      small and corner-rounded next to the title, consistent with but
+      distinct from the landing page's own larger treatment
+- [x] Fixed: dragging (not just clicking) on the Workout Builder's grid
+      didn't work – `renderLane()` cleared and rebuilt the *entire* `<svg>`
+      on every single painted value, including the invisible hit-rect
+      pointer events land on, which destroys `setPointerCapture` the
+      instant its element leaves the DOM (per spec). Only the initial
+      click's `pointerdown` ever painted anything; every subsequent
+      `pointermove` (the actual drag) went nowhere. Fixed by splitting
+      each lane into a persistent interaction layer (hit-rect + listeners,
+      set up once) and a separate `<g>` for the redrawn visuals (grid,
+      curve, bands) that `renderLane` clears and rebuilds freely without
+      ever touching the interaction layer; capture now also lives on the
+      hit-rect itself, not the ancestor `<svg>` (capturing there moved the
+      event *target* away from `hit`'s own listeners, which don't receive
+      events bubbling from a descendant they aren't one).
+- [x] Warm-up/Cool-down are now also draggable directly on the chart – a
+      small notched grip on the shaded boundary, not just the small
+      stepper fields in the toolbar (real, but easy to miss and not
+      obviously tied to the shading once found – reported as "not
+      intuitive"). Only on the primary lane per mode (Power for bike,
+      Speed for treadmill) – both counts are shared across every lane in a
+      mode, so a second draggable boundary on the Incline lane would just
+      be a redundant, confusing second way to move the same one
+- [x] **Workout Builder: localStorage restore + an editable, parsed preview**
+      – two follow-up requests once the tool itself was working well:
+  - The last-edited workout now survives a reload –
+    `localStorage.setItem`/`getItem` under `interval-sketch-state-v1`,
+    written (best-effort, wrapped in `try`/`catch` – private browsing or a
+    disabled store just means it doesn't persist, not a crash) after every
+    state-changing action via `updatePreview()`'s own end, and read back
+    at startup in place of the bundled sample profiles when present. No
+    account, no server – exactly this page's whole point, matching
+    Unchain's own "no login" stance.
+  - The `<pre>` preview became a real `<textarea>`, and typing or
+    **pasting** into it now parses back into the chart – for `.erg`/`.mrc`
+    via a from-scratch reader of `[COURSE DATA]`'s `minutes value` rows,
+    resampled onto the current bin grid as a piecewise-linear curve (the
+    same interpretation `WorkoutProgram.target(atElapsedSeconds:)` gives
+    these files in the app itself, so *any* valid file works, not just
+    ones this tool generated); for `.zwo` via `DOMParser` (real XML
+    parsing, not regex) reading `Warmup`/`SteadyState`/`Cooldown`
+    elements – `sportType` even auto-switches the Bike/Treadmill toggle.
+    A 400 ms debounce avoids re-parsing every keystroke; a small status
+    line next to the preview label shows "✓ synced to chart" or, on a
+    parse failure, why – the chart itself is left untouched rather than
+    breaking on a bad edit. Deliberately never calls `updatePreview()`
+    from this path (only `renderAll()`) – regenerating the canonical text
+    mid-edit would overwrite the rider's own typing and reset the caret;
+    the next chart-side action (painting, a toolbar control) resyncs the
+    textarea normally.

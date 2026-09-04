@@ -1529,3 +1529,33 @@ would change, roughly in the order it'd need doing:
         `timeSeconds` would degrade gracefully instead of crashing, rather
         than relying solely on the one cause that's now fixed at the
         source.
+- [x] **Warns if a loaded workout's targets exceed this trainer's own
+      range** – `setTargetPower`/`setTargetSpeed`/`setTargetInclination`
+      already clamp silently regardless (each to `connection.powerRange`/
+      `speedRangeKmh`/`inclinationRangePercent`), so nothing was ever
+      actually unsafe about loading a file built for a different, more
+      capable machine; the gap was purely that the rider had no way to
+      *know* that up front; a target number that stopped matching the file
+      partway through a workout was the only sign anything had happened.
+      `ControlView.loadProgramIntoSession(_:)`/`loadTreadmillProgramIntoSession(_:)`
+      – already the one funnel every load path (auto-restore, file import,
+      sample button, recent-workouts tap) goes through – now also call a
+      new `warnIfOutOfRange(_:)`, comparing the *whole* file's min/max
+      target(s) against the connected trainer's current range and, if
+      either falls outside it, setting a new `rangeWarning` alert
+      ("Some Targets Will Be Adjusted") explaining the workout can still
+      be followed in full, just with out-of-range targets capped to
+      whatever this trainer actually supports. `.power`-kind `.erg`/`.mrc`
+      programs are checked against `powerRange`; `.zwo` treadmill programs
+      against `speedRangeKmh` and `inclinationRangePercent` together, with
+      three distinct message variants (speed only / incline only / both)
+      rather than one generic one. `.resistance`-kind programs are
+      deliberately exempt: their 0–100 % values are already relative to
+      whatever the trainer itself supports (see
+      `setTargetResistancePercent`'s own doc comment), so they can never
+      be "out of range" to begin with – only `.power`'s absolute watts
+      can exceed what one *specific* trainer happens to support. GPX
+      routes are exempt too, for the opposite reason: `setSimulationGrade`
+      clamps to a fixed ±25 % safety margin, not a device-reported range –
+      there's no FTMS "supported grade range" characteristic to compare
+      against in the first place.

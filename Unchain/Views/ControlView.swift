@@ -52,6 +52,15 @@ struct ControlView: View {
     @State private var isShowingCreateWorkout = false
     @State private var isShowingExporter = false
     @State private var loadError: LoadErrorAlert?
+    /// Set by `warnIfOutOfRange(_:)` right after a program actually loads
+    /// successfully – unlike `loadError`, this isn't a failure: the workout
+    /// loads and can still be followed in full, just with whichever targets
+    /// fall outside this specific trainer's own range silently capped to it
+    /// (`TrainerConnection.setTargetPower`/`setTargetSpeed`/
+    /// `setTargetInclination` already do that clamping regardless – this
+    /// only makes it visible up front instead of the rider discovering it
+    /// mid-workout as a target number that stopped matching the file).
+    @State private var rangeWarning: RangeWarningAlert?
     /// True while an async HealthKit save is in flight — guards the
     /// confirmation dialog's dismiss handler from mistaking the dialog closing
     /// itself (after "Save as …" was tapped) for the user cancelling.
@@ -389,6 +398,9 @@ struct ControlView: View {
         }
         .alert(item: $loadError) { error in
             Alert(title: Text("Couldn't Load Workout"), message: Text(error.message), dismissButton: .default(Text("OK")))
+        }
+        .alert(item: $rangeWarning) { warning in
+            Alert(title: Text("Some Targets Will Be Adjusted"), message: Text(warning.message), dismissButton: .default(Text("OK")))
         }
         .fileExporter(
             isPresented: $isShowingExporter,
@@ -973,9 +985,15 @@ struct ControlView: View {
     private func loadProgramIntoSession(_ program: WorkoutProgram) {
         session.loadProgram(program)
         WorkoutProgramStore.recordUsage(of: program)
+        warnIfOutOfRange(program)
     }
 
-    /// The `GradeProfile` counterpart to `loadProgramIntoSession(_:)`.
+    /// The `GradeProfile` counterpart to `loadProgramIntoSession(_:)`. No
+    /// equivalent range check here – `setSimulationGrade(percent:)` is
+    /// clamped to a fixed, physically-plausible ±25 % safety margin rather
+    /// than a device-reported range (there's no FTMS "supported grade
+    /// range" characteristic to compare against in the first place, see
+    /// that method's own doc comment).
     private func loadRouteIntoSession(_ route: GradeProfile) {
         session.loadRoute(route)
         RouteStore.recordUsage(of: route)
@@ -985,6 +1003,65 @@ struct ControlView: View {
     private func loadTreadmillProgramIntoSession(_ program: TreadmillWorkoutProgram) {
         session.loadTreadmillProgram(program)
         TreadmillWorkoutProgramStore.recordUsage(of: program)
+        warnIfOutOfRange(program)
+    }
+
+    /// Sets `rangeWarning` if `program`'s power targets ask for more than
+    /// `connection.powerRange` currently reports this trainer supporting –
+    /// purely informational, since `setTargetPower(watts:)` already clamps
+    /// every target it actually sends regardless of this check; this just
+    /// surfaces that fact up front, at load time, rather than leaving the
+    /// rider to notice a live number that silently stopped matching the
+    /// file partway through. `.resistance`-kind programs never trigger
+    /// this: their 0–100 % values are already relative to whatever the
+    /// trainer itself supports (see `setTargetResistancePercent`'s own doc
+    /// comment on why), so they can't be "out of range" in the first
+    /// place – only `.power`'s absolute watts can exceed what one
+    /// *specific* trainer happens to support. Like every other read of
+    /// `connection.powerRange` in this file, this can only be as accurate
+    /// as whatever this trainer has reported by the time it's called – see
+    /// that property's own "reasonable default, then replaced" doc note.
+    private func warnIfOutOfRange(_ program: WorkoutProgram) {
+        guard program.targetKind == .power else { return }
+        let values = program.breakpoints.map { $0.value }
+        guard let minValue = values.min(), let maxValue = values.max() else { return }
+        let range = connection.powerRange
+        guard minValue < range.lowerBound || maxValue > range.upperBound else { return }
+        let formattedRange = "\(range.lowerBound)–\(range.upperBound) W"
+        rangeWarning = RangeWarningAlert(message: String(localized: "This workout calls for power targets outside what this trainer supports (\(formattedRange)). You can still do the whole workout – power outside that range will simply be capped to it."))
+    }
+
+    /// The treadmill counterpart to `warnIfOutOfRange(_:)` above – same
+    /// reasoning, just checked against both `connection.speedRangeKmh` and
+    /// `connection.inclinationRangePercent` (a `.zwo` segment always
+    /// carries both), and worded per which of the two (or both) actually
+    /// exceeds this trainer's own range rather than one generic message
+    /// for either.
+    private func warnIfOutOfRange(_ program: TreadmillWorkoutProgram) {
+        let speeds = program.segments.map { $0.speedKmh }
+        let inclines = program.segments.map { $0.inclinePercent }
+        guard let minSpeed = speeds.min(), let maxSpeed = speeds.max(),
+              let minIncline = inclines.min(), let maxIncline = inclines.max() else { return }
+        let speedRange = connection.speedRangeKmh
+        let inclineRange = connection.inclinationRangePercent
+        let speedOutOfRange = minSpeed < speedRange.lowerBound || maxSpeed > speedRange.upperBound
+        let inclineOutOfRange = minIncline < inclineRange.lowerBound || maxIncline > inclineRange.upperBound
+        guard speedOutOfRange || inclineOutOfRange else { return }
+
+        let formattedSpeedRange = String(format: "%.1f–%.1f km/h", locale: .current, speedRange.lowerBound, speedRange.upperBound)
+        let formattedInclineRange = String(format: "%.1f–%.1f %%", locale: .current, inclineRange.lowerBound, inclineRange.upperBound)
+        let message: String
+        switch (speedOutOfRange, inclineOutOfRange) {
+        case (true, true):
+            message = String(localized: "This workout calls for speed and incline outside what this treadmill supports (speed \(formattedSpeedRange), incline \(formattedInclineRange)). You can still do the whole workout – targets outside those ranges will simply be capped to them.")
+        case (true, false):
+            message = String(localized: "This workout calls for speed outside what this treadmill supports (\(formattedSpeedRange)). You can still do the whole workout – speed outside that range will simply be capped to it.")
+        case (false, true):
+            message = String(localized: "This workout calls for incline outside what this treadmill supports (\(formattedInclineRange)). You can still do the whole workout – incline outside that range will simply be capped to it.")
+        case (false, false):
+            return
+        }
+        rangeWarning = RangeWarningAlert(message: message)
     }
 
     private func loadSampleRampTest() {
@@ -1353,6 +1430,11 @@ private struct SaveResultAlert: Identifiable {
 }
 
 private struct LoadErrorAlert: Identifiable {
+    let id = UUID()
+    let message: String
+}
+
+private struct RangeWarningAlert: Identifiable {
     let id = UUID()
     let message: String
 }

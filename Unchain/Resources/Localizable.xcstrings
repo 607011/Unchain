@@ -2140,6 +2140,56 @@
           }
         }
       }
+    },
+    "Some Targets Will Be Adjusted": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Vorgaben werden angepasst"
+          }
+        }
+      }
+    },
+    "This workout calls for power targets outside what this trainer supports (%@). You can still do the whole workout – power outside that range will simply be capped to it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Training verlangt Leistungswerte außerhalb dessen, was dieser Trainer unterstützt (%@). Du kannst das Training trotzdem vollständig absolvieren – Werte außerhalb dieses Bereichs werden einfach darauf begrenzt."
+          }
+        }
+      }
+    },
+    "This workout calls for speed and incline outside what this treadmill supports (speed %@, incline %@). You can still do the whole workout – targets outside those ranges will simply be capped to them.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Training verlangt Geschwindigkeits- und Steigungswerte außerhalb dessen, was dieses Laufband unterstützt (Geschwindigkeit %@, Steigung %@). Du kannst das Training trotzdem vollständig absolvieren – Werte außerhalb dieser Bereiche werden einfach darauf begrenzt."
+          }
+        }
+      }
+    },
+    "This workout calls for speed outside what this treadmill supports (%@). You can still do the whole workout – speed outside that range will simply be capped to it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Training verlangt Geschwindigkeitswerte außerhalb dessen, was dieses Laufband unterstützt (%@). Du kannst das Training trotzdem vollständig absolvieren – Werte außerhalb dieses Bereichs werden einfach darauf begrenzt."
+          }
+        }
+      }
+    },
+    "This workout calls for incline outside what this treadmill supports (%@). You can still do the whole workout – incline outside that range will simply be capped to it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Training verlangt Steigungswerte außerhalb dessen, was dieses Laufband unterstützt (%@). Du kannst das Training trotzdem vollständig absolvieren – Werte außerhalb dieses Bereichs werden einfach darauf begrenzt."
+          }
+        }
+      }
     }
   },
   "version": "1.1"

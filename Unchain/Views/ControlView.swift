@@ -287,6 +287,24 @@ struct ControlView: View {
         }
         .onChange(of: connection.powerRange) { newRange in
             targetPower = newRange.clamp(targetPower)
+            // Re-check whatever `.power`-kind program is currently loaded –
+            // see `warnIfOutOfRange(_:)`'s own doc comment on why a check
+            // already run at load time isn't necessarily the last word.
+            if case .program(let program) = session.activeWorkout {
+                warnIfOutOfRange(program)
+            }
+        }
+        .onChange(of: connection.speedRangeKmh) { newRange in
+            targetSpeedKmh = newRange.clamp(targetSpeedKmh)
+            if case .treadmillProgram(let program) = session.activeWorkout {
+                warnIfOutOfRange(program)
+            }
+        }
+        .onChange(of: connection.inclinationRangePercent) { newRange in
+            targetInclinePercent = newRange.clamp(targetInclinePercent)
+            if case .treadmillProgram(let program) = session.activeWorkout {
+                warnIfOutOfRange(program)
+            }
         }
         .onChange(of: connection.state) { newState in
             // Whenever control is (re-)granted — first connect or reconnect
@@ -1017,12 +1035,20 @@ struct ControlView: View {
     /// trainer itself supports (see `setTargetResistancePercent`'s own doc
     /// comment on why), so they can't be "out of range" in the first
     /// place – only `.power`'s absolute watts can exceed what one
-    /// *specific* trainer happens to support. Like every other read of
-    /// `connection.powerRange` in this file, this can only be as accurate
-    /// as whatever this trainer has reported by the time it's called – see
-    /// that property's own "reasonable default, then replaced" doc note.
+    /// *specific* trainer happens to support.
+    ///
+    /// Skipped entirely while `connection.hasReceivedPowerRange` is still
+    /// `false` – a real Kickr Core, genuinely supporting 0–2000 W, got
+    /// wrongly flagged over a ~700 W workout because this ran before its
+    /// actual "Supported Power Range" answer had come back over BLE,
+    /// comparing against `powerRange`'s placeholder 25...400 W default
+    /// instead. Called again from `.onChange(of: connection.powerRange)`
+    /// once that answer *does* arrive, against whatever `.program` happens
+    /// to be loaded at that point – covering both this method's own
+    /// skipped call and a file that loaded while already connected, before
+    /// this trainer's own answer had come back yet.
     private func warnIfOutOfRange(_ program: WorkoutProgram) {
-        guard program.targetKind == .power else { return }
+        guard program.targetKind == .power, connection.hasReceivedPowerRange else { return }
         let values = program.breakpoints.map { $0.value }
         guard let minValue = values.min(), let maxValue = values.max() else { return }
         let range = connection.powerRange
@@ -1032,11 +1058,18 @@ struct ControlView: View {
     }
 
     /// The treadmill counterpart to `warnIfOutOfRange(_:)` above – same
-    /// reasoning, just checked against both `connection.speedRangeKmh` and
-    /// `connection.inclinationRangePercent` (a `.zwo` segment always
-    /// carries both), and worded per which of the two (or both) actually
-    /// exceeds this trainer's own range rather than one generic message
-    /// for either.
+    /// reasoning (including the same "skip until the real answer has
+    /// arrived" fix, via `connection.hasReceivedSpeedRange`/
+    /// `hasReceivedInclinationRange` and the matching `.onChange(of:)`
+    /// pair, one per range), just checked against both
+    /// `connection.speedRangeKmh` and `connection.inclinationRangePercent`
+    /// (a `.zwo` segment always carries both), and worded per which of the
+    /// two (or both) actually exceeds this trainer's own range rather than
+    /// one generic message for either. The two checks are independent, not
+    /// gated on *both* ranges having arrived together: a treadmill that
+    /// never answers one of the two characteristics at all (so its
+    /// `hasReceived…` flag never becomes `true`) shouldn't also silence a
+    /// genuine finding on the other.
     private func warnIfOutOfRange(_ program: TreadmillWorkoutProgram) {
         let speeds = program.segments.map { $0.speedKmh }
         let inclines = program.segments.map { $0.inclinePercent }
@@ -1044,8 +1077,8 @@ struct ControlView: View {
               let minIncline = inclines.min(), let maxIncline = inclines.max() else { return }
         let speedRange = connection.speedRangeKmh
         let inclineRange = connection.inclinationRangePercent
-        let speedOutOfRange = minSpeed < speedRange.lowerBound || maxSpeed > speedRange.upperBound
-        let inclineOutOfRange = minIncline < inclineRange.lowerBound || maxIncline > inclineRange.upperBound
+        let speedOutOfRange = connection.hasReceivedSpeedRange && (minSpeed < speedRange.lowerBound || maxSpeed > speedRange.upperBound)
+        let inclineOutOfRange = connection.hasReceivedInclinationRange && (minIncline < inclineRange.lowerBound || maxIncline > inclineRange.upperBound)
         guard speedOutOfRange || inclineOutOfRange else { return }
 
         let formattedSpeedRange = String(format: "%.1f–%.1f km/h", locale: .current, speedRange.lowerBound, speedRange.upperBound)

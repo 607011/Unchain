@@ -1588,3 +1588,43 @@ would change, roughly in the order it'd need doing:
       wrong starting point kept compounding into every subsequent ramp's
       own delta too, not just the one segment that first exceeded the
       range.
+- [x] **Fixed a real false positive in the range-warning check above**:
+      connecting to a Kickr Core (genuinely supporting 0–2000 W) with a
+      ~700 W workout loaded triggered the "some targets will be adjusted"
+      warning anyway – `warnIfOutOfRange(_:)` ran before this specific
+      trainer's own "Supported Power Range" (0x2AD8) answer had actually
+      come back over BLE, so it compared against `TrainerConnection
+      .powerRange`'s placeholder 25...400 W default instead of the real
+      range – the exact risk that entry's own doc comment already
+      flagged as a caveat, now confirmed as a real bug rather than a
+      theoretical one. The race is inherent, not something a fixed delay
+      could paper over: `didDiscoverCharacteristicsFor` fires off reads
+      for Fitness Machine Feature, machine kind (via the data
+      characteristic's own first notification), and all four Supported
+      Range characteristics essentially at once, and CoreBluetooth
+      gives no ordering guarantee whatsoever across their independent
+      async callbacks – `loadPersistedOrDefaultProgramIfCapabilitiesKnown()`
+      (the auto-restore path that loaded this particular workout) was
+      already guarded against running before `machineKind`/
+      `supportedFeatures` specifically had resolved, but not against the
+      four Supported Range characteristics, which can just as easily
+      resolve after either of those two. New `TrainerConnection
+      .hasReceivedPowerRange`/`hasReceivedSpeedRange`/
+      `hasReceivedInclinationRange` – set the instant *any* response for
+      the matching characteristic arrives, even a malformed one that
+      doesn't itself update the range – let `warnIfOutOfRange(_:)` tell
+      "this device's real, reported answer" apart from "still just the
+      placeholder default", which the range value alone can't: a device
+      could always legitimately report exactly the placeholder's own
+      numbers as its real range too. Skipped entirely (no warning) while
+      the relevant flag is still `false`, rather than risk another false
+      positive against a guess; a new matching trio of `.onChange(of:)`
+      handlers re-runs the check against whatever program is currently
+      loaded once each range's real answer *does* arrive, so a genuine
+      out-of-range workout still gets flagged, just possibly a moment
+      later than before instead of immediately but sometimes wrongly.
+      The treadmill version's two checks (speed, incline) are gated on
+      their own flag independently, not on both arriving together – a
+      treadmill that never answers one of the two characteristics at all
+      would otherwise permanently silence a genuine finding on the other
+      too.

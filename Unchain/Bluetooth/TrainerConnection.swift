@@ -52,6 +52,20 @@ final class TrainerConnection: NSObject, ObservableObject {
     @Published private(set) var state: ConnectionState = .connecting
     @Published private(set) var metrics: TrainerMetrics = .empty
     @Published private(set) var powerRange: ClosedRange<Int> = 25...400
+    /// Whether `powerRange` has actually been updated from a genuine
+    /// "Supported Power Range" (0x2AD8) response yet, rather than still
+    /// sitting at its placeholder default above – set the moment *any*
+    /// response for that characteristic arrives, even a malformed one that
+    /// doesn't itself update `powerRange` (see `didUpdateValueFor`). Exists
+    /// because a caller that needs to tell "this is the device's real
+    /// answer" apart from "this is still just a guess" (`ControlView`'s
+    /// range-warning check, reported to wrongly flag a real Kickr Core's
+    /// genuine 0–2000 W range as unsupported – its answer just hadn't
+    /// arrived yet when the check ran, so it compared against the 25...400
+    /// placeholder instead) can't do that from `powerRange` alone: a
+    /// device could always legitimately report exactly the placeholder's
+    /// own numbers as its real range too.
+    @Published private(set) var hasReceivedPowerRange = false
     // The device's own supported resistance-level range, in FTMS's raw,
     // vendor-defined "Resistance Level" *integer* unit — i.e. NOT yet divided
     // down by the 0.1 resolution, and NOT percent. Kept at full native
@@ -66,10 +80,16 @@ final class TrainerConnection: NSObject, ObservableObject {
     /// "Supported Speed Range" characteristic (0x2AD4) is read, same
     /// "reasonable default, then replaced" pattern as `powerRange`.
     @Published private(set) var speedRangeKmh: ClosedRange<Double> = 1.0...20.0
+    /// See `hasReceivedPowerRange`'s own doc comment – same reasoning, for
+    /// `speedRangeKmh`.
+    @Published private(set) var hasReceivedSpeedRange = false
     /// The treadmill's own supported inclination range, in percent –
     /// placeholder values (flat to a steep incline) until the device's own
     /// "Supported Inclination Range" characteristic (0x2AD5) is read.
     @Published private(set) var inclinationRangePercent: ClosedRange<Double> = 0.0...15.0
+    /// See `hasReceivedPowerRange`'s own doc comment – same reasoning, for
+    /// `inclinationRangePercent`.
+    @Published private(set) var hasReceivedInclinationRange = false
     @Published private(set) var machineKind: MachineKind = .unknown
     @Published private(set) var supportedFeatures: FitnessMachineFeatures?
     /// Every characteristic CoreBluetooth actually reported under the
@@ -364,6 +384,7 @@ extension TrainerConnection: CBPeripheralDelegate {
         case FTMS.fitnessMachineControlPoint:
             handleControlPointResponse(data)
         case FTMS.supportedPowerRange:
+            hasReceivedPowerRange = true
             if data.count >= 4 {
                 let bytes = [UInt8](data)
                 let min = Int(Int16(bitPattern: UInt16(bytes[0]) | UInt16(bytes[1]) << 8))
@@ -383,6 +404,7 @@ extension TrainerConnection: CBPeripheralDelegate {
             // UINT16, 0.01 km/h resolution (FTMS spec, section 4.11) –
             // unsigned, unlike Resistance/Power/Inclination above: a
             // treadmill's minimum speed is never negative.
+            hasReceivedSpeedRange = true
             if data.count >= 4 {
                 let bytes = [UInt8](data)
                 let min = Double(UInt16(bytes[0]) | UInt16(bytes[1]) << 8) * 0.01
@@ -392,6 +414,7 @@ extension TrainerConnection: CBPeripheralDelegate {
         case FTMS.supportedInclinationRange:
             // SINT16, 0.1 % resolution (FTMS spec, section 4.12) – signed,
             // since some treadmills support a decline (negative incline).
+            hasReceivedInclinationRange = true
             if data.count >= 4 {
                 let bytes = [UInt8](data)
                 let min = Double(Int16(bitPattern: UInt16(bytes[0]) | UInt16(bytes[1]) << 8)) * 0.1

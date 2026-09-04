@@ -1532,12 +1532,15 @@ would change, roughly in the order it'd need doing:
 - [x] **Warns if a loaded workout's targets exceed this trainer's own
       range** – `setTargetPower`/`setTargetSpeed`/`setTargetInclination`
       already clamp silently regardless (each to `connection.powerRange`/
-      `speedRangeKmh`/`inclinationRangePercent`), so nothing was ever
-      actually unsafe about loading a file built for a different, more
-      capable machine; the gap was purely that the rider had no way to
-      *know* that up front; a target number that stopped matching the file
-      partway through a workout was the only sign anything had happened.
-      `ControlView.loadProgramIntoSession(_:)`/`loadTreadmillProgramIntoSession(_:)`
+      `speedRangeKmh`/`inclinationRangePercent`), so the *sent* target
+      itself was never unsafe; the gap was purely that the rider had no
+      way to *know* up front that a file built for a different, more
+      capable machine would be adjusted – a target number that stopped
+      matching the file partway through a workout was the only sign
+      anything had happened. (One genuinely unsafe consequence of the same
+      unclamped-target gap did turn up, for `.zwo` treadmill programs
+      specifically – see the very next entry below, found while writing
+      this one.) `ControlView.loadProgramIntoSession(_:)`/`loadTreadmillProgramIntoSession(_:)`
       – already the one funnel every load path (auto-restore, file import,
       sample button, recent-workouts tap) goes through – now also call a
       new `warnIfOutOfRange(_:)`, comparing the *whole* file's min/max
@@ -1559,3 +1562,29 @@ would change, roughly in the order it'd need doing:
       clamps to a fixed ±25 % safety margin, not a device-reported range –
       there's no FTMS "supported grade range" characteristic to compare
       against in the first place.
+- [x] **Fixed a real, physical consequence of the same unclamped-target
+      gap**: `sendCurrentWorkoutTarget(for:)`'s treadmill speed ramp (see
+      the "belt getting ahead of the incline motor" entry further above)
+      computed how long the ramp should take from the incline delta
+      between the *file's own, raw* targets – e.g. a `.zwo` segment
+      transition from 10 % to an unsupported -6 % read as a 16-percentage-
+      point move. But the incline motor was only ever going to travel the
+      *real*, clamped distance – down to whatever this treadmill's own
+      `inclinationRangePercent` actually bottoms out at, e.g. 0 %, a
+      10-point move, not 16. The ramp duration came out too long for the
+      incline change that was actually going to happen, so the belt sat at
+      an intermediate speed for far longer than the incline motor itself
+      needed to reach where it was actually headed. Fixed by clamping the
+      segment's own target incline to `connection.inclinationRangePercent`
+      once, up front, and using that clamped value everywhere afterward –
+      the delta the ramp duration is computed from, what's actually sent
+      via `setTargetInclination(percent:)` (identical to what it would've
+      clamped to internally anyway, just computed once instead of
+      implicitly), and what `lastSentTreadmillInclinePercent` remembers as
+      "where the incline motor actually is now" for the *next* segment's
+      own delta. That last one matters on its own: before this fix,
+      `lastSentTreadmillInclinePercent` stored the raw file value even
+      when the belt could never have actually reached it, so an *already*
+      wrong starting point kept compounding into every subsequent ramp's
+      own delta too, not just the one segment that first exceeded the
+      range.

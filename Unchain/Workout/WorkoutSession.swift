@@ -900,9 +900,24 @@ final class WorkoutSession: ObservableObject {
                 // the old segment's nominal target.
                 let shouldRestartSpeedRamp = didReachNewEntry || pendingTreadmillSpeedRampRestart
                 pendingTreadmillSpeedRampRestart = false
+                // Clamped to what this specific treadmill's own
+                // `inclinationRangePercent` actually supports *before* it's
+                // used for anything below – not just when
+                // `setTargetInclination(percent:)` would clamp it anyway a
+                // few lines down. Reported from real use: computing the
+                // ramp duration from the file's raw, unclamped target (e.g.
+                // a `.zwo`'s -6 % on a treadmill that can't go below 0 %)
+                // overstated how far the incline motor actually has to
+                // travel (16 percentage points instead of the real 10),
+                // which overstated how long the speed ramp needs to take to
+                // match it – the belt sat at an intermediate speed for far
+                // longer than the incline motor, which only had to cover
+                // the real, smaller, clamped distance, actually took to
+                // get there.
+                let clampedInclinePercent = connection.inclinationRangePercent.clamp(target.inclinePercent)
                 if shouldRestartSpeedRamp {
-                    let previousInclinePercent = lastSentTreadmillInclinePercent ?? target.inclinePercent
-                    let inclineDeltaPercent = abs(target.inclinePercent - previousInclinePercent)
+                    let previousInclinePercent = lastSentTreadmillInclinePercent ?? clampedInclinePercent
+                    let inclineDeltaPercent = abs(clampedInclinePercent - previousInclinePercent)
                     let secondsPerUnit = TrainerDeviceSettingsStore.load(for: connection.peripheral.identifier).effectiveInclineChangeSecondsPerDegree
                     treadmillSpeedRampFromKmh = lastSentTreadmillSpeedKmh ?? target.speedKmh
                     treadmillSpeedRampToKmh = target.speedKmh
@@ -918,9 +933,9 @@ final class WorkoutSession: ObservableObject {
                     speedToSend = target.speedKmh
                 }
                 connection.setTargetSpeed(kmh: speedToSend)
-                connection.setTargetInclination(percent: target.inclinePercent)
+                connection.setTargetInclination(percent: clampedInclinePercent)
                 lastSentTreadmillSpeedKmh = speedToSend
-                lastSentTreadmillInclinePercent = target.inclinePercent
+                lastSentTreadmillInclinePercent = clampedInclinePercent
                 if let index {
                     if didReachNewEntry {
                         triggerStepVibrationIfEnabled()

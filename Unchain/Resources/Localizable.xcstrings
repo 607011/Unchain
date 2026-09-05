@@ -2190,6 +2190,16 @@
           }
         }
       }
+    },
+    "Not in Bluetooth Range": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht in Bluetooth-Reichweite"
+          }
+        }
+      }
     }
   },
   "version": "1.1"

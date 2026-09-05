@@ -1628,3 +1628,24 @@ would change, roughly in the order it'd need doing:
       treadmill that never answers one of the two characteristics at all
       would otherwise permanently silence a genuine finding on the other
       too.
+- [x] **Device screen now also shows previously-connected trainers that
+      are currently out of range**, grayed out with a "Not in Bluetooth
+      Range" label above the name, rather than a used-before trainer just
+      silently vanishing from the list the moment it's out of range or
+      switched off – requested after finding it disorienting not to see a
+      familiar trainer there at all while setting up. Reuses
+      `TrainerDeviceStore` (already recording every trainer ever connected
+      to, for `SettingsView`'s own per-device settings list) rather than
+      adding a second "known devices" store – `DeviceListView`'s new
+      `outOfRangeTrainerDevices` is just `TrainerDeviceStore.loadAll()`
+      minus whatever `bluetooth.trainerDevices` already has live, reloaded
+      on every appearance same as `SettingsView.knownDevices` already is.
+      Purely informational, not a `Button` – there's nothing to actually
+      do with an unreachable device yet (a tap-to-wait-and-auto-connect
+      once back in range, the way the heart rate strap already does off
+      `lastHeartRateStrapUUIDKey`, would need `TrainerDeviceStore` to grow
+      well beyond its current "just for grouping settings" scope). Scoped
+      to the Smart Trainer section only for now – Heart Rate straps work
+      differently already (one remembered device, always actively trying
+      to reconnect via `attemptAutoReconnectHeartRateStrap()`/discovery-
+      time matching, not a static list to grey out entries from).

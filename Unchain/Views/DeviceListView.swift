@@ -10,13 +10,22 @@ struct DeviceListView: View {
     /// gear button for whenever settings need adjusting mid-session instead
     /// of backing all the way out to this screen.
     @State private var isShowingSettings = false
+    /// Every trainer this app has ever connected to (see `TrainerDeviceStore`),
+    /// not just whatever the current scan happens to have found – lets
+    /// `deviceList` still show a device the rider used last time even while
+    /// it's out of range right now (see `outOfRangeTrainerDevices`), rather
+    /// than the screen looking like it's forgotten about it entirely.
+    /// Reloaded on every appearance, same reasoning `SettingsView`'s own
+    /// `knownDevices` doc comment already gives: plain `UserDefaults`, not
+    /// something SwiftUI observes on its own.
+    @State private var knownTrainerDevices: [KnownTrainerDevice] = []
 
     var body: some View {
         NavigationStack {
             Group {
                 if !bluetooth.isBluetoothReady {
                     unavailableView
-                } else if bluetooth.discoveredDevices.isEmpty {
+                } else if bluetooth.discoveredDevices.isEmpty && knownTrainerDevices.isEmpty {
                     searchingView
                 } else {
                     deviceList
@@ -58,7 +67,20 @@ struct DeviceListView: View {
         .sheet(isPresented: $isShowingSettings) {
             SettingsView()
         }
-        .onAppear { bluetooth.startScan() }
+        .onAppear {
+            bluetooth.startScan()
+            knownTrainerDevices = TrainerDeviceStore.loadAll()
+        }
+    }
+
+    /// Known trainers (see `TrainerDeviceStore`) not currently among
+    /// `bluetooth.trainerDevices` – i.e. not seen by this scan (yet, or at
+    /// all this time). Shown grayed out, beneath the actually-reachable
+    /// ones, rather than just vanishing from the list the moment a
+    /// previously-used trainer happens to be out of range or switched off.
+    private var outOfRangeTrainerDevices: [KnownTrainerDevice] {
+        let discoveredIDs = Set(bluetooth.trainerDevices.map { $0.id })
+        return knownTrainerDevices.filter { !discoveredIDs.contains($0.id) }
     }
 
     private var unavailableView: some View {
@@ -108,7 +130,7 @@ struct DeviceListView: View {
     private var deviceList: some View {
         List {
             Section {
-                if bluetooth.trainerDevices.isEmpty {
+                if bluetooth.trainerDevices.isEmpty && outOfRangeTrainerDevices.isEmpty {
                     Text("No trainer found")
                         .foregroundStyle(.secondary)
                 }
@@ -129,6 +151,19 @@ struct DeviceListView: View {
                         }
                     }
                     .foregroundStyle(.primary)
+                }
+                // Below the actually-reachable ones, not interspersed –
+                // grayed out and not a `Button` at all (nothing to actually
+                // do while it's unreachable), just a reminder this trainer
+                // exists and was used before.
+                ForEach(outOfRangeTrainerDevices) { device in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Not in Bluetooth Range")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(device.name).font(.headline)
+                    }
+                    .foregroundStyle(.secondary)
                 }
             } header: {
                 Text("Smart Trainer")

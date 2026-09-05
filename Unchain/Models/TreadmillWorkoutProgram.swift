@@ -81,6 +81,69 @@ struct TreadmillWorkoutProgram: Codable, Equatable {
         guard let last = segments.last, elapsed >= last.startSeconds else { return nil }
         return (last.speedKmh, last.inclinePercent)
     }
+
+    /// The write-side counterpart to `ZWOWorkoutParser.parse`, for
+    /// exporting a recorded `.speedIncline` session as a portable `.zwo`
+    /// file (see `WorkoutSession.RecordedManualProgram`) – not used for a
+    /// *loaded* `.zwo`, which already has its own original file contents
+    /// (there's no "Export" for those the way `WorkoutProgram.fileContents()`
+    /// offers for a loaded `.erg`/`.mrc`, since a recorded program is the
+    /// only kind of `TreadmillWorkoutProgram` that doesn't already have a
+    /// file to fall back on). Every segment is written as a flat
+    /// `SteadyState` block regardless of its own `kind` – a recording never
+    /// tags any (`kind: nil` throughout, see
+    /// `WorkoutSession.recordTreadmillTarget(speedKmh:inclinePercent:)`),
+    /// and `SteadyState` is what `ZWOWorkoutParser` itself would derive for
+    /// an untagged block on re-import anyway, so this round-trips cleanly.
+    /// `sportType` is always `run` – this app's own `.zwo` support is
+    /// treadmill-only throughout (see `TreadmillWorkoutSegment`'s own doc
+    /// comment), never actually read back by `ZWOWorkoutParser` either, but
+    /// included for compatibility with other tools that do expect it.
+    func fileContents() -> String {
+        var lines = [
+            "<workout_file>",
+            "  <author>Unchain</author>",
+            "  <name>\(Self.xmlEscaped(name))</name>",
+            "  <description>Recorded from a free Speed &amp; Incline session.</description>",
+            "  <sportType>run</sportType>",
+            "  <workout>",
+        ]
+        for segment in segments {
+            // A machine-readable file format, not UI text – always "." and
+            // no thousands separator, same reasoning `WorkoutProgram
+            // .fileContents()` already uses for its own `MINUTES` column.
+            let duration = String(format: "%.0f", locale: Locale(identifier: "en_US_POSIX"), segment.duration)
+            let pace = String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), segment.speedKmh)
+            let incline = String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), segment.inclinePercent)
+            lines.append("    <SteadyState Duration=\"\(duration)\" Pace=\"\(pace)\" Incline=\"\(incline)\"/>")
+        }
+        lines.append("  </workout>")
+        lines.append("</workout_file>")
+        return lines.joined(separator: "\n")
+    }
+
+    /// Suggested filename for exporting `fileContents()` – mirrors
+    /// `WorkoutProgram.suggestedFileName`'s own sanitizing, just with a
+    /// fixed `.zwo` extension (there's no `targetKind`-style branch here –
+    /// every `TreadmillWorkoutProgram` is always speed+incline).
+    var suggestedFileName: String {
+        let sanitized = name.components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|")).joined()
+        return "\(sanitized.isEmpty ? String(localized: "Workout") : sanitized).zwo"
+    }
+
+    /// Escapes the five XML predefined entities – `name` is free-form rider
+    /// text (a recorded session's own default name, or one they've since
+    /// renamed it to) that could contain any of them, and this is the only
+    /// place in `fileContents()` that isn't already either a fixed literal
+    /// or a plain number.
+    private static func xmlEscaped(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&apos;")
+    }
 }
 
 enum ZWOParseError: LocalizedError {

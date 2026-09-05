@@ -2200,6 +2200,26 @@
           }
         }
       }
+    },
+    "Save as File": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Datei speichern"
+          }
+        }
+      }
+    },
+    "The power/resistance/speed & incline you dialed in during this freely-ridden workout, as a portable .erg/.mrc/.zwo file you can load again to repeat it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Leistung/den Widerstand/Tempo & Steigung, die du während dieses frei gefahrenen bzw. gelaufenen Workouts eingestellt hast, als portable .erg/.mrc/.zwo-Datei, die du zum Wiederholen erneut laden kannst."
+          }
+        }
+      }
     }
   },
   "version": "1.1"

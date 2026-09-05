@@ -138,6 +138,24 @@ struct WorkoutHistoryDetailView: View {
                     }
                 }
             }
+            // Only for a freely-ridden `.power`/`.resistance`/`.speedIncline`
+            // session that actually recorded a target schedule (see
+            // `WorkoutSession.recordedProgramForCurrentWorkout()`) –
+            // deliberately offered *here*, not at Stop time: deciding
+            // whether to keep a file isn't a decision worth making
+            // mid-workout, heart rate still up from just finishing –
+            // `reset()` already saves the recording into this record
+            // unconditionally regardless of what gets decided here, or
+            // even if this screen is never opened at all.
+            if let recordedProgram = record.recordedProgram {
+                Section {
+                    ShareLink(item: recordedProgramExportURL(for: recordedProgram), preview: SharePreview(recordedProgram.suggestedFileName)) {
+                        Label("Save as File", systemImage: "square.and.arrow.up")
+                    }
+                } footer: {
+                    Text("The power/resistance/speed & incline you dialed in during this freely-ridden workout, as a portable .erg/.mrc/.zwo file you can load again to repeat it.")
+                }
+            }
             Section {
                 ShareLink(item: exportURL, preview: SharePreview(TCXExporter.suggestedFileName(for: record))) {
                     Label("Export as .tcx", systemImage: "square.and.arrow.up")
@@ -157,6 +175,16 @@ struct WorkoutHistoryDetailView: View {
     private var exportURL: URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(TCXExporter.suggestedFileName(for: record))
         try? TCXExporter.data(for: record).write(to: url, options: .atomic)
+        return url
+    }
+
+    /// The `recordedProgram` counterpart to `exportURL` above – same
+    /// "write once per appearance to a temp file for `ShareLink`" pattern,
+    /// just over `RecordedManualProgram.fileContents()`/`suggestedFileName`
+    /// instead of `TCXExporter`.
+    private func recordedProgramExportURL(for recordedProgram: RecordedManualProgram) -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(recordedProgram.suggestedFileName)
+        try? recordedProgram.fileContents().write(to: url, atomically: true, encoding: .utf8)
         return url
     }
 }

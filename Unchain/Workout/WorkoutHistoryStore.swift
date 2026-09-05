@@ -41,6 +41,15 @@ struct WorkoutRecord: Codable, Identifiable {
     /// measurement – shown labeled as such in `WorkoutHistoryDetailView`,
     /// never written to HealthKit.
     let estimatedVO2Max: Double?
+    /// The freely-ridden `.power`/`.resistance`/`.speedIncline` session's
+    /// own recorded target schedule, if any (see `WorkoutSession
+    /// .recordedProgramForCurrentWorkout()`) – `nil` for a `.grade`/
+    /// `.program` run, or one that never actually recorded anything.
+    /// Saved unconditionally, same as every other field here, rather than
+    /// asking whether to keep it right at Stop – `WorkoutHistoryDetailView`
+    /// is where exporting/repeating it is actually offered, once there's
+    /// no rush.
+    let recordedProgram: RecordedManualProgram?
 }
 
 /// Persists finished workouts as one JSON file per record under this app's

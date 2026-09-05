@@ -65,6 +65,47 @@ enum ActiveWorkout {
     }
 }
 
+/// What a freely-ridden (non-`.program`) manual session's own target
+/// schedule can be exported as, if anything – built live from the rider's
+/// own `+`/`-` taps (see `WorkoutSession.beginRecordingManualTarget(kind:value:)`
+/// and its siblings) rather than parsed from a file, but otherwise just an
+/// ordinary `WorkoutProgram`/`TreadmillWorkoutProgram` value: reuses their
+/// existing `fileContents()`/`suggestedFileName`, so once built, a
+/// recording is exported exactly like a loaded one, and could equally be
+/// fed straight back into `loadProgram(_:)`/`loadTreadmillProgram(_:)` to
+/// repeat it. `.grade` sessions never produce one at all (see
+/// `recordedProgramForCurrentWorkout()`'s own doc comment on why): neither
+/// `.erg`/`.mrc` (power/resistance only) nor `.zwo` (speed/incline only,
+/// and machine-kind-locked to treadmill throughout this app – a bike's
+/// `.zwo` "export" could never even be loaded back into it) have anywhere
+/// to put a recorded simulation grade.
+///
+/// `Codable` (Swift's own enum-with-associated-values synthesis) so it can
+/// travel inside `WorkoutRecord` – saved into `WorkoutHistoryStore`
+/// unconditionally by `reset()`, same as every other part of a finished
+/// workout, rather than needing a decision about whether to keep it made
+/// under the same time pressure as the Health save/discard choice. Only
+/// `WorkoutHistoryDetailView` ever actually offers to export/repeat it
+/// later, once there's no rush.
+enum RecordedManualProgram: Codable {
+    case program(WorkoutProgram)
+    case treadmillProgram(TreadmillWorkoutProgram)
+
+    func fileContents() -> String {
+        switch self {
+        case .program(let program): return program.fileContents()
+        case .treadmillProgram(let program): return program.fileContents()
+        }
+    }
+
+    var suggestedFileName: String {
+        switch self {
+        case .program(let program): return program.suggestedFileName
+        case .treadmillProgram(let program): return program.suggestedFileName
+        }
+    }
+}
+
 /// Snapshot of a finished workout, ready to be handed off to `HealthKitManager`
 /// and/or shown in a post-save summary.
 struct WorkoutSummary: Identifiable {
@@ -288,6 +329,25 @@ final class WorkoutSession: ObservableObject {
     /// instance would be deallocated, and silenced, right after `play()`
     /// returns since playback is asynchronous.
     private var audioPlayer: AVAudioPlayer?
+    /// `nil` unless a `.power`/`.resistance` manual session is currently
+    /// being recorded (see `beginRecordingManualTarget(kind:value:)`) – i.e.
+    /// never for `.grade`/`.program`, which never call it. Set once at the
+    /// start; `recordedBreakpoints` then grows by two entries per `+`/`-`
+    /// tap (see `recordManualTarget(value:)`'s own note on why two, not
+    /// one), and by one more once `recordedProgramForCurrentWorkout()`
+    /// closes off the final held value at the actual stop time.
+    private var recordedTargetKind: ProgramTargetKind?
+    private var recordedBreakpoints: [WorkoutProgramBreakpoint] = []
+    /// The `.speedIncline` counterpart to the two properties above – see
+    /// `beginRecordingTreadmillTarget(speedKmh:inclinePercent:)`.
+    /// `recordedTreadmillSegmentStartSeconds` is the currently *open*
+    /// segment's own start – there's always at most one open at a time,
+    /// closed into `recordedTreadmillSegments` (and immediately replaced by
+    /// a new one) the moment either target actually changes.
+    private var recordedTreadmillSegments: [TreadmillWorkoutSegment] = []
+    private var recordedTreadmillSegmentStartSeconds: TimeInterval?
+    private var recordedTreadmillSpeedKmh: Double?
+    private var recordedTreadmillInclinePercent: Double?
 
     init(connection: TrainerConnection, heartRateProvider: @escaping () -> HeartRateConnection?) {
         self.connection = connection
@@ -524,7 +584,8 @@ final class WorkoutSession: ObservableObject {
                 programName: summary.programName,
                 heartRateZoneSeconds: summary.heartRateZoneSeconds,
                 samples: samples,
-                estimatedVO2Max: estimatedVO2Max(samples: samples)
+                estimatedVO2Max: estimatedVO2Max(samples: samples),
+                recordedProgram: recordedProgramForCurrentWorkout()
             ))
         }
         pendingSummary = nil
@@ -561,6 +622,12 @@ final class WorkoutSession: ObservableObject {
         heartRateStats = LiveStat()
         heartRateZoneSeconds = [:]
         heartRateZoneSecondsAccumulator = [:]
+        recordedTargetKind = nil
+        recordedBreakpoints.removeAll()
+        recordedTreadmillSegments.removeAll()
+        recordedTreadmillSegmentStartSeconds = nil
+        recordedTreadmillSpeedKmh = nil
+        recordedTreadmillInclinePercent = nil
     }
 
     /// Fresh from `TrainerDeviceSettingsStore` every call, not cached – the
@@ -643,6 +710,136 @@ final class WorkoutSession: ObservableObject {
     /// this itself needs.
     func estimatedVO2MaxForCurrentWorkout() -> Double? {
         estimatedVO2Max(samples: mergedWorkoutSamples())
+    }
+
+    /// Starts recording a `.power`/`.resistance` manual session's target
+    /// schedule – called once, right after `start(usingProgram:)`, with
+    /// whatever target is already showing at that moment as the schedule's
+    /// first breakpoint (`t = 0`). `ControlView` simply never calls this
+    /// (or `beginRecordingTreadmillTarget(speedKmh:inclinePercent:)`) for a
+    /// `.grade`/`.program` session, so `recordedProgramForCurrentWorkout()`
+    /// naturally stays `nil` for those – no separate "is this kind
+    /// recordable" flag needed here.
+    func beginRecordingManualTarget(kind: ProgramTargetKind, value: Int) {
+        recordedTargetKind = kind
+        recordedBreakpoints = [WorkoutProgramBreakpoint(timeSeconds: 0, value: value)]
+    }
+
+    /// Appends one `+`/`-` tap's new value to the schedule being recorded –
+    /// a no-op unless `beginRecordingManualTarget(kind:value:)` actually
+    /// ran first this session (e.g. a tap while still `.idle`, dialing in a
+    /// starting value before Start is even pressed). Two breakpoints, not
+    /// one, at the current elapsed time – `WorkoutProgram`'s own doc
+    /// comment explains why: between two consecutive breakpoints the
+    /// target is linearly interpolated, so a single new point would ramp
+    /// smoothly from the old value to the new one instead of stepping,
+    /// same "flat block = two points, step = two points at the same time"
+    /// convention every `.erg`/`.mrc` file already relies on.
+    func recordManualTarget(value: Int) {
+        guard let lastValue = recordedBreakpoints.last?.value else { return }
+        let now = TimeInterval(elapsedSeconds)
+        recordedBreakpoints.append(WorkoutProgramBreakpoint(timeSeconds: now, value: lastValue))
+        recordedBreakpoints.append(WorkoutProgramBreakpoint(timeSeconds: now, value: value))
+    }
+
+    /// The `.speedIncline` counterpart to `beginRecordingManualTarget(kind:value:)`
+    /// – opens the first segment at `t = 0` with both targets as they
+    /// already stand.
+    func beginRecordingTreadmillTarget(speedKmh: Double, inclinePercent: Double) {
+        recordedTreadmillSegments = []
+        recordedTreadmillSegmentStartSeconds = 0
+        recordedTreadmillSpeedKmh = speedKmh
+        recordedTreadmillInclinePercent = inclinePercent
+    }
+
+    /// The `.speedIncline` counterpart to `recordManualTarget(value:)` –
+    /// called with *both* current targets on every `+`/`-` tap to either
+    /// one (`stepSpeed(_:)`/`stepIncline(_:)` each pass the other's own
+    /// unchanged value along too), since a `TreadmillWorkoutSegment` always
+    /// carries both at once. Unlike the power/resistance case above, no
+    /// "two points" trick is needed – `TreadmillWorkoutSegment` is already
+    /// flat over its own `duration` by construction (see its own doc
+    /// comment), so closing the currently open segment off at the new
+    /// elapsed time and opening a fresh one is enough on its own.
+    func recordTreadmillTarget(speedKmh: Double, inclinePercent: Double) {
+        guard let segmentStart = recordedTreadmillSegmentStartSeconds,
+              let previousSpeedKmh = recordedTreadmillSpeedKmh,
+              let previousInclinePercent = recordedTreadmillInclinePercent else { return }
+        let now = TimeInterval(elapsedSeconds)
+        guard now > segmentStart else {
+            // Same elapsed second as the currently open segment's own
+            // start (two taps in quick succession) – update it in place
+            // rather than closing off a zero-length segment.
+            recordedTreadmillSpeedKmh = speedKmh
+            recordedTreadmillInclinePercent = inclinePercent
+            return
+        }
+        recordedTreadmillSegments.append(TreadmillWorkoutSegment(
+            startSeconds: segmentStart,
+            duration: now - segmentStart,
+            speedKmh: previousSpeedKmh,
+            inclinePercent: previousInclinePercent,
+            kind: nil
+        ))
+        recordedTreadmillSegmentStartSeconds = now
+        recordedTreadmillSpeedKmh = speedKmh
+        recordedTreadmillInclinePercent = inclinePercent
+    }
+
+    /// Builds the recorded `.power`/`.resistance`/`.speedIncline` target
+    /// schedule into a `RecordedManualProgram` for `reset()` to save into
+    /// `WorkoutRecord.recordedProgram` unconditionally, alongside every
+    /// other part of a finished workout – no separate "do you want to keep
+    /// this as a file" decision at Stop time, under the same time pressure
+    /// as the Health save/discard choice (reported as genuinely unpleasant
+    /// mid-workout, heart rate still up); `WorkoutHistoryDetailView` is
+    /// where exporting it actually happens, once there's no rush. Closes
+    /// off whatever's still open at the actual stop time first (without
+    /// this, the file's own duration would end at the *last change* rather
+    /// than however long that final value was actually held for – see
+    /// `WorkoutProgram.duration`/`TreadmillWorkoutProgram.duration`, both
+    /// derived from their last entry). `nil` for a `.grade`/`.program`
+    /// session (neither ever calls a `beginRecording…` method above to
+    /// begin with – see `RecordedManualProgram`'s own doc comment on why
+    /// `.grade` specifically has nowhere to export to regardless), or for
+    /// one stopped before a single real second of it was ever held (one
+    /// breakpoint/no segment isn't a workout to repeat). Called from
+    /// `reset()` itself, *before* it zeroes `elapsedSeconds`, which this
+    /// reads.
+    private func recordedProgramForCurrentWorkout() -> RecordedManualProgram? {
+        let finalElapsedSeconds = TimeInterval(elapsedSeconds)
+        let name = String(localized: "Recorded Workout \(recordedProgramTimestamp)")
+        if let kind = recordedTargetKind, let lastValue = recordedBreakpoints.last?.value {
+            var breakpoints = recordedBreakpoints
+            if finalElapsedSeconds > (breakpoints.last?.timeSeconds ?? 0) {
+                breakpoints.append(WorkoutProgramBreakpoint(timeSeconds: finalElapsedSeconds, value: lastValue))
+            }
+            guard breakpoints.count >= 2 else { return nil }
+            return .program(WorkoutProgram(name: name, targetKind: kind, breakpoints: breakpoints))
+        }
+        if let segmentStart = recordedTreadmillSegmentStartSeconds,
+           let speedKmh = recordedTreadmillSpeedKmh, let inclinePercent = recordedTreadmillInclinePercent {
+            var segments = recordedTreadmillSegments
+            if finalElapsedSeconds > segmentStart {
+                segments.append(TreadmillWorkoutSegment(startSeconds: segmentStart, duration: finalElapsedSeconds - segmentStart, speedKmh: speedKmh, inclinePercent: inclinePercent, kind: nil))
+            }
+            guard !segments.isEmpty else { return nil }
+            return .treadmillProgram(TreadmillWorkoutProgram(name: name, segments: segments))
+        }
+        return nil
+    }
+
+    /// A medium-date/short-time formatted timestamp (locale-aware, unlike
+    /// the machine-readable `en_US_POSIX` numbers `fileContents()` itself
+    /// writes) for `recordedProgramForCurrentWorkout()`'s default name –
+    /// `pendingSummary?.startDate` if `stop()` already ran (the normal
+    /// case, timestamps the workout itself rather than the moment it
+    /// happened to get saved), falling back to `Date()` for the
+    /// unreachable-in-practice case of building one with no pending
+    /// summary at all.
+    private var recordedProgramTimestamp: String {
+        let date = pendingSummary?.startDate ?? Date()
+        return date.formatted(date: .abbreviated, time: .shortened)
     }
 
     /// Starts (or resumes) tracking: a foreground `Timer` for the normal

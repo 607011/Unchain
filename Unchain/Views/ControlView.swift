@@ -354,9 +354,13 @@ struct ControlView: View {
         // before the confirmationDialog below ever gets a chance to render
         // (SwiftUI processes this before the next body evaluation), so the
         // rider never sees "Save to Health?" for a workout the Watch itself
-        // is already saving, more accurately, on its own. `.onReceive`
-        // rather than `.onChange(of:)` since `WorkoutSummary` isn't
-        // `Equatable` (a `heartRateSamples` tuple array can't be).
+        // is already saving, more accurately, on its own. `reset()` still
+        // saves everything else unconditionally regardless – including
+        // `recordedProgram` (see `WorkoutSession.reset()`'s own note) – so
+        // nothing is actually lost here, just the Health prompt specifically
+        // skipped. `.onReceive` rather than `.onChange(of:)` since
+        // `WorkoutSummary` isn't `Equatable` (a `heartRateSamples` tuple
+        // array can't be).
         .onReceive(session.$pendingSummary) { summary in
             guard isWatchCompanionWorkout, summary != nil else { return }
             isWatchCompanionWorkout = false
@@ -1225,9 +1229,13 @@ struct ControlView: View {
         switch mode {
         case .power:
             targetPower = connection.powerRange.clamp(targetPower + direction * powerStep)
+            session.recordManualTarget(value: targetPower)
         case .resistance:
             targetResistance = resistancePercentRange.clamp(targetResistance + direction * resistanceStep)
+            session.recordManualTarget(value: targetResistance)
         case .grade:
+            // Not recorded – see `RecordedManualProgram`'s own doc comment
+            // on why a simulated grade has nowhere to be exported to.
             targetGrade = gradePercentRange.clamp(targetGrade + Double(direction) * gradeStep)
         case .program, .speedIncline:
             return
@@ -1242,6 +1250,7 @@ struct ControlView: View {
     private func stepSpeed(_ direction: Int) {
         targetSpeedKmh = connection.speedRangeKmh.clamp(targetSpeedKmh + Double(direction) * speedStepKmh)
         connection.setTargetSpeed(kmh: targetSpeedKmh)
+        session.recordTreadmillTarget(speedKmh: targetSpeedKmh, inclinePercent: targetInclinePercent)
     }
 
     /// +/- one `inclineStepPercent`, clamp to the device's own reported
@@ -1249,6 +1258,7 @@ struct ControlView: View {
     private func stepIncline(_ direction: Int) {
         targetInclinePercent = connection.inclinationRangePercent.clamp(targetInclinePercent + Double(direction) * inclineStepPercent)
         connection.setTargetInclination(percent: targetInclinePercent)
+        session.recordTreadmillTarget(speedKmh: targetSpeedKmh, inclinePercent: targetInclinePercent)
     }
 
     /// Sends whichever target is currently active to the trainer — used both
@@ -1387,6 +1397,29 @@ struct ControlView: View {
     private func startSession() {
         session.start(usingProgram: mode == .program)
         sendCurrentTarget()
+        beginRecordingIfNeeded()
+    }
+
+    /// Starts recording this session's own target schedule (see
+    /// `WorkoutSession.RecordedManualProgram`) for `.power`/`.resistance`/
+    /// `.speedIncline` – never for `.grade` (nowhere to export a simulated
+    /// grade to, see that type's own doc comment) or `.program` (already
+    /// following a loaded file; nothing new to capture). The mode picker is
+    /// disabled for the whole `.running`/`.paused` duration (see its own
+    /// `.disabled(...)`), so `mode` here is exactly what this particular
+    /// run will turn out to have been – no risk of it changing out from
+    /// under the recording mid-session.
+    private func beginRecordingIfNeeded() {
+        switch mode {
+        case .power:
+            session.beginRecordingManualTarget(kind: .power, value: targetPower)
+        case .resistance:
+            session.beginRecordingManualTarget(kind: .resistance, value: targetResistance)
+        case .speedIncline:
+            session.beginRecordingTreadmillTarget(speedKmh: targetSpeedKmh, inclinePercent: targetInclinePercent)
+        case .grade, .program:
+            break
+        }
     }
 
     /// Answers the "Walking or running?" dialog: records the choice for

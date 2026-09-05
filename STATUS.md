@@ -1649,3 +1649,89 @@ would change, roughly in the order it'd need doing:
       differently already (one remembered device, always actively trying
       to reconnect via `attemptAutoReconnectHeartRateStrap()`/discovery-
       time matching, not a static list to grey out entries from).
+- [x] **Record a freely-ridden `.power`/`.resistance`/`.speedIncline`
+      session's own target schedule, and offer to save it as a portable
+      `.erg`/`.mrc`/`.zwo` file** – so a good freeride/impromptu run is
+      repeatable later, not just logged. Deliberately excludes `.grade`:
+      neither `.erg`/`.mrc` (power/resistance only) nor `.zwo` (speed/
+      incline only, and machine-kind-locked to treadmill throughout this
+      app – its own "export" could never even be loaded back into a bike)
+      have anywhere to put a recorded simulation grade, and forcing it
+      into either format regardless would produce a file that looks
+      portable but isn't. Recording always runs in the background for the
+      whole `.running`/`.paused` duration of an eligible session, rather
+      than needing a separate "start recording" toggle the rider could
+      forget – whether to actually keep it as a file is decided afterward,
+      in the post-Stop dialog, alongside the existing Health/Discard
+      choice, not up front.
+      - `WorkoutSession.RecordedManualProgram` – `.program(WorkoutProgram)`
+        or `.treadmillProgram(TreadmillWorkoutProgram)`: the recorder
+        reuses the exact same model types a *loaded* file already parses
+        into, rather than inventing a parallel representation, so a
+        recording is exported via their existing `fileContents()`
+        (`TreadmillWorkoutProgram` gained its own – the write-side
+        counterpart to `ZWOWorkoutParser`, previously read-only – writing
+        every segment as a flat `SteadyState` block, which is exactly what
+        an untagged one would parse back into anyway) and could equally be
+        fed straight back into `loadProgram(_:)`/`loadTreadmillProgram(_:)`
+        to repeat it.
+      - New `WorkoutSession.beginRecordingManualTarget(kind:value:)`/
+        `beginRecordingTreadmillTarget(speedKmh:inclinePercent:)`, called
+        once from `ControlView.startSession()` right after
+        `start(usingProgram:)`, open the recording with whatever target is
+        already showing as its first breakpoint/segment (`t = 0`); neither
+        gets called at all for `.grade`/`.program`, so
+        `recordedProgramForCurrentWorkout()` naturally stays `nil` for
+        those – no separate "is this recordable" flag needed anywhere.
+      - `recordManualTarget(value:)`, called from `step(_:)` on every
+        `.power`/`.resistance` `+`/`-` tap, appends *two* breakpoints at
+        the current elapsed time (the old value closing off, the new one
+        starting) rather than one – `WorkoutProgram`'s own linear-
+        interpolation-between-breakpoints rule means a single new point
+        would ramp smoothly from the old value to the new one instead of
+        stepping; two points at the same time is the same "flat step"
+        convention every `.erg`/`.mrc` file already relies on.
+        `recordTreadmillTarget(speedKmh:inclinePercent:)`, called from
+        `stepSpeed(_:)`/`stepIncline(_:)` with *both* current targets
+        every time (a `TreadmillWorkoutSegment` always carries both, even
+        though each stepper only actually changes one), doesn't need that
+        trick – closes the currently open segment off at the new elapsed
+        time and opens a fresh one, since a segment is already flat over
+        its own `duration` by construction.
+      - `recordedProgramForCurrentWorkout()`, called from `reset()` itself,
+        closes off whatever's still open at the actual stop time – without
+        this, the file's own duration would end at the *last change*
+        rather than however long that final value was actually held for,
+        since both models derive their duration from their own last
+        entry.
+      - **Redesigned after real use surfaced two problems with the first
+        version**, which asked "Save as File?" as a fourth dialog button
+        right at Stop, alongside the existing Health save/discard choice.
+        First, reported directly and bluntly: deciding whether to keep a
+        recording is exactly the kind of decision nobody wants to make
+        mid-workout, heart rate still up, on top of *already* having to
+        decide about Health. Second, and separately: a workout started
+        from the Watch never showed that dialog – or any dialog – on the
+        phone at all once stopped (`isWatchCompanionWorkout`'s own
+        `.onReceive(session.$pendingSummary)` resets silently, by design,
+        so the rider isn't also asked "Save to Health?" for a workout the
+        Watch's own `HKWorkoutSession` is already saving on its own),
+        which meant "Save as File" never even had a chance to appear
+        there – a first attempt at fixing *that* specifically added a
+        second, Watch-only "Save this recorded workout as a file?" prompt,
+        which turned out not to be the actual problem being reported (the
+        workout in question was started from the phone) and, in
+        hindsight, was patching around the wrong root cause anyway.
+        **Final design**: no decision at Stop at all. `WorkoutRecord`
+        gained a `recordedProgram` field, and `reset()` now saves whatever
+        `recordedProgramForCurrentWorkout()` returns into it
+        unconditionally, exactly like every other part of a finished
+        workout – regardless of the Health choice, and regardless of
+        whether the workout was started from the phone or the Watch, so
+        the whole "which path skips the dialog" question stops mattering.
+        `WorkoutHistoryDetailView` gained its own conditional "Save as
+        File" section instead (`ShareLink` to a temp file, mirroring the
+        existing "Export as .tcx" section right below it exactly) –
+        exporting/repeating a good freeride is now something decided later,
+        calmly, whenever that specific workout is revisited in Workout
+        History, not forced into the moment it just ended.

@@ -1808,3 +1808,28 @@ would change, roughly in the order it'd need doing:
         would be a guess dressed up as a measurement; shows "–" instead,
         same "no accurate figure means no invented one" rule this app
         applies everywhere energy/effort gets estimated.
+- [x] **Resting Heart Rate now kept in sync with Apple Health on every
+      launch**, via a new `DeviceListView.refreshRestingHeartRateBPMFromHealth()`
+      called from that screen's own `.onAppear` (the app's actual root
+      screen, so this fires on every real launch, plus harmlessly again on
+      returning to it e.g. after a disconnect). Reuses the existing
+      `HealthKitManager.fetchHeartRateProfile` outright rather than adding
+      a new, narrower HealthKit read method – only `profile.restingBPM` is
+      actually used here, `maxBPM` is simply ignored.
+      Deliberately a different policy from `SettingsView`'s own, already-
+      existing `prefillHeartRateProfileIfNeeded()`: that one only ever
+      fills an *unset* (`== 0`) field, once, the first time Settings
+      happens to be opened, for *both* Max and Resting Heart Rate. This
+      new path *overwrites* Resting Heart Rate unconditionally, every
+      time, deliberately narrowed to that one field – asked for
+      specifically because resting heart rate genuinely drifts as fitness
+      changes over weeks/months, and on a phone paired with a Watch is
+      itself a Health-measured value the rider almost certainly isn't
+      hand-editing, unlike Max Heart Rate (left on its existing one-time-
+      prefill policy on purpose – that one stays rider-owned, expected to
+      be overridden with a real test result rather than kept in lockstep
+      with whatever Health happens to say). A no-op whenever Health has no
+      reading on record, isn't available, or access is denied – doesn't
+      fall back to `SettingsView.restingHeartRateFallbackBPM` the way that
+      screen's own first-time setup does, since there's already a
+      perfectly good existing value worth just leaving alone in that case.

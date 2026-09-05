@@ -19,6 +19,7 @@ struct DeviceListView: View {
     /// `knownDevices` doc comment already gives: plain `UserDefaults`, not
     /// something SwiftUI observes on its own.
     @State private var knownTrainerDevices: [KnownTrainerDevice] = []
+    @AppStorage(SettingsView.restingHeartRateBPMKey) private var restingHeartRateBPM: Int = 0
 
     var body: some View {
         NavigationStack {
@@ -70,6 +71,29 @@ struct DeviceListView: View {
         .onAppear {
             bluetooth.startScan()
             knownTrainerDevices = TrainerDeviceStore.loadAll()
+            refreshRestingHeartRateBPMFromHealth()
+        }
+    }
+
+    /// Keeps Resting Heart Rate in sync with Apple Health on every launch
+    /// (well, every appearance of this – the actual app root – screen,
+    /// which in practice means every launch) – unlike `SettingsView`'s own
+    /// `prefillHeartRateProfileIfNeeded()` (which only ever fills an
+    /// *unset* field, the first time Settings happens to be opened), this
+    /// overwrites whatever's already there, every time, deliberately:
+    /// resting heart rate genuinely drifts as fitness changes, and – on a
+    /// phone paired with a Watch – is itself a Health-measured value the
+    /// rider almost certainly isn't hand-editing, unlike Max Heart Rate
+    /// (left alone here on purpose – that one stays a one-time prefill the
+    /// rider is expected to override with a real test result). A no-op if
+    /// Health has no reading on record, isn't available, or access is
+    /// denied – never overwrites with a guessed fallback the way
+    /// `SettingsView`'s own first-time prefill does, since there's already
+    /// a perfectly good existing value to just leave alone in that case.
+    private func refreshRestingHeartRateBPMFromHealth() {
+        HealthKitManager.shared.fetchHeartRateProfile { profile in
+            guard let restingBPM = profile.restingBPM else { return }
+            restingHeartRateBPM = restingBPM
         }
     }
 

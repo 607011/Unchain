@@ -1735,3 +1735,76 @@ would change, roughly in the order it'd need doing:
         exporting/repeating a good freeride is now something decided later,
         calmly, whenever that specific workout is revisited in Workout
         History, not forced into the moment it just ended.
+- [x] **Per-device configurable live-data row, for both treadmill and
+      bike** – which values a workout screen shows during a session, and
+      in what order, is now set per device in `TrainerDeviceSettingsView`'s
+      new "Live Data Shown" section. Started treadmill-only; extended to
+      bikes too once it became clear the old global "Speed Display"
+      Settings toggle (km/h/pace/kcal-instead-of-speed, cycling only) had
+      become the odd one out – a single app-wide setting doing a smaller
+      version of what every device now does for itself, per-device and
+      per-tile rather than one 3-way switch. Removed outright rather than
+      kept alongside the new system: `SpeedDisplayUnit`, its `@AppStorage`
+      key, the Settings picker, and `WorkoutSession.liveActiveEnergyKcal`
+      (the live kcal reading that setting's "Off" position used to free a
+      slot for – computed nowhere else, so it went with it; `EnergyEstimator
+      .cyclingActiveEnergyKcal` itself stays, still used for the *final*
+      saved-workout calorie total).
+      - `LiveMetricKind` covers both machine kinds' tiles in one enum
+        (rather than two, since a specific device is permanently fixed to
+        one kind or the other anyway) – shared (`.speedKmh`, `.heartRate`,
+        `.heartRateAverage`, `.distance`), treadmill-only (`.pace`,
+        `.heartRateMax`, `.elevationGain`), and bike-only
+        (`.speedKmhAverage`, `.power`, `.powerAverage`, `.cadence`,
+        `.cadenceAverage`) – plus a `compatibleMachineKinds` set per case
+        so each device's own picker only ever offers what actually applies
+        to it (no risk of a bike ending up with `.pace`, or a treadmill
+        with `.power`).
+      - `TrainerDeviceSettings.liveMetrics: [LiveMetricKind]?` – one
+        *ordered subset*, not an on/off flag per case, so a kind missing
+        from the array simply isn't shown rather than needing its own
+        explicit toggle. `nil` until customized, falling back to
+        `effectiveLiveMetrics(for:)`'s own machine-kind-appropriate
+        default (treadmill: Speed, Heart Rate, Distance; bike: Power,
+        Speed, Heart Rate) – roughly what each machine kind's old fixed
+        row already showed, so the first time this screen opens for a
+        given device isn't an empty row.
+      - `TrainerDeviceSettingsView` renders it as a reorderable, deletable
+        `List` (`.onMove`/`.onDelete`, gated behind a new `EditButton()` –
+        SwiftUI has no per-`Section` `EditMode`, so it covers the whole
+        `Form`, harmlessly, for the Start Countdown/Incline Response text
+        fields above it on a treadmill too), plus an "Add Live Data" `Menu`
+        listing whichever compatible `LiveMetricKind` cases aren't shown
+        yet – one shared `liveMetricsSection`, used from both the
+        `.treadmill` and `.bike` cases, rather than duplicating this twice.
+      - `ControlView.metricsRow` is now a single implementation for both
+        machine kinds (replacing what used to be two separate fixed rows),
+        built entirely from `TrainerDeviceSettingsStore.load(for:)
+        .effectiveLiveMetrics(for: connection.machineKind)` (same "read at
+        the point of use, not cached" pattern `startCountdownSeconds`
+        already uses for this same per-device store) – empty for
+        `.unknown`, which realistically only lasts a moment right after
+        connecting anyway. The heart-rate tile still occupies its
+        configured slot even with no strap connected (shows "–") rather
+        than disappearing, since the whole point of a user-chosen, fixed
+        tile order is that it doesn't reflow around what happens to be
+        connected at the moment.
+      - `.heartRateAverage`/`.heartRateMax`/`.speedKmhAverage`/
+        `.powerAverage`/`.cadenceAverage` all read straight off the
+        relevant `LiveStat`'s own `.average`/`.maxValue` – the same
+        running min/average/max accumulator every tile's existing
+        tap-to-reveal summary already uses, just surfaced as their own
+        permanent tiles instead of needing a tap. Tracks *this* workout so
+        far, not the rider's own configured Max Heart Rate from Settings –
+        called out explicitly in the section's own `InfoButton`, since the
+        two are easy to conflate.
+      - New `TrainerMetrics.elevationGainMeters`, finally parsing Treadmill
+        Data's "Positive Elevation Gain" field (previously skipped
+        outright, same as Inclination still is). Deliberately *not*
+        estimated from incline × distance when a treadmill doesn't report
+        it – there's no live *actual* incline reading to integrate from in
+        the first place (see `TrainerMetrics`'s own note on why
+        Inclination itself is still unread), so a self-computed number
+        would be a guess dressed up as a measurement; shows "–" instead,
+        same "no accurate figure means no invented one" rule this app
+        applies everywhere energy/effort gets estimated.

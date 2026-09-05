@@ -203,19 +203,6 @@ final class WorkoutSession: ObservableObject {
     /// `WorkoutHistoryStore` to build a `.tcx` export's per-trackpoint
     /// distance/speed from (see `reset()`), not shown live anywhere itself.
     @Published private(set) var speedHistory: [SpeedSample] = []
-    /// Live active-energy (calorie) estimate, updated every sample tick –
-    /// shown in the metrics row in place of the speed tile once Speed
-    /// Display is set to "Off" (see `SettingsView.speedDisplayUnitKey`).
-    /// Same formula `HealthKitManager.save()`'s final figure uses for
-    /// cycling (`EnergyEstimator.cyclingActiveEnergyKcal`) – deliberately
-    /// cycling-only for now: the walk/run formula also needs a live body
-    /// weight fetch and distance-based estimate wired up here, which hasn't
-    /// been done yet, even though Walk vs. Run itself is now known from the
-    /// start of a treadmill workout (`ControlView.chooseTreadmillActivity`)
-    /// rather than only after stopping. `nil` for a treadmill for now – same
-    /// "no accurate figure means no invented one" rule as everywhere else
-    /// energy gets estimated.
-    @Published private(set) var liveActiveEnergyKcal: Double?
     /// Session-local nudge to a Program's target values, e.g. "+5" means
     /// every target is sent (and shown) at 105 % of what the file/shorthand
     /// actually says – lets the rider scale a loaded workout up/down live
@@ -595,7 +582,6 @@ final class WorkoutSession: ObservableObject {
         powerHistory.removeAll()
         heartRateHistory.removeAll()
         speedHistory.removeAll()
-        liveActiveEnergyKcal = nil
         workDoneJoules = 0
         heartRateSamples.removeAll()
         startDate = nil
@@ -970,9 +956,6 @@ final class WorkoutSession: ObservableObject {
             // otherwise pile up multiple points on the same second.
             if powerHistory.last?.timeSeconds != TimeInterval(elapsedSeconds) {
                 powerHistory.append(PowerSample(timeSeconds: TimeInterval(elapsedSeconds), watts: power))
-            }
-            if connection.machineKind == .bike {
-                liveActiveEnergyKcal = EnergyEstimator.cyclingActiveEnergyKcal(workDoneKilojoules: workDoneJoules / 1000)
             }
         }
         if let cadence = metrics.instantaneousCadenceRPM {

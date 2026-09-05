@@ -22,6 +22,18 @@ struct TrainerMetrics: Equatable {
     /// keeps), and even a small relative rate difference between them
     /// compounds over a long workout instead of just being a fixed offset.
     var deviceElapsedSeconds: Int?
+    /// Treadmill-only – the *cumulative* meters climbed so far this
+    /// workout (FTMS's own "Positive Elevation Gain" field, whole meters),
+    /// reported directly by the treadmill rather than estimated from
+    /// incline × distance here: this app has no live *actual* incline
+    /// reading to integrate from in the first place (Treadmill Data's own
+    /// Inclination field is still unread, see `init(treadmillData:)`'s own
+    /// note), so a self-computed number would be a guess dressed up as a
+    /// measurement. `nil` for any treadmill that doesn't report this
+    /// optional field at all – shown as "–" rather than `0`, so "not
+    /// climbing" and "doesn't say" stay
+    /// visibly different.
+    var elevationGainMeters: Int?
 
     static let empty = TrainerMetrics()
 
@@ -149,7 +161,15 @@ struct TrainerMetrics: Equatable {
         if averageSpeedPresent { skip(2) }
         if totalDistancePresent { skip(3) } // 24-bit value
         if inclinationPresent { skip(4) } // Inclination (2) + Ramp Angle Setting (2)
-        if elevationGainPresent { skip(4) } // Positive (2) + Negative (2)
+        if elevationGainPresent {
+            // Positive (2), read as `elevationGainMeters`; Negative (2),
+            // skipped – "elevation gained" only ever means climbed, not
+            // descended, same convention every outdoor fitness app uses.
+            if let raw = readUInt16() {
+                elevationGainMeters = Int(raw) // resolution 1 meter
+            }
+            skip(2)
+        }
         if instantaneousPacePresent { skip(1) }
         if averagePacePresent { skip(1) }
         if expendedEnergyPresent { skip(5) } // Total (2) + Per Hour (2) + Per Minute (1)

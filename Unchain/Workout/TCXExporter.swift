@@ -62,9 +62,9 @@ enum TCXExporter {
         let totalDistance = record.distanceMeters ?? 0
         // Required by the schema even when unknown – `0` rather than
         // inventing a number, same "no accurate figure means no invented
-        // one" rule as `WorkoutSession.liveActiveEnergyKcal`'s own doc
-        // comment. Only ever non-zero for a bike, the one machine kind
-        // that estimate is computed for at all today.
+        // one" rule this app applies everywhere energy gets estimated.
+        // Only ever non-zero for a bike, the one machine kind that
+        // estimate is computed for at all today.
         let calories = record.workDoneKilojoules.map { Int(EnergyEstimator.cyclingActiveEnergyKcal(workDoneKilojoules: $0).rounded()) } ?? 0
 
         var trackpoints = ""

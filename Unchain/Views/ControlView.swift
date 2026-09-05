@@ -34,9 +34,6 @@ struct ControlView: View {
     @AppStorage("lastTargetGradePercent") private var targetGrade: Double = 0
     @AppStorage("lastTargetSpeedKmh") private var targetSpeedKmh: Double = 5.0
     @AppStorage("lastTargetInclinePercent") private var targetInclinePercent: Double = 0
-    /// Set in Settings – see `SpeedDisplayUnit`'s own doc comment for why
-    /// km/h isn't always the most useful reading here.
-    @AppStorage(SettingsView.speedDisplayUnitKey) private var speedDisplayUnit = SpeedDisplayUnit.kmh
     @State private var saveResult: SaveResultAlert?
     @State private var savedSummary: WorkoutSummary?
     /// Captured alongside `savedSummary` in `save(_:as:)` – *before*
@@ -467,61 +464,66 @@ struct ControlView: View {
         .font(.subheadline)
     }
 
+    /// Fully user-configurable, for both a bike and a treadmill (see
+    /// `TrainerDeviceSettingsView`'s "Live Data Shown" section) – replaced
+    /// two separate fixed tile rows (treadmill: Watt/km-h-or-pace/bpm;
+    /// bike: Watt/RPM/km-h-or-kcal/bpm) that couldn't be adjusted at all.
+    /// Empty for `.unknown` (see `TrainerDeviceSettings.effectiveLiveMetrics(for:)`)
+    /// – neither tile set applies before the connected machine's actual
+    /// kind is known, and that's normally true for only a moment anyway.
+    /// Loaded fresh on every redraw, not cached – same "read at the point
+    /// of use" pattern `startCountdownSeconds`/
+    /// `effectiveInclineChangeSecondsPerDegree` already use for this same
+    /// per-device settings store, so a change made in
+    /// `TrainerDeviceSettingsView` while this screen happens to already be
+    /// on the navigation stack (returning to it) takes effect immediately
+    /// rather than needing a reconnect.
     private var metricsRow: some View {
-        HStack(spacing: 24) {
-            MetricTile(title: "Watt", value: connection.metrics.instantaneousPowerWatts.map { "\($0)" } ?? "–", stat: session.powerStats)
-            // Cadence/RPM is a bike-only concept – FTMS has no such field
-            // for a treadmill at all (nothing rotating to count), so
-            // showing it there was always going to read "–" forever. Rather
-            // than clutter the row with a tile that can never show
-            // anything, it's simply not there for a treadmill.
-            if connection.machineKind == .bike {
-                MetricTile(title: "RPM", value: connection.metrics.instantaneousCadenceRPM.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: session.cadenceStats)
-            }
-            // The kcal tile swaps places with bpm (but km/h/pace doesn't) –
-            // requested after the kcal tile landed right next to Watt/RPM,
-            // ahead of heart rate, which read oddly since kcal is itself
-            // derived from the same live data heart rate sits next to
-            // everywhere else in the app (e.g. the post-workout summary).
-            if showsKcalTile {
-                if let heartRate = bluetooth.currentHeartRateConnection {
-                    HeartRateTile(connection: heartRate, stat: session.heartRateStats)
-                }
-                speedOrCalorieTile
-            } else {
-                speedOrCalorieTile
-                if let heartRate = bluetooth.currentHeartRateConnection {
-                    HeartRateTile(connection: heartRate, stat: session.heartRateStats)
-                }
+        let metrics = TrainerDeviceSettingsStore.load(for: connection.peripheral.identifier).effectiveLiveMetrics(for: connection.machineKind)
+        return HStack(spacing: 24) {
+            ForEach(metrics) { kind in
+                tile(for: kind)
             }
         }
     }
 
-    /// Whether `speedOrCalorieTile` is currently showing the kcal tile
-    /// (rather than km/h, pace, or its own km/h fallback) – see
-    /// `speedOrCalorieTile`'s own doc comment for the conditions.
-    private var showsKcalTile: Bool { speedDisplayUnit == .off && connection.machineKind == .bike }
-
-    /// The third tile: km/h, pace (min/km), or – for cycling, with speed
-    /// display turned off – a live calorie count instead, per the
-    /// `speedDisplayUnit` Settings choice. See `SpeedDisplayUnit`'s own doc
-    /// comment for why km/h isn't always the most useful thing to show here.
     @ViewBuilder
-    private var speedOrCalorieTile: some View {
-        switch speedDisplayUnit {
-        case .kmh:
+    private func tile(for kind: LiveMetricKind) -> some View {
+        switch kind {
+        case .speedKmh:
             MetricTile(title: "km/h", value: connection.metrics.instantaneousSpeedKmh.map { String(format: "%.1f", locale: .current, $0) } ?? "–", stat: session.speedStats)
+        case .speedKmhAverage:
+            MetricTile(title: "Ø km/h", value: session.speedStats.average.map { String(format: "%.1f", locale: .current, $0) } ?? "–", stat: LiveStat())
         case .pace:
             MetricTile(title: "min/km", value: paceString(fromSpeedKmh: connection.metrics.instantaneousSpeedKmh), stat: session.speedStats, formatValue: paceString(fromSpeedKmh:))
-        case .off:
-            if connection.machineKind == .bike {
-                MetricTile(title: "kcal", value: session.liveActiveEnergyKcal.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: LiveStat())
+        case .heartRate:
+            // Unlike a strap-less workout simply having no heart-rate tile
+            // at all (the old fixed rows' own behavior), this one still
+            // occupies its configured slot, showing "–" instead – the
+            // whole point of a user-chosen, fixed tile order is that it
+            // doesn't reflow around what happens to be connected at the
+            // moment.
+            if let heartRate = bluetooth.currentHeartRateConnection {
+                HeartRateTile(connection: heartRate, stat: session.heartRateStats)
             } else {
-                // Live kcal needs a run/walk split (see `liveActiveEnergyKcal`'s
-                // own doc comment) that isn't knowable until the workout ends –
-                // fall back to km/h rather than showing a tile that can't work.
-                MetricTile(title: "km/h", value: connection.metrics.instantaneousSpeedKmh.map { String(format: "%.1f", locale: .current, $0) } ?? "–", stat: session.speedStats)
+                MetricTile(title: "♥ bpm", value: "–", stat: LiveStat())
             }
+        case .heartRateMax:
+            MetricTile(title: "↑ bpm", value: session.heartRateStats.maxValue.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: LiveStat())
+        case .heartRateAverage:
+            MetricTile(title: "Ø bpm", value: session.heartRateStats.average.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: LiveStat())
+        case .distance:
+            MetricTile(title: "km", value: String(format: "%.2f", locale: .current, session.distanceMeters / 1000), stat: LiveStat())
+        case .elevationGain:
+            MetricTile(title: "m ↑", value: connection.metrics.elevationGainMeters.map { "\($0)" } ?? "–", stat: LiveStat())
+        case .power:
+            MetricTile(title: "Watt", value: connection.metrics.instantaneousPowerWatts.map { "\($0)" } ?? "–", stat: session.powerStats)
+        case .powerAverage:
+            MetricTile(title: "Ø Watt", value: session.powerStats.average.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: LiveStat())
+        case .cadence:
+            MetricTile(title: "RPM", value: connection.metrics.instantaneousCadenceRPM.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: session.cadenceStats)
+        case .cadenceAverage:
+            MetricTile(title: "Ø RPM", value: session.cadenceStats.average.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: LiveStat())
         }
     }
 

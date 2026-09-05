@@ -1621,16 +1621,6 @@
         }
       }
     },
-    "Speed Display": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Geschwindigkeitsanzeige"
-          }
-        }
-      }
-    },
     "km/h rarely matters on an indoor trainer, and running/walking is usually tracked in min/km instead – choose whichever fits, or turn it off to show live calories in that spot instead (cycling only).": {
       "localizations": {
         "de": {
@@ -1657,26 +1647,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "min/km"
-          }
-        }
-      }
-    },
-    "Off": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aus"
-          }
-        }
-      }
-    },
-    "kcal": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "kcal"
           }
         }
       }
@@ -2217,6 +2187,216 @@
           "stringUnit": {
             "state": "translated",
             "value": "Die Leistung/den Widerstand/Tempo & Steigung, die du während dieses frei gefahrenen bzw. gelaufenen Workouts eingestellt hast, als portable .erg/.mrc/.zwo-Datei, die du zum Wiederholen erneut laden kannst."
+          }
+        }
+      }
+    },
+    "Add Live Data": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Livedaten hinzufügen"
+          }
+        }
+      }
+    },
+    "Average Cadence (RPM)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durchschnittliche Trittfrequenz (U/min)"
+          }
+        }
+      }
+    },
+    "Average Heart Rate": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durchschnittliche Herzfrequenz"
+          }
+        }
+      }
+    },
+    "Average Power (W)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durchschnittsleistung (W)"
+          }
+        }
+      }
+    },
+    "Average Speed (km/h)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durchschnittsgeschwindigkeit (km/h)"
+          }
+        }
+      }
+    },
+    "Cadence (RPM)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trittfrequenz (U/min)"
+          }
+        }
+      }
+    },
+    "Distance (km)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strecke (km)"
+          }
+        }
+      }
+    },
+    "Elevation Gain (m)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Höhenmeter (m)"
+          }
+        }
+      }
+    },
+    "Live Data Shown": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angezeigte Livedaten"
+          }
+        }
+      }
+    },
+    "Max Heart Rate": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximale Herzfrequenz"
+          }
+        }
+      }
+    },
+    "Pace (min/km)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo (min/km)"
+          }
+        }
+      }
+    },
+    "Power (W)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leistung (W)"
+          }
+        }
+      }
+    },
+    "Speed (km/h)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geschwindigkeit (km/h)"
+          }
+        }
+      }
+    },
+    "Tap Edit to reorder or remove.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Umsortieren oder Entfernen auf „Bearbeiten“ tippen."
+          }
+        }
+      }
+    },
+    "Which live values this device's workout screen shows, and in what order – drag to reorder, swipe to remove, or add more from the list. Average values (and Max Heart Rate) track this specific workout so far, not your all-time values from Settings. Elevation Gain only shows a number for treadmills that report it themselves – there's no way to estimate it accurately otherwise.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welche Live-Werte der Workout-Bildschirm dieses Geräts anzeigt, und in welcher Reihenfolge – zum Umsortieren ziehen, zum Entfernen wischen, oder aus der Liste weitere hinzufügen. Durchschnittswerte (und die maximale Herzfrequenz) beziehen sich auf dieses eine Workout bisher, nicht auf deine dauerhaften Werte aus den Einstellungen. Höhenmeter zeigt nur bei Laufbändern einen Wert, die das selbst melden – anders lässt es sich nicht verlässlich schätzen."
+          }
+        }
+      }
+    },
+    "m ↑": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "m ↑"
+          }
+        }
+      }
+    },
+    "Ø RPM": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ø U/min"
+          }
+        }
+      }
+    },
+    "Ø Watt": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ø Watt"
+          }
+        }
+      }
+    },
+    "Ø bpm": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ø bpm"
+          }
+        }
+      }
+    },
+    "Ø km/h": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ø km/h"
+          }
+        }
+      }
+    },
+    "↑ bpm": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↑ bpm"
           }
         }
       }

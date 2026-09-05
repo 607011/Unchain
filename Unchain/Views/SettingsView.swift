@@ -1,33 +1,5 @@
 import SwiftUI
 
-/// How the metrics row's speed tile displays speed – or whether it's shown
-/// at all. See `ControlView.metricsRow`. "Off" frees up that tile's spot for
-/// a live kcal reading instead (see `WorkoutSession.liveActiveEnergyKcal`) –
-/// speed in km/h is fairly pointless for an indoor trainer that never
-/// actually moves, and running/walking pace is usually given in min/km
-/// rather than km/h anyway.
-/// How `ControlView`'s speed tile presents the trainer's speed reading – or
-/// whether it shows a live calorie count in that slot instead. Configurable
-/// because "km/h" is a fairly meaningless number on an indoor bike (it
-/// reflects the simulated wheel speed, not anything the rider actually feels)
-/// and running/walking is conventionally tracked as pace (min/km) rather than
-/// speed at all.
-enum SpeedDisplayUnit: String, CaseIterable, Identifiable {
-    case kmh
-    case pace
-    case off
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .kmh: return String(localized: "km/h")
-        case .pace: return String(localized: "min/km")
-        case .off: return String(localized: "Off")
-        }
-    }
-}
-
 /// App-wide settings, not tied to any particular trainer connection – opened
 /// via the gear icon in `ControlView`'s toolbar. The rider's FTP, used to
 /// interpret %FTP-based workout files (see `WorkoutProgramParser.parse`,
@@ -65,10 +37,6 @@ struct SettingsView: View {
     /// not on record in Health", in which case `HeartRateZone` quietly falls
     /// back to the plain %-of-max-heart-rate breakpoints instead.
     static let restingHeartRateBPMKey = "userRestingHeartRateBPM"
-    /// `UserDefaults` key for `SpeedDisplayUnit` – read directly by
-    /// `ControlView.metricsRow`, the same "read at the point of use" pattern
-    /// as `WorkoutSession`'s own settings.
-    static let speedDisplayUnitKey = "speedDisplayUnit"
 
     @AppStorage(ftpWattsKey) private var ftpWatts: Int = 188
     @AppStorage(maxHeartRateBPMKey) private var maxHeartRateBPM: Int = 0
@@ -81,7 +49,6 @@ struct SettingsView: View {
     @AppStorage(WorkoutSession.intervalSoundTypeKey) private var intervalSoundType = IntervalSoundType.single
     @AppStorage(WorkoutSession.intervalSoundVolumeKey) private var intervalSoundVolumePercent: Int = 0
     @AppStorage(LanguageManager.storageKey) private var languageOverride = AppLanguage.system.rawValue
-    @AppStorage(speedDisplayUnitKey) private var speedDisplayUnit = SpeedDisplayUnit.kmh
     @State private var isShowingLogWorkout = false
     @State private var isShowingDiagnostics = false
     @State private var isShowingWorkoutHistory = false
@@ -245,19 +212,6 @@ struct SettingsView: View {
                     HStack(spacing: 4) {
                         Text("Language")
                         InfoButton(text: "Applies immediately, no restart needed. \"System\" follows your device's own Language & Region setting.")
-                    }
-                }
-                Section {
-                    Picker("Speed Display", selection: $speedDisplayUnit) {
-                        ForEach(SpeedDisplayUnit.allCases) { unit in
-                            Text(unit.displayName).tag(unit)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                } header: {
-                    HStack(spacing: 4) {
-                        Text("Speed Display")
-                        InfoButton(text: "km/h rarely matters on an indoor trainer, and running/walking is usually tracked in min/km instead – choose whichever fits, or turn it off to show live calories in that spot instead (cycling only).")
                     }
                 }
                 // Self-explanatory row labels – unlike the sections above,

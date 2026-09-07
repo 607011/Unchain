@@ -91,7 +91,13 @@ struct ControlView: View {
     private let powerStep = 5
     private let resistanceStep = 1
     private let gradeStep: Double = 0.5
-    private let speedStepKmh: Double = 0.5
+    /// 0.1, not the 0.5 every other +/- step here uses – reported as too
+    /// coarse specifically for Speed & Incline's own speed: 0.5 km/h is a
+    /// meaningfully bigger jump on foot than the same number is by bike
+    /// (proportionally, 0.5 km/h out of a brisk 5.5 km/h walk is a ~9 %
+    /// change per tap), and pace-based training in particular calls for
+    /// finer speed adjustments than that.
+    private let speedStepKmh: Double = 0.1
     private let inclineStepPercent: Double = 0.5
     /// Resistance is always controlled as 0–100 % of the device's own supported
     /// range (see `TrainerConnection.setTargetResistancePercent`) — not the raw,
@@ -2502,23 +2508,34 @@ private struct RepeatingStepButton: View {
     let isDisabled: Bool
     let action: () -> Void
 
-    @State private var isPressing = false
+    /// `@GestureState`, not a plain `@State` toggled from `.onChanged`/
+    /// `.onEnded` (which is what this used to be) – reported to still run
+    /// away after release even with the `maxRepeatDuration` cap below
+    /// already in place. Root cause: plain `DragGesture` has no
+    /// `.onCancel` at all, only `.onEnded` – if the system ever *cancels*
+    /// the gesture instead of ending it normally (the enclosing
+    /// `ScrollView` claiming the touch mid-press for its own scroll
+    /// gesture is the likely trigger; this sits right next to the
+    /// once-a-second workout updates that keep re-rendering this view
+    /// while held), `.onEnded` simply never fires, and a plain `@State`
+    /// toggled only there stays stuck `true` forever. `@GestureState`
+    /// fixes this at the source rather than papering over it: SwiftUI
+    /// resets a `@GestureState` property back to its initial value the
+    /// moment the gesture becomes inactive for *any* reason – cancellation
+    /// included, not just a normal end – so `.onChange` below now reliably
+    /// sees the press end either way.
+    @GestureState private var isPressingGesture = false
     @State private var repeatTimer: Timer?
 
     /// Delay before holding starts repeating, and the interval once it does.
     private let initialDelay: TimeInterval = 0.4
     private let repeatInterval: TimeInterval = 0.08
-    /// Hard cap on one continuous repeat, regardless of anything else. Plain
-    /// `DragGesture` has no `.onCancel` – if the system ever cancels the
-    /// gesture instead of ending it normally (observed occasionally; a
-    /// re-render mid-press, e.g. from the once-a-second workout updates
-    /// this sits next to, is the likely trigger) `.onEnded` simply never
-    /// fires, and `repeatTimer` – a plain `Timer` on the run loop, not tied
-    /// to this view's lifecycle once orphaned – would otherwise keep
-    /// calling `action` forever with no way to stop it from the UI at all
-    /// (a fresh press can't even start a new one, since `isPressing` is
-    /// still stuck `true`). 20 s is generous enough for any real hold-to-
-    /// traverse-the-full-range press to finish on its own first.
+    /// Hard cap on one continuous repeat, kept as a defensive backstop even
+    /// now that `@GestureState` above fixes the actual cancellation gap –
+    /// belt and braces, same reasoning `WorkoutSession.mergedWorkoutSamples()`
+    /// already applies to its own dictionary-building. 20 s is generous
+    /// enough for any real hold-to-traverse-the-full-range press to finish
+    /// on its own first.
     private let maxRepeatDuration: TimeInterval = 20
 
     var body: some View {
@@ -2530,12 +2547,18 @@ private struct RepeatingStepButton: View {
             // inside a `ScrollView` (the whole screen) right next to the
             // chart's own double-tap-to-zoom gesture, and `.gesture` alone
             // lets an ancestor/sibling claim the touch exclusively, which
-            // cancels this one before `.onEnded` ever fires.
+            // cancels this one before it even registers as pressed.
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in beginPressIfNeeded() }
-                    .onEnded { _ in endPress() }
+                    .updating($isPressingGesture) { _, state, _ in state = true }
             )
+            .onChange(of: isPressingGesture) { isPressing in
+                if isPressing {
+                    beginPress()
+                } else {
+                    endPress()
+                }
+            }
             // Second line of defense against the same failure mode – if
             // this view is ever actually removed from the hierarchy
             // mid-press, stop the repeat rather than leaving it orphaned.
@@ -2544,17 +2567,19 @@ private struct RepeatingStepButton: View {
             .accessibilityAction { action() }
     }
 
-    private func beginPressIfNeeded() {
-        guard !isDisabled, !isPressing else { return }
-        isPressing = true
+    private func beginPress() {
+        guard !isDisabled else { return }
         action()
         let pressStartedAt = Date()
         DispatchQueue.main.asyncAfter(deadline: .now() + initialDelay) {
-            guard isPressing else { return }
+            // Re-checks the live gesture state, not a snapshot from when
+            // this was scheduled – if the press already ended (or was
+            // cancelled) during `initialDelay`, `isPressingGesture` has
+            // already reset back to `false` by the time this runs.
+            guard isPressingGesture else { return }
             repeatTimer = Timer.scheduledTimer(withTimeInterval: repeatInterval, repeats: true) { timer in
-                guard Date().timeIntervalSince(pressStartedAt) < maxRepeatDuration else {
+                guard isPressingGesture, Date().timeIntervalSince(pressStartedAt) < maxRepeatDuration else {
                     timer.invalidate()
-                    isPressing = false
                     return
                 }
                 action()
@@ -2563,7 +2588,6 @@ private struct RepeatingStepButton: View {
     }
 
     private func endPress() {
-        isPressing = false
         repeatTimer?.invalidate()
         repeatTimer = nil
     }

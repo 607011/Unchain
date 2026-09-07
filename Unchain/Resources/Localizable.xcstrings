@@ -2400,6 +2400,156 @@
           }
         }
       }
+    },
+    "This device doesn't support Apple Intelligence.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Gerät unterstützt Apple Intelligence nicht."
+          }
+        }
+      }
+    },
+    "Turn on Apple Intelligence in Settings to use this.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere Apple Intelligence in den Einstellungen, um das zu nutzen."
+          }
+        }
+      }
+    },
+    "The on-device model is still downloading – try again in a bit.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das On-Device-Modell wird noch heruntergeladen – versuch es gleich noch einmal."
+          }
+        }
+      }
+    },
+    "On-device AI isn't available right now.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On-Device-KI ist gerade nicht verfügbar."
+          }
+        }
+      }
+    },
+    "The generated workout had no steps – try rephrasing the request.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das generierte Workout enthielt keine Schritte – formuliere die Anfrage anders."
+          }
+        }
+      }
+    },
+    "Couldn't generate a workout: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workout konnte nicht generiert werden: %@"
+          }
+        }
+      }
+    },
+    "AI Workout": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KI-Workout"
+          }
+        }
+      }
+    },
+    "What kind of workout?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was für ein Workout?"
+          }
+        }
+      }
+    },
+    "e.g. \"30 minutes with 5x3 minute hill intervals at 8% incline, easy jogging in between\"": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. „30 Minuten mit 5x3 Minuten Bergintervallen bei 8 % Steigung, dazwischen lockeres Joggen“"
+          }
+        }
+      }
+    },
+    "e.g. \"45 minutes with 4x5 minute sweet-spot intervals at 88% FTP\"": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. „45 Minuten mit 4x5 Minuten Sweet-Spot-Intervallen bei 88 % FTP“"
+          }
+        }
+      }
+    },
+    "Generate": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generieren"
+          }
+        }
+      }
+    },
+    "Generating …": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generiere …"
+          }
+        }
+      }
+    },
+    "Generate with AI": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit KI generieren"
+          }
+        }
+      }
+    },
+    "Generating a workout with AI runs entirely on this device via Apple Intelligence – nothing is sent anywhere over the network.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Workout mit KI zu generieren läuft komplett auf diesem Gerät über Apple Intelligence – es wird nichts über das Netzwerk gesendet."
+          }
+        }
+      }
+    },
+    "Generating a workout with AI needs iOS 26 or later.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um ein Workout mit KI zu generieren, ist iOS 26 oder neuer nötig."
+          }
+        }
+      }
     }
   },
   "version": "1.1"

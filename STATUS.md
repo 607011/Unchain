@@ -1857,3 +1857,74 @@ would change, roughly in the order it'd need doing:
       bike (e.g. ~9 % of a brisk 5.5 km/h walk per tap), and pace-based
       training in particular calls for finer adjustments. Incline's own
       step, and every other mode's, are unaffected.
+- [x] **"Generate with AI" – on-device workout generation via Apple's
+      Foundation Models framework** (`feature/ai-workout-generator` branch)
+      – deliberately not a call to any cloud LLM API: like every other
+      feature here, this needs no network access and sends nothing about
+      the rider anywhere, at the cost of only working at all on iOS 26+
+      hardware that supports Apple Intelligence (gated at runtime via
+      `AIWorkoutGeneratorAvailability`, invisible otherwise rather than
+      shown disabled). One `AIWorkoutGenerator` entry point per machine
+      kind – `generateTreadmillProgram(prompt:)` returns a
+      `TreadmillWorkoutProgram`, `generateBikeProgram(prompt:ftpWatts:)` a
+      power-only `WorkoutProgram` (same restriction `CreateWorkoutView`'s
+      shorthand notation already has, and for the same reason – no
+      meaningful absolute target without an FTP-relative concept) – both
+      via `@Generable`/`@Guide`-annotated request types, so the model
+      returns typed Swift values directly rather than free text needing a
+      parser. Surfaced next to the existing "Load from File"/"Recent"/
+      "Create" buttons in `ControlView.workoutSourceButtons`, opening
+      `AIWorkoutGeneratorView` – a prompt field, a live preview (segment
+      list for treadmill, chart for bike, mirroring `CreateWorkoutView`'s
+      own), and Save, so nothing reaches the trainer without the rider
+      looking at the actual generated values first.
+    - Tested this session on a Mac mini M2 Pro with no iPhone available,
+      two ways: `make run-sim` (new Makefile target – boots/installs/
+      launches into the iOS Simulator, which forwards Foundation Models
+      calls to the *host* Mac's own on-device model on Apple Silicon) and
+      a `#if DEBUG`-only sparkles button on `DeviceListView` opening
+      `AIWorkoutGeneratorView` directly, since reaching it for real needs
+      a live trainer connection `ControlView` can't have in the Simulator
+      (no CoreBluetooth there at all) – both Simulator-only, compiled out
+      of Release builds entirely.
+    - Found and fixed a real crash this way: an uncapped `blocks` array on
+      the `@Generable` response type let the model try to emit enough
+      blocks for a longer, more granular request (e.g. "30 minutes, 5x3
+      minute hill intervals") that the response plus the schema
+      description itself – both counted against the on-device model's own
+      small context window (4096 tokens, confirmed via the system log) –
+      overran it outright (`GenerationError.exceededContextWindowSize`)
+      instead of degrading gracefully. `.count(3...8)` on `blocks` (both
+      `GeneratedTreadmillWorkout` and `GeneratedBikeWorkout`) hard-caps the
+      response size and fixed it for good, confirmed against the exact
+      prompt that used to crash.
+    - Separately, found a genuine *quality* ceiling worth recording
+      honestly rather than papering over: this on-device model reliably
+      handles one salient number in a request (e.g. "15 minutes easy jog
+      at 7 km/h"), but a request combining several at once – total
+      duration, an interval count, *and* an incline percentage – came back
+      with the incline dropped to 0 % and the total duration undershot by
+      half or more (worst case found via dictated voice input: "30 minutes
+      easy cool-down with varying speeds" came back a 1:55 workout).
+      More prescriptive instructions traded one of those failures for the
+      other (a few-shot example fixed the incline but made the undershoot
+      worse) rather than fixing both, confirming this is a genuine
+      capability limit of this specific small on-device model, not a
+      prompt-wording bug fixable by further tuning the instructions text
+      alone. `AIWorkoutGeneratorView`'s preview-before-Save step remains
+      the mitigation for whatever's left after the fix below – the rider
+      always sees the real generated values before anything reaches the
+      trainer, the same safety net any of this app's other load paths
+      already give for free by showing what was loaded.
+    - The duration-undershoot half of that *was* fixable, though – not by
+      further prompt wording, but by asking the model for less at once:
+      added `totalDurationSeconds`, a single number the model reads
+      straight off the request (reliable, unlike several block durations
+      that also have to sum correctly on their own), then rescale
+      `blocks`' own durations in code (`AIWorkoutGenerator
+      .rescaledDurations(_:toSum:)`, largest-remainder method so the
+      result sums to *exactly* that total despite integer rounding) rather
+      than trusting the model's own summing. Fixed the exact 1:55-instead-
+      of-30-minutes case above outright – rerunning the identical dictated
+      request afterward landed exactly on 30:00. The incline-dropped-to-0%
+      half of the quality ceiling is untouched by this and remains open.

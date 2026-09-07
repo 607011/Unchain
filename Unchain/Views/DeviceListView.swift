@@ -20,6 +20,12 @@ struct DeviceListView: View {
     /// something SwiftUI observes on its own.
     @State private var knownTrainerDevices: [KnownTrainerDevice] = []
     @AppStorage(SettingsView.restingHeartRateBPMKey) private var restingHeartRateBPM: Int = 0
+    #if DEBUG
+    /// See the toolbar button's own doc comment above on why this exists at
+    /// all – a Simulator/no-hardware-connected way to reach
+    /// `AIWorkoutGeneratorView`.
+    @State private var isShowingAIWorkoutGeneratorDebugPreview = false
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -53,6 +59,27 @@ struct DeviceListView: View {
                     }
                     .accessibilityLabel("Settings")
                 }
+                #if DEBUG
+                // `AIWorkoutGeneratorView` otherwise only ever opens from
+                // `ControlView`, which needs a live trainer connection to
+                // reach at all – useless for trying it out in the
+                // Simulator, where CoreBluetooth can't discover or connect
+                // to anything real. This is purely a development
+                // convenience to reach that sheet without one; `#if DEBUG`
+                // keeps it out of Release/App Store builds entirely, and
+                // both save closures are no-ops (there's no session here to
+                // load a generated program into) – this is for trying the
+                // generation and preview themselves, not for actually
+                // using the result.
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isShowingAIWorkoutGeneratorDebugPreview = true
+                    } label: {
+                        Image(systemName: "sparkles")
+                    }
+                    .accessibilityLabel("Generate with AI (Debug Preview)")
+                }
+                #endif
             }
             .navigationDestination(isPresented: Binding(
                 get: { bluetooth.currentConnection != nil },
@@ -68,6 +95,16 @@ struct DeviceListView: View {
         .sheet(isPresented: $isShowingSettings) {
             SettingsView()
         }
+        #if DEBUG
+        .sheet(isPresented: $isShowingAIWorkoutGeneratorDebugPreview) {
+            AIWorkoutGeneratorView(
+                machineKind: .treadmill,
+                ftpWatts: nil,
+                onSaveTreadmillProgram: { print("[AI Debug Preview] Generated treadmill program:", $0) },
+                onSaveProgram: { print("[AI Debug Preview] Generated bike program:", $0) }
+            )
+        }
+        #endif
         .onAppear {
             bluetooth.startScan()
             knownTrainerDevices = TrainerDeviceStore.loadAll()

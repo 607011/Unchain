@@ -34,6 +34,10 @@ struct ControlView: View {
     @AppStorage("lastTargetGradePercent") private var targetGrade: Double = 0
     @AppStorage("lastTargetSpeedKmh") private var targetSpeedKmh: Double = 5.0
     @AppStorage("lastTargetInclinePercent") private var targetInclinePercent: Double = 0
+    /// Handed to `AIWorkoutGeneratorView` so an AI-generated bike workout
+    /// can reason about power targets relative to it – the same key
+    /// `CreateWorkoutView` already reads for its own shorthand `%FTP` targets.
+    @AppStorage(SettingsView.ftpWattsKey) private var aiGeneratorFtpWatts: Int = 188
     @State private var saveResult: SaveResultAlert?
     @State private var savedSummary: WorkoutSummary?
     /// Captured alongside `savedSummary` in `save(_:as:)` – *before*
@@ -47,6 +51,7 @@ struct ControlView: View {
     @State private var isShowingFileImporter = false
     @State private var isShowingRecentWorkouts = false
     @State private var isShowingCreateWorkout = false
+    @State private var isShowingAIWorkoutGenerator = false
     @State private var isShowingExporter = false
     @State private var loadError: LoadErrorAlert?
     /// Set by `warnIfOutOfRange(_:)` right after a program actually loads
@@ -284,6 +289,14 @@ struct ControlView: View {
         }
         .sheet(isPresented: $isShowingCreateWorkout) {
             CreateWorkoutView(onSave: loadProgramIntoSession)
+        }
+        .sheet(isPresented: $isShowingAIWorkoutGenerator) {
+            AIWorkoutGeneratorView(
+                machineKind: connection.machineKind,
+                ftpWatts: aiGeneratorFtpWatts > 0 ? aiGeneratorFtpWatts : nil,
+                onSaveTreadmillProgram: loadTreadmillProgramIntoSession,
+                onSaveProgram: loadProgramIntoSession
+            )
         }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView()
@@ -776,19 +789,35 @@ struct ControlView: View {
     }
 
     private var workoutSourceButtons: some View {
-        HStack(spacing: 12) {
-            Button("Load from File") { isShowingFileImporter = true }
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                Button("Load from File") { isShowingFileImporter = true }
+                    .buttonStyle(.bordered)
+                    .disabled(allowedFileContentTypes.isEmpty)
+                Button("Recent") { isShowingRecentWorkouts = true }
+                    .buttonStyle(.bordered)
+                    .disabled(compatibleRecents.isEmpty)
+                // The shorthand notation only ever produces a power-kind
+                // program (no %-of-resistance-range target), so this needs
+                // Power Target support the same way ".erg" does.
+                Button("Create") { isShowingCreateWorkout = true }
+                    .buttonStyle(.bordered)
+                    .disabled(!supportsPowerTarget)
+            }
+            // Own row (rather than a fourth button crammed into the one
+            // above) both because "Generate with AI" is the longest label
+            // here and because it only ever shows up at all on hardware
+            // that actually supports it — see `AIWorkoutGeneratorAvailability`
+            // — so most riders on older devices never see this row change
+            // the layout at all.
+            if AIWorkoutGeneratorAvailability.isAvailable {
+                Button {
+                    isShowingAIWorkoutGenerator = true
+                } label: {
+                    Label("Generate with AI", systemImage: "sparkles")
+                }
                 .buttonStyle(.bordered)
-                .disabled(allowedFileContentTypes.isEmpty)
-            Button("Recent") { isShowingRecentWorkouts = true }
-                .buttonStyle(.bordered)
-                .disabled(compatibleRecents.isEmpty)
-            // The shorthand notation only ever produces a power-kind
-            // program (no %-of-resistance-range target), so this needs
-            // Power Target support the same way ".erg" does.
-            Button("Create") { isShowingCreateWorkout = true }
-                .buttonStyle(.bordered)
-                .disabled(!supportsPowerTarget)
+            }
         }
         .disabled(session.state == .running || session.state == .paused)
     }

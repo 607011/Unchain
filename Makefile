@@ -10,10 +10,19 @@
 # DEVICE=Eipättpro`. `xcrun devicectl list devices` shows what's currently
 # paired/connected.
 #
-# Note on this Mac: scheme/destination-based `xcodebuild` fails here
-# ("Supported platforms for the buildables in the current scheme is empty"),
-# so every build below uses `-target` instead of `-scheme`/`-destination`,
-# which works reliably (see README).
+# `run-sim` is the one deliberate exception – for things that don't need a
+# trainer connection at all, e.g. `AIWorkoutGenerator`'s on-device Apple
+# Intelligence integration, which the Simulator forwards to the host Mac's
+# own model on Apple Silicon. Everything that actually talks to a trainer
+# over Bluetooth stays useless there, same as above.
+#
+# Note on this Mac: scheme/destination-based `xcodebuild` fails for a
+# *device* destination here ("Supported platforms for the buildables in the
+# current scheme is empty"), so every device-targeting build below uses
+# `-target` instead of `-scheme`/`-destination`, which works reliably (see
+# README). That failure turned out to be specific to the device destination,
+# though – `-scheme`/`-destination` works fine for the Simulator, which is
+# what `run-sim` below actually uses.
 #
 # `build` deliberately passes no `-sdk` at all (unlike most of this file's
 # earlier history) now that `Unchain` embeds `UnchainWatch` (see
@@ -63,7 +72,18 @@ WATCH_BUNDLE_ID := net.ersatzworld.unchain.watchkitapp
 WATCH_DEVICE    ?= watchOLA
 WATCH_APP_PATH  := $(BUILD_DIR)/$(CONFIGURATION)-watchos/$(WATCH_TARGET).app
 
-.PHONY: generate build install run debug archive clean install-watch run-watch debug-watch
+# `run-sim`'s own build – see the note up top on why this is `-scheme`/
+# `-destination` rather than `-target` like `build` above. `SIMULATOR`
+# overrides the same way `DEVICE` does, e.g. `make run-sim SIMULATOR="iPhone
+# 16"`. `-derivedDataPath` pins the build output to a predictable path under
+# `build/sim` (matching `SIM_APP_PATH` below) instead of Xcode's own
+# per-project DerivedData hash, which would otherwise need discovering by
+# hand.
+SIMULATOR     ?= iPhone 17 Pro
+SIM_BUILD_DIR := $(BUILD_DIR)/sim
+SIM_APP_PATH  := $(SIM_BUILD_DIR)/Build/Products/$(CONFIGURATION)-iphonesimulator/$(TARGET).app
+
+.PHONY: generate build install run debug archive clean install-watch run-watch debug-watch build-sim run-sim
 
 # Regenerates Unchain.xcodeproj/ from project.yml (XcodeGen) – cheap, so this
 # always runs rather than trying to guess whether project.yml changed.
@@ -96,6 +116,22 @@ debug: install
 	fi; \
 	echo "Attaching lldb to process $$pid on $(DEVICE) ..."; \
 	xcrun lldb -o "device select $(DEVICE)" -o "device process attach -p $$pid"
+
+build-sim: generate
+	xcodebuild -scheme $(TARGET) -configuration $(CONFIGURATION) -destination 'platform=iOS Simulator,name=$(SIMULATOR)' -derivedDataPath $(SIM_BUILD_DIR) build
+
+# Boots `SIMULATOR` if it isn't already (`|| true` swallows simctl's error
+# for "already booted", the common case once the Simulator app is left open
+# between runs), opens Simulator.app so there's actually something on
+# screen to look at, then installs and (re-)launches – `simctl install`
+# happily overwrites an already-installed copy, so there's no need to
+# uninstall first the way a stale provisioning profile sometimes demands on
+# a real device.
+run-sim: build-sim
+	xcrun simctl boot "$(SIMULATOR)" 2>/dev/null || true
+	open -a Simulator
+	xcrun simctl install booted $(SIM_APP_PATH)
+	xcrun simctl launch booted $(BUNDLE_ID)
 
 # Builds and installs straight to the paired Watch – see the note above on
 # why this is a separate path from `install`. Deliberately its own

@@ -1833,3 +1833,27 @@ would change, roughly in the order it'd need doing:
       fall back to `SettingsView.restingHeartRateFallbackBPM` the way that
       screen's own first-time setup does, since there's already a
       perfectly good existing value worth just leaving alone in that case.
+- [x] **Fixed the +/- step buttons genuinely running away after release**
+      (reported as still happening despite the existing `maxRepeatDuration`
+      hard cap) – root cause was `RepeatingStepButton` tracking "is this
+      still held" as a plain `@State` toggled from `DragGesture`'s
+      `.onChanged`/`.onEnded`, which has no `.onCancel` at all: if the
+      system ever *cancels* the gesture instead of ending it normally (the
+      enclosing `ScrollView` claiming the touch mid-press for its own
+      scroll gesture is the likely trigger – this sits right next to the
+      once-a-second workout updates that keep re-rendering the view while
+      held), `.onEnded` simply never fires, and a plain `@State` only ever
+      toggled there stays stuck `true` forever – exactly what the existing
+      hard cap was papering over rather than fixing. Switched to
+      `@GestureState` (via `.updating(...)` instead of `.onChanged`/
+      `.onEnded`) – SwiftUI resets a `@GestureState` property back to its
+      initial value the moment the gesture becomes inactive for *any*
+      reason, cancellation included, so `.onChange(of:)` now reliably sees
+      the press end either way. `maxRepeatDuration`'s hard cap stays in
+      place regardless, purely as a defensive backstop.
+- [x] **Speed & Incline's own speed step lowered from 0.5 km/h to 0.1
+      km/h** – reported as too coarse specifically there: 0.5 km/h is a
+      proportionally much bigger jump on foot than the same number is by
+      bike (e.g. ~9 % of a brisk 5.5 km/h walk per tap), and pace-based
+      training in particular calls for finer adjustments. Incline's own
+      step, and every other mode's, are unaffected.

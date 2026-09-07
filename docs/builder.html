@@ -433,9 +433,9 @@
     </div>
     <div id="lanes-treadmill" style="display:none;">
       <div class="lane-label speed">Speed target — 0–20 km/h</div>
-      <div class="scope-scroll"><svg class="lane" id="svg-speed" height="140"></svg></div>
+      <div class="scope-scroll" id="scroll-speed"><svg class="lane" id="svg-speed" height="140"></svg></div>
       <div class="lane-label incline">Incline target — 0–20 %</div>
-      <div class="scope-scroll"><svg class="lane" id="svg-incline" height="140"></svg></div>
+      <div class="scope-scroll" id="scroll-incline"><svg class="lane" id="svg-incline" height="140"></svg></div>
     </div>
     <div class="readout" id="readout"></div>
     <div class="hint">Drag vertically to set a value, sideways to draw across intervals. Drag the ⋮ handle at either shaded edge to resize Warm-up/Cool-down — everything between exports as <code>SteadyState</code>.</div>
@@ -1409,6 +1409,34 @@
     state.ftp = v;
     updatePreview();
   });
+
+  // Keeps the Speed and Incline lanes' own horizontal scroll positions in
+  // lockstep in treadmill mode – each `.scope-scroll` otherwise scrolls
+  // fully independently (two separate elements, each with its own
+  // `overflow-x: auto`), so once a workout has enough bins to need
+  // scrolling at all, the two charts drift apart and the same interval no
+  // longer lines up between them. A `scroll` listener on each side sets
+  // the other's `scrollLeft` to match; `syncing` guards against the two
+  // listeners re-triggering each other back and forth over what's really
+  // one user gesture. Harmless to wire up unconditionally rather than only
+  // in treadmill mode – Bike's own lane has nothing to sync with, and
+  // these elements don't receive scroll events at all while hidden
+  // (`display:none` under `#lanes-treadmill`).
+  (function syncTreadmillLaneScrolling() {
+    var speedScroll = document.getElementById("scroll-speed");
+    var inclineScroll = document.getElementById("scroll-incline");
+    var syncing = false;
+    function link(from, to) {
+      from.addEventListener("scroll", function () {
+        if (syncing) return;
+        syncing = true;
+        to.scrollLeft = from.scrollLeft;
+        syncing = false;
+      });
+    }
+    link(speedScroll, inclineScroll);
+    link(inclineScroll, speedScroll);
+  })();
 
   syncControlsFromState();
   renderAll();

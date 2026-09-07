@@ -408,6 +408,13 @@
         <button id="cooldown-plus" type="button" aria-label="More cool-down intervals">+</button>
       </div>
     </div>
+    <div class="field" id="speed-step-field" style="display:none;">
+      <label for="speed-step-toggle">Speed step</label>
+      <div class="segmented" id="speed-step-toggle" role="group" aria-label="Speed step size">
+        <button data-step="0.1" class="active" type="button">0.1 km/h</button>
+        <button data-step="0.5" type="button">0.5 km/h</button>
+      </div>
+    </div>
     <div class="field" id="ftp-field">
       <label for="ftp-input">FTP</label>
       <div class="numfield">
@@ -487,6 +494,16 @@
     warmupBins: 4,
     cooldownBins: 3,
     ftp: 250,
+    // Rounding granularity for the Speed lane only (Incline stays a fixed
+    // 0.5, Power a fixed 5 W – see `lanes` below) – dragging vertically
+    // with a mouse/trackpad turned out fiddly to land on a precise value
+    // with 0.1 km/h steps, that close together being much easier to
+    // overshoot than the same pixel movement is at 0.5. Kept as a toggle
+    // rather than just switching the default to 0.5, since 0.1 genuinely
+    // suits pace-based training better when it *is* precise enough to hit
+    // (e.g. on a touchscreen, or typing/pasting exact values into the
+    // preview textarea directly).
+    speedStep: 0.1,
     power: [],
     speed: [],
     incline: []
@@ -538,6 +555,7 @@
     state.warmupBins = Math.max(0, restored.warmupBins || 0);
     state.cooldownBins = Math.max(0, restored.cooldownBins || 0);
     state.ftp = restored.ftp > 0 ? restored.ftp : state.ftp;
+    state.speedStep = (restored.speedStep === 0.1 || restored.speedStep === 0.5) ? restored.speedStep : state.speedStep;
     state.power = restored.power.length ? restored.power : sampleBike(state.bins);
     state.speed = restored.speed.length ? restored.speed : sampleTreadmillSpeed(state.bins);
     state.incline = restored.incline.length ? restored.incline : sampleTreadmillIncline(state.bins);
@@ -549,7 +567,12 @@
 
   var lanes = {
     power: { key: "power", svg: document.getElementById("svg-power"), min: 0, max: 500, step: 5, unit: "W", accent: "--accent-power", glow: "--accent-power-glow", fmt: function (v) { return Math.round(v) + " W"; }, hasBoundaryHandles: true },
-    speed: { key: "speed", svg: document.getElementById("svg-speed"), min: 0, max: 20, step: 0.1, unit: "km/h", accent: "--accent-speed", glow: "--accent-speed-glow", fmt: function (v) { return v.toFixed(1) + " km/h"; }, hasBoundaryHandles: true },
+    // `step` starts at `state.speedStep` (0.1 by default, or whatever was
+    // restored from storage) rather than a fixed literal here – the
+    // speed-step toggle below keeps this in sync whenever the rider
+    // switches it, since `eventToBinValue`'s own rounding reads `lane.step`
+    // directly, not `state.speedStep`.
+    speed: { key: "speed", svg: document.getElementById("svg-speed"), min: 0, max: 20, step: state.speedStep, unit: "km/h", accent: "--accent-speed", glow: "--accent-speed-glow", fmt: function (v) { return v.toFixed(1) + " km/h"; }, hasBoundaryHandles: true },
     incline: { key: "incline", svg: document.getElementById("svg-incline"), min: 0, max: 20, step: 0.5, unit: "%", accent: "--accent-incline", glow: "--accent-incline-glow", fmt: function (v) { return v.toFixed(1) + " %"; }, hasBoundaryHandles: false }
   };
 
@@ -950,6 +973,7 @@
     var totalSec = state.bins * state.binSeconds;
     document.getElementById("total-read").textContent = binTimeLabel(totalSec);
     document.getElementById("ftp-field").style.display = state.mode === "bike" ? "" : "none";
+    document.getElementById("speed-step-field").style.display = state.mode === "treadmill" ? "" : "none";
   }
 
   // ---- export generation ----
@@ -1066,6 +1090,7 @@
     document.getElementById("warmup-count").value = String(state.warmupBins);
     document.getElementById("cooldown-count").value = String(state.cooldownBins);
     document.getElementById("ftp-input").value = String(state.ftp);
+    document.querySelectorAll("#speed-step-toggle button").forEach(function (b) { b.classList.toggle("active", parseFloat(b.getAttribute("data-step")) === state.speedStep); });
   }
 
   // ---- parsing the preview back into a profile (typed or pasted) ----
@@ -1363,6 +1388,20 @@
   document.getElementById("warmup-minus").addEventListener("click", function () { setWarmup(state.warmupBins - 1); });
   document.getElementById("cooldown-plus").addEventListener("click", function () { setCooldown(state.cooldownBins + 1); });
   document.getElementById("cooldown-minus").addEventListener("click", function () { setCooldown(state.cooldownBins - 1); });
+
+  document.getElementById("speed-step-toggle").addEventListener("click", function (evt) {
+    var btn = evt.target.closest("button[data-step]");
+    if (!btn) return;
+    state.speedStep = parseFloat(btn.getAttribute("data-step"));
+    lanes.speed.step = state.speedStep;
+    document.querySelectorAll("#speed-step-toggle button").forEach(function (b) { b.classList.toggle("active", b === btn); });
+    // Re-round the already-drawn speed values onto the new grid right
+    // away, rather than leaving them at whatever the old step happened to
+    // land on until the rider repaints them by hand.
+    state.speed = state.speed.map(function (v) { return Math.round(v / lanes.speed.step) * lanes.speed.step; });
+    renderAll();
+    updatePreview();
+  });
 
   document.getElementById("ftp-input").addEventListener("change", function () {
     var v = parseInt(this.value, 10);

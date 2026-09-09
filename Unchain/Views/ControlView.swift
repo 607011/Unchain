@@ -2632,16 +2632,23 @@ private func formatStatValue(_ value: Double?) -> String {
     value.map { String(format: "%.0f", locale: .current, $0) } ?? "–"
 }
 
-/// Converts a speed in km/h to a running/walking pace, formatted "m:ss" per
-/// kilometer (e.g. 10 km/h → "6:00"). `nil` or a speed too low to produce a
-/// meaningful pace (below brisk-walking, where the minutes-per-km figure
-/// balloons into something nobody reads as a pace) both fall back to "–".
+/// Converts a speed in km/h to a running/walking pace, formatted `m'ss"` per
+/// kilometer (e.g. 10 km/h → `6'00"`) – the same prime/double-prime
+/// minutes/seconds notation `ShorthandWorkoutParser`/`TreadmillShorthandParser`
+/// already use for typed-in durations (see `ShorthandNotation`'s own doc
+/// comment on `'`/`"`), not a plain `6:00` clock-style reading – a pace
+/// reads the same both ways at a glance, but only one of them is also this
+/// app's own shorthand for "6 minutes, 0 seconds" elsewhere, so this keeps
+/// the two consistent instead of using bare-colon notation nowhere else in
+/// the app actually means. `nil` or a speed too low to produce a meaningful
+/// pace (below brisk-walking, where the minutes-per-km figure balloons into
+/// something nobody reads as a pace) both fall back to "–".
 private func paceString(fromSpeedKmh speedKmh: Double?) -> String {
     guard let speedKmh, speedKmh >= 1 else { return "–" }
     let secondsPerKm = 3600 / speedKmh
     let minutes = Int(secondsPerKm) / 60
     let seconds = Int(secondsPerKm.rounded()) % 60
-    return String(format: "%d:%02d", minutes, seconds)
+    return String(format: "%d'%02d\"", minutes, seconds)
 }
 
 /// Toggles the enclosing screen's interactive edge-swipe-to-go-back gesture –

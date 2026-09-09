@@ -2207,3 +2207,14 @@ would change, roughly in the order it'd need doing:
       long-lived singleton left unguarded anywhere else. `git grep`-level
       sweep, not exhaustive proof nothing else remains, but a real,
       deliberate pass, not just the one spot the crash happened to point at.
+- [x] **Pace now reads `6'00"` instead of `6:00`** – requested directly:
+      a bare-colon clock reading looks like a pace either way, but this app
+      already has its own meaning for `'`/`"` (minutes/seconds – see
+      `ShorthandNotation`'s prime/double-prime notation, used throughout
+      `ShorthandWorkoutParser`/`TreadmillShorthandParser`), so keeping the
+      live pace tile in bare-colon notation was the one place still
+      inconsistent with it. `paceString(fromSpeedKmh:)` in `ControlView.swift`
+      is the only formatter that ever produced this – confirmed via a repo-
+      wide search, `formattedDuration(_:)` in `WorkoutHistoryView.swift`
+      (overall workout duration, h:mm:ss) is a different, unrelated
+      formatter and stays as-is.

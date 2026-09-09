@@ -544,7 +544,7 @@ struct ControlView: View {
     /// kind is known, and that's normally true for only a moment anyway.
     /// Loaded fresh on every redraw, not cached – same "read at the point
     /// of use" pattern `startCountdownSeconds`/
-    /// `effectiveInclineChangeSecondsPerDegree` already use for this same
+    /// `effectiveInclineChangeSecondsPerPercent` already use for this same
     /// per-device settings store, so a change made in
     /// `TrainerDeviceSettingsView` while this screen happens to already be
     /// on the navigation stack (returning to it) takes effect immediately

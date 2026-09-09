@@ -1153,9 +1153,9 @@ final class WorkoutSession: ObservableObject {
             // `estimatedPhysicalInclinePercent`, not the flatly-commanded
             // target directly – see that property's own doc comment on why:
             // during a `.treadmillProgram` transition, it ramps toward the
-            // new target over the same device-specific per-degree travel
-            // time (`effectiveInclineChangeSecondsPerDegree`) the speed
-            // ramp already paces itself against, rather than assuming the
+            // new target over the same device-specific per-percentage-point
+            // travel time (`effectiveInclineChangeSecondsPerPercent`) the
+            // speed ramp already paces itself against, rather than assuming the
             // incline motor gets there instantly. Only while the estimated
             // incline is positive – flat or descending adds nothing, same
             // as the real FTMS field only ever counts climbed, never
@@ -1349,7 +1349,7 @@ final class WorkoutSession: ObservableObject {
                 if shouldRestartSpeedRamp {
                     let previousInclinePercent = lastSentTreadmillInclinePercent ?? clampedInclinePercent
                     let inclineDeltaPercent = abs(clampedInclinePercent - previousInclinePercent)
-                    let secondsPerUnit = TrainerDeviceSettingsStore.load(for: connection.peripheral.identifier).effectiveInclineChangeSecondsPerDegree
+                    let secondsPerUnit = TrainerDeviceSettingsStore.load(for: connection.peripheral.identifier).effectiveInclineChangeSecondsPerPercent
                     treadmillSpeedRampFromKmh = lastSentTreadmillSpeedKmh ?? target.speedKmh
                     treadmillSpeedRampToKmh = target.speedKmh
                     treadmillSpeedRampStartSeconds = elapsed

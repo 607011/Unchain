@@ -1921,12 +1921,12 @@
         }
       }
     },
-    "Seconds per 1° Incline": {
+    "Seconds per 1% Incline": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sekunden pro 1° Steigung"
+            "value": "Sekunden pro 1% Steigung"
           }
         }
       }
@@ -1941,12 +1941,12 @@
         }
       }
     },
-    "How long this treadmill actually takes to reach a new incline once commanded, per degree changed – e.g. 1.5 means a 2° change takes about 3 seconds to settle. Used to pace how fast the belt speed ramps to its next target during a .zwo interval change, instead of jumping there immediately while the incline is still catching up. Leave empty to assume 1 second per degree.": {
+    "How long this treadmill actually takes to reach a new incline once commanded, per percentage point changed – e.g. 1.5 means a 2-percentage-point change (say 3% to 5%) takes about 3 seconds to settle. Used to pace how fast the belt speed ramps to its next target during a .zwo interval change, instead of jumping there immediately while the incline is still catching up. Leave empty to assume 1 second per percentage point.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wie lange dieses Laufband tatsächlich braucht, um nach einem Befehl eine neue Steigung zu erreichen, pro verändertem Grad – 1,5 bedeutet z. B., dass eine Änderung um 2° etwa 3 Sekunden zum Einpendeln braucht. Wird genutzt, um die Bandgeschwindigkeit beim Intervallwechsel einer .zwo-Datei entsprechend sanft an das nächste Ziel anzupassen, statt sie sofort zu ändern, während die Steigung noch nachzieht. Leer lassen, um 1 Sekunde pro Grad anzunehmen."
+            "value": "Wie lange dieses Laufband tatsächlich braucht, um nach einem Befehl eine neue Steigung zu erreichen, pro verändertem Prozentpunkt – 1,5 bedeutet z. B., dass eine Änderung um 2 Prozentpunkte (etwa von 3% auf 5%) rund 3 Sekunden zum Einpendeln braucht. Wird genutzt, um die Bandgeschwindigkeit beim Intervallwechsel einer .zwo-Datei entsprechend sanft an das nächste Ziel anzupassen, statt sie sofort zu ändern, während die Steigung noch nachzieht. Leer lassen, um 1 Sekunde pro Prozentpunkt anzunehmen."
           }
         }
       }

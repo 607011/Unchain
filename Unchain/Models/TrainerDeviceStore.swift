@@ -125,24 +125,35 @@ enum LiveMetricKind: String, Codable, CaseIterable, Identifiable {
 /// compensating for this lag during `.zwo` playback) gets built.
 struct TrainerDeviceSettings: Codable, Equatable {
     /// How many seconds this treadmill takes to actually reach a new
-    /// incline once commanded, per degree changed – e.g. `1.5` means a 2°
-    /// change takes about 3 seconds to settle. `nil` until the rider
-    /// measures and enters it – see `effectiveInclineChangeSecondsPerDegree`
-    /// for what's actually used in the meantime. Read by
-    /// `WorkoutSession.sendCurrentWorkoutTarget(for:)` to pace how fast a
+    /// incline once commanded, per *percentage point* changed – e.g. `1.5`
+    /// means a 2-percentage-point change (say 3 % → 5 %) takes about 3
+    /// seconds to settle. `nil` until the rider measures and enters it –
+    /// see `effectiveInclineChangeSecondsPerPercent` for what's actually
+    /// used in the meantime. Read by `WorkoutSession
+    /// .sendCurrentWorkoutTarget(for:)` to pace how fast a
     /// `.treadmillProgram` interval change ramps the belt *speed* up or
     /// down, so it doesn't get ahead of an incline that's still physically
     /// moving.
-    var inclineChangeSecondsPerDegree: Double?
+    ///
+    /// Named, and stored under `CodingKeys` below, as "PerDegree" until
+    /// this was reported directly as a labeling mismatch – this app has
+    /// never measured incline in degrees anywhere, only percent (see
+    /// `TrainerConnection.inclinationRangePercent`/every treadmill target
+    /// this app sends or displays). Renamed at the Swift/UI level; the
+    /// JSON key stays the original `"inclineChangeSecondsPerDegree"`
+    /// specifically so a value someone already measured and saved under
+    /// the old name keeps decoding correctly instead of silently reverting
+    /// to the default the next time this loads.
+    var inclineChangeSecondsPerPercent: Double?
 
     /// Assumed for any treadmill whose actual response time hasn't been
     /// measured yet – a deliberately conservative placeholder, not `0`
     /// (which would mean "the incline snaps instantly" and silently skip
     /// speed ramping altogether for every unmeasured device).
-    static let defaultInclineChangeSecondsPerDegree = 1.0
+    static let defaultInclineChangeSecondsPerPercent = 1.0
 
-    var effectiveInclineChangeSecondsPerDegree: Double {
-        inclineChangeSecondsPerDegree ?? Self.defaultInclineChangeSecondsPerDegree
+    var effectiveInclineChangeSecondsPerPercent: Double {
+        inclineChangeSecondsPerPercent ?? Self.defaultInclineChangeSecondsPerPercent
     }
 
     /// How many seconds this treadmill spends counting down on its own
@@ -154,7 +165,7 @@ struct TrainerDeviceSettings: Codable, Equatable {
     /// this, the app's displayed elapsed time and the workout program
     /// would both run ahead of the treadmill by however long it spends
     /// counting down. `nil` until measured; unlike
-    /// `inclineChangeSecondsPerDegree`, defaults to `0` (no delay) rather
+    /// `inclineChangeSecondsPerPercent`, defaults to `0` (no delay) rather
     /// than a conservative non-zero guess – plenty of trainers react
     /// immediately, and assuming a countdown that isn't really there would
     /// introduce a *new* sync error instead of fixing one.
@@ -195,6 +206,18 @@ struct TrainerDeviceSettings: Codable, Equatable {
         case .bike: return Self.defaultBikeLiveMetrics
         case .unknown: return []
         }
+    }
+
+    /// Explicit only because `inclineChangeSecondsPerPercent` needs to –
+    /// see its own doc comment. The other two keep the default,
+    /// property-name-as-key behavior Swift's synthesis would already give
+    /// them; listed explicitly anyway, since providing `CodingKeys` at all
+    /// switches decoding to *only* recognize whatever's listed here – an
+    /// unlisted stored property would otherwise silently stop decoding.
+    enum CodingKeys: String, CodingKey {
+        case inclineChangeSecondsPerPercent = "inclineChangeSecondsPerDegree"
+        case startCountdownSeconds
+        case liveMetrics
     }
 }
 

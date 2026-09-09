@@ -2469,3 +2469,25 @@ would change, roughly in the order it'd need doing:
       body weight, like resting heart rate, is treated as a Health value
       that genuinely drifts and is worth refreshing every visit, not a
       one-time default.
+- [x] **Fixed a real labeling bug**: the treadmill device settings screen
+      read "Seconds per 1° Incline" – reported directly, correctly, that
+      this app has never measured incline in degrees anywhere, only
+      percent (`TrainerConnection.inclinationRangePercent`, every treadmill
+      target this app sends or displays). Fixed the visible text ("Seconds
+      per 1% Incline", InfoButton reworded to "percentage point" throughout)
+      and, since the underlying Swift naming had the same mismatch baked
+      in, renamed `TrainerDeviceSettings.inclineChangeSecondsPerDegree` →
+      `.inclineChangeSecondsPerPercent` (and its `default…`/`effective…`
+      siblings) rather than leaving code and UI newly disagreeing with each
+      other. The one real risk in a rename like this – `TrainerDeviceSettings`
+      is `Codable`, decoded straight from `UserDefaults` JSON by property
+      name with no explicit `CodingKeys` before this, so renaming the
+      *stored* property outright would've silently dropped any value a
+      rider already measured and saved on a real device the next time it
+      loads – closed with a new explicit `CodingKeys` enum that keeps the
+      JSON key exactly as `"inclineChangeSecondsPerDegree"` while the
+      Swift-visible name reads correctly: a clean rename with no
+      backward-compatibility cost, not a trade-off between the two.
+      Localizable.xcstrings: renamed the two affected keys' entries in
+      place (English source + German translation) rather than leaving the
+      old, now-unreferenced ones behind as clutter.

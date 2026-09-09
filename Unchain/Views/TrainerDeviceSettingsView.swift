@@ -34,12 +34,12 @@ struct TrainerDeviceSettingsView: View {
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                     } label: {
-                        Text("Seconds per 1° Incline")
+                        Text("Seconds per 1% Incline")
                     }
                 } header: {
                     HStack(spacing: 4) {
                         Text("Incline Response")
-                        InfoButton(text: "How long this treadmill actually takes to reach a new incline once commanded, per degree changed – e.g. 1.5 means a 2° change takes about 3 seconds to settle. Used to pace how fast the belt speed ramps to its next target during a .zwo interval change, instead of jumping there immediately while the incline is still catching up. Leave empty to assume 1 second per degree.")
+                        InfoButton(text: "How long this treadmill actually takes to reach a new incline once commanded, per percentage point changed – e.g. 1.5 means a 2-percentage-point change (say 3% to 5%) takes about 3 seconds to settle. Used to pace how fast the belt speed ramps to its next target during a .zwo interval change, instead of jumping there immediately while the incline is still catching up. Leave empty to assume 1 second per percentage point.")
                     }
                 }
                 liveMetricsSection
@@ -138,8 +138,8 @@ struct TrainerDeviceSettingsView: View {
     /// reading as "instant".
     private var inclineSecondsText: Binding<String> {
         Binding(
-            get: { settings.inclineChangeSecondsPerDegree.map { String(format: "%.1f", $0) } ?? "" },
-            set: { settings.inclineChangeSecondsPerDegree = Double($0.replacingOccurrences(of: ",", with: ".")) }
+            get: { settings.inclineChangeSecondsPerPercent.map { String(format: "%.1f", $0) } ?? "" },
+            set: { settings.inclineChangeSecondsPerPercent = Double($0.replacingOccurrences(of: ",", with: ".")) }
         )
     }
 

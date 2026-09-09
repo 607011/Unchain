@@ -636,18 +636,20 @@ struct ControlView: View {
             // one (every bike does; some treadmills do too – see
             // `TrainerMetrics`'s own doc comment); `WorkoutSession
             // .estimatedPowerWatts` only ever fills in for a treadmill that
-            // doesn't – see that property's own doc comment for the two
-            // formulas behind it. `stat:` falls back the same way, so
+            // doesn't – see that property's own doc comment for what it
+            // actually estimates. `stat:` falls back the same way, so
             // tapping the tile still shows *something* on an estimate-only
-            // treadmill instead of an empty summary. Colored red only for
-            // an `.internalWork`-sourced estimate specifically – see
-            // `WorkoutSession.EstimatedPowerSource`'s own doc comment on
-            // why that one, unlike a real reading or the exact-physics
-            // `.climbing` estimate, carries real, worth-flagging
-            // uncertainty of its own.
+            // treadmill instead of an empty summary. Colored red whenever
+            // it's showing this app's own estimate at all, not a real
+            // device reading – every estimate now sums in the internal-work
+            // component (see `EnergyEstimator.treadmillPowerWatts`'s own
+            // doc comment), which carries real, literature-derived
+            // uncertainty a real reading doesn't, so there's no longer a
+            // narrower "only this specific incline range" case to single
+            // out.
             let watts = connection.metrics.instantaneousPowerWatts ?? session.estimatedPowerWatts
             let stat = session.powerStats.count > 0 ? session.powerStats : session.estimatedPowerStats
-            let isUncertainEstimate = connection.metrics.instantaneousPowerWatts == nil && session.estimatedPowerSource == .internalWork
+            let isUncertainEstimate = connection.metrics.instantaneousPowerWatts == nil && session.estimatedPowerWatts != nil
             MetricTile(title: "Watt", value: watts.map { "\($0)" } ?? "–", stat: stat, valueColor: isUncertainEstimate ? .red : nil)
         case .powerAverage:
             let average = session.powerStats.average ?? session.estimatedPowerStats.average
@@ -2668,8 +2670,9 @@ private struct MetricTile: View {
     var formatValue: (Double?) -> String = formatStatValue
     /// `nil` (the default primary color, every tile but one) unless a tile
     /// needs to flag the *current* reading as carrying more uncertainty
-    /// than usual – so far only the `Watt` tile's `.internalWork`-sourced
-    /// estimate (see `WorkoutSession.EstimatedPowerSource`'s own doc
+    /// than usual – so far only the `Watt` tile's own estimated (not
+    /// device-reported) value, which always sums in a literature-derived
+    /// component (see `EnergyEstimator.treadmillPowerWatts`'s own doc
     /// comment). Deliberately not applied to the tapped-summary state
     /// below: min/average/max there can blend readings of differing
     /// confidence together (an average spanning both flat and inclined

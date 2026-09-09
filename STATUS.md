@@ -2665,3 +2665,37 @@ would change, roughly in the order it'd need doing:
       unexpectedly, …) – cheap, harmless, general-purpose insurance
       underneath a fix that now actually addresses the real cause for the
       specific scenario reported.
+- [x] **Found and fixed a real discontinuity in the treadmill power
+      estimate** – reported directly, from actual empirical testing: below
+      roughly 8 % incline, the pure climbing figure alone read far *below*
+      what the flat-ground (internal-work) figure alone already showed at
+      the same pace, meaning the displayed number visibly *dropped* the
+      instant any incline was added at all, only climbing back out past it
+      higher up – "Quatsch", correctly. Root cause was the switch-by-
+      incline itself, not either formula individually: `climbingPowerWatts`
+      and `internalWorkPowerWatts` were treated as mutually exclusive
+      (climbing above 0 % incline, internal work at or below it), when
+      physically both are genuinely present at every incline, all the
+      time – a climbing runner is still swinging their limbs exactly as
+      they were on the flat, on top of now also climbing.
+      New `EnergyEstimator.treadmillPowerWatts(weightKg:speedKmh:inclinePercent:)`
+      **sums** the two instead of switching between them – continuous
+      across `inclinePercent == 0` by construction, not by a boundary case.
+      Discussed adding only a *partial* share of the internal-work
+      component while climbing (gait genuinely changes with grade, so it's
+      plausible the true figure isn't a flat 100 % sum) – decided against
+      inventing a specific fraction with no citation behind it: the
+      literature already cited for the 0.3–0.6 J/(kg·m) range doesn't
+      specify how that itself scales with incline, so picking some
+      attenuation factor to look more sophisticated would just stack
+      another unsourced assumption on top of an already-approximate model,
+      not actually make it more accurate. Full 100 % sum stays, as the
+      more honest simple choice absent better data.
+      `WorkoutSession.EstimatedPowerSource` (the `.climbing`/`.internalWork`
+      distinction the switch needed, and `ControlView`'s Watt tile used to
+      decide when to color the value red) is gone along with the switch it
+      existed for – every estimate now always includes the internal-work
+      component, so there's no longer a case that's ever *purely* exact
+      physics; the tile now colors red whenever it's showing this app's
+      own estimate at all, not a real device reading, simpler than singling
+      out one specific incline range.

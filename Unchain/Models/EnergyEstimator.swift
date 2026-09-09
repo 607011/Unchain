@@ -34,29 +34,16 @@ enum EnergyEstimator {
         return kcalPerMinute * (duration / 60)
     }
 
-    /// A live, instantaneous power estimate (watts) for a treadmill –
-    /// deliberately *not* the metabolic (VO2-based) approach
-    /// `walkRunActiveEnergyKcal` above uses, after weighing that directly
-    /// and preferring this instead: pure physics, the rate of work done
-    /// raising body weight against gravity while climbing –
-    /// $P = m \cdot g \cdot v \cdot \frac{\text{incline}}{100}$, with `v` in
-    /// m/s – no efficiency factor, no VO2 regression, nothing empirical at
-    /// all. Reads as genuine mechanical watts, comparable in magnitude to a
-    /// bike's own power meter (unlike the metabolic approach, which ran
-    /// noticeably higher – resting metabolism and gross inefficiency both
-    /// baked into VO2 – for a similar felt effort).
-    ///
-    /// The trade-off, accepted deliberately rather than worked around: this
-    /// is *only* the climbing component. On the flat, or on a decline, there
-    /// is essentially no net *external* mechanical work being done in the
-    /// classical sense at all – a treadmill belt offers no real resistance
-    /// to walking/running at a steady pace, unlike a bike's wind/rolling
-    /// resistance – so this returns `nil` rather than `0` for
-    /// `inclinePercent <= 0`; see `internalWorkPowerWatts(weightKg:speedKmh:)`
-    /// below for what `WorkoutSession` actually shows instead for that
-    /// stretch, rather than "–" throughout. How plausible the numbers end
-    /// up being at shallow (but still positive) inclines is something to
-    /// gauge from real use, not settled in the formula itself.
+    /// The climbing component of `treadmillPowerWatts` below – pure
+    /// physics, the rate of work done raising body weight against gravity:
+    /// $P = m \cdot g \cdot v \cdot \frac{\text{incline}}{100}$, with `v`
+    /// in m/s – no efficiency factor, no regression, nothing empirical at
+    /// all. `nil` (not `0`) for `inclinePercent <= 0`: on the flat, or on a
+    /// decline, there is no climbing happening for this specific formula to
+    /// measure – `treadmillPowerWatts` is what actually decides what that
+    /// stretch shows instead, not this function on its own; called directly
+    /// on its own only where the climbing component specifically, in
+    /// isolation, is what's needed.
     static func climbingPowerWatts(
         weightKg: Double,
         speedKmh: Double,
@@ -69,28 +56,52 @@ enum EnergyEstimator {
         return weightKg * earthGravityMetersPerSecondSquared * speedMetersPerSecond * gradeFraction
     }
 
-    /// The flat-ground counterpart to `climbingPowerWatts` above – still
-    /// mechanical, not metabolic, but a different mechanical quantity: the
-    /// *internal* work of swinging/decelerating the limbs relative to the
-    /// body's own center of mass, which continues on the flat even though
-    /// there's no external (climbing) work happening there for
-    /// `climbingPowerWatts` to capture. Classic gait-energetics literature
-    /// (Cavagna, Saibene & Margaria; later R. McN. Alexander) puts this at
-    /// roughly 0.3–0.6 J per kg of body mass per meter travelled – `0.5`
-    /// here, the middle of that range, not a tightly pinned-down constant:
-    /// real values vary with stride length/frequency and running style, and
-    /// the figure itself is best established for *running* specifically –
-    /// applying it to walking too, as this does for simplicity, likely
-    /// overstates a walker's actual internal work somewhat, since walking's
-    /// slower, more pendulum-like gait swings the limbs less aggressively.
-    /// `WorkoutSession` flags a value computed this way as distinctly less
-    /// certain than `climbingPowerWatts`'s own exact-physics figure – see
-    /// `WorkoutSession.EstimatedPowerSource` – rather than presenting both
-    /// as if they carried the same confidence.
+    /// The other component of `treadmillPowerWatts` below – still
+    /// mechanical, not metabolic, but a different mechanical quantity than
+    /// `climbingPowerWatts` above: the *internal* work of swinging/
+    /// decelerating the limbs relative to the body's own center of mass,
+    /// present at any speed, on the flat or climbing alike – unlike
+    /// `climbingPowerWatts`, this never returns `nil` for a valid
+    /// speed/weight, on purpose (see `treadmillPowerWatts`'s own doc
+    /// comment for why leaving it out entirely below a certain incline was
+    /// a real, reported bug, not a legitimate zero). Classic gait-
+    /// energetics literature (Cavagna, Saibene & Margaria; later
+    /// R. McN. Alexander) puts this at roughly 0.3–0.6 J per kg of body
+    /// mass per meter travelled – `0.5` here, the middle of that range, not
+    /// a tightly pinned-down constant: real values vary with stride
+    /// length/frequency and running style, and the figure itself is best
+    /// established for *running* specifically – applying it to walking too,
+    /// as this does for simplicity, likely overstates a walker's actual
+    /// internal work somewhat, since walking's slower, more pendulum-like
+    /// gait swings the limbs less aggressively.
     static func internalWorkPowerWatts(weightKg: Double, speedKmh: Double) -> Double? {
         guard weightKg > 0, speedKmh > 0 else { return nil }
         let speedMetersPerSecond = speedKmh / 3.6
         let internalWorkJoulesPerKilogramPerMeter = 0.5
         return weightKg * speedMetersPerSecond * internalWorkJoulesPerKilogramPerMeter
+    }
+
+    /// The actual treadmill power estimate `WorkoutSession` shows –
+    /// `climbingPowerWatts` and `internalWorkPowerWatts` above, **added
+    /// together**, not switched between by incline. That switch is what
+    /// this replaced, and why: reported directly, empirically, after real
+    /// testing – below roughly 8 % incline, the pure climbing figure alone
+    /// reads far *below* what `internalWorkPowerWatts` alone already showed
+    /// at 0 % incline and the same pace, meaning the displayed number
+    /// dropped the instant any incline was added at all, before climbing
+    /// out-grew it again higher up – backwards, and "Quatsch" as reported:
+    /// adding incline at a held pace should never make the estimate go
+    /// *down*. The root cause was the switch itself, not either formula:
+    /// both are genuinely present at every incline, all the time – a
+    /// climbing runner is still swinging their limbs exactly as they were
+    /// on the flat, on top of now also climbing – so summing them is both
+    /// the physically correct model and what actually fixes the
+    /// discontinuity, continuous across `inclinePercent == 0` by
+    /// construction rather than by a boundary case.
+    static func treadmillPowerWatts(weightKg: Double, speedKmh: Double, inclinePercent: Double) -> Double? {
+        guard weightKg > 0, speedKmh > 0 else { return nil }
+        let internalWork = internalWorkPowerWatts(weightKg: weightKg, speedKmh: speedKmh) ?? 0
+        let climbing = climbingPowerWatts(weightKg: weightKg, speedKmh: speedKmh, inclinePercent: inclinePercent) ?? 0
+        return internalWork + climbing
     }
 }

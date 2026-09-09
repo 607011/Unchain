@@ -232,21 +232,6 @@ final class WorkoutSession: ObservableObject {
     /// already uses. `ControlView`'s `m ↑` tile prefers the device's own
     /// real reading when present, falling back to this only when it isn't.
     @Published private(set) var estimatedElevationGainMeters: Double = 0
-    /// Which of `EnergyEstimator`'s two treadmill power formulas produced
-    /// `estimatedPowerWatts` most recently – `nil` exactly when that itself
-    /// is. `ControlView`'s `Watt` tile colors an `.internalWork` value
-    /// differently (red): `.climbing` (`EnergyEstimator.climbingPowerWatts`)
-    /// is exact classical mechanics with no free parameters at all, where
-    /// `.internalWork` (`EnergyEstimator.internalWorkPowerWatts`) leans on a
-    /// literature-derived coefficient with real, acknowledged uncertainty
-    /// (0.3–0.6 J/(kg·m), see that function's own doc comment for the
-    /// citations) – presenting both under the same plain styling would
-    /// overstate how confident the flat-ground figure actually is.
-    enum EstimatedPowerSource {
-        case climbing
-        case internalWork
-    }
-
     /// Treadmill-only fallback for `TrainerMetrics.instantaneousPowerWatts`
     /// (some treadmills genuinely report this over FTMS – see that
     /// property's own doc comment – most don't). Recomputed fresh every
@@ -256,22 +241,27 @@ final class WorkoutSession: ObservableObject {
     /// `estimatedVO2Max(samples:)` – rather than threaded in as its own
     /// stored property), the live reported speed, and
     /// `estimatedPhysicalInclinePercent` – `EnergyEstimator
-    /// .climbingPowerWatts(weightKg:speedKmh:inclinePercent:)` while
-    /// actually climbing, `.internalWorkPowerWatts(weightKg:speedKmh:)` on
-    /// the flat (see `EstimatedPowerSource` just above, and both those
-    /// functions' own doc comments – weighed directly against a metabolic,
-    /// VO2-based estimate first, and rejected in favor of these two
-    /// mechanical ones instead: real watts, comparable in magnitude to a
-    /// bike's own power meter, rather than a metabolic figure that ran
-    /// noticeably higher for a similar felt effort). `ControlView`'s `Watt`
-    /// tile follows the same fallback shape `estimatedElevationGainMeters`
-    /// above already established: the device's own real reading first,
-    /// this only when that's genuinely absent. Unlike
-    /// `estimatedElevationGainMeters`, not cumulative – power is inherently
-    /// instantaneous, so this is simply overwritten each tick rather than
-    /// integrated over time.
+    /// .treadmillPowerWatts(weightKg:speedKmh:inclinePercent:)`, itself the
+    /// *sum* of a climbing and an internal-work component, always both, not
+    /// a switch between them (see that function's own doc comment for the
+    /// real, reported bug a switch produced: the displayed number dropping
+    /// the instant any incline was added, before climbing out-grew it
+    /// again higher up – weighed directly against a metabolic, VO2-based
+    /// estimate first too, and rejected in favor of these mechanical
+    /// components instead: real watts, comparable in magnitude to a bike's
+    /// own power meter, rather than a metabolic figure that ran noticeably
+    /// higher for a similar felt effort). `ControlView`'s `Watt` tile
+    /// follows the same fallback shape `estimatedElevationGainMeters` above
+    /// already established: the device's own real reading first, this only
+    /// when that's genuinely absent – shown in a different color there too,
+    /// since even the climbing component alone is exact physics, the
+    /// internal-work component summed into every reading carries real,
+    /// literature-derived uncertainty (see `EnergyEstimator
+    /// .internalWorkPowerWatts`'s own doc comment) that a real device
+    /// reading doesn't. Unlike `estimatedElevationGainMeters`, not
+    /// cumulative – power is inherently instantaneous, so this is simply
+    /// overwritten each tick rather than integrated over time.
     @Published private(set) var estimatedPowerWatts: Int?
-    @Published private(set) var estimatedPowerSource: EstimatedPowerSource?
     /// `estimatedPowerWatts`'s own running min/average/max – tracked
     /// entirely separately from `powerStats` below rather than folded into
     /// it – `powerStats`/`workDoneJoules`/`powerHistory` all specifically
@@ -281,12 +271,7 @@ final class WorkoutSession: ObservableObject {
     /// an estimate into any of those would quietly contradict that. Purely
     /// for `ControlView`'s `Ø Watt` tile to have *something* to fall back to
     /// on a treadmill that never reports real power at all, same shape as
-    /// `powerStats` itself. Unlike `estimatedPowerWatts`/`estimatedPowerSource`
-    /// themselves, doesn't distinguish which of the two formulas
-    /// contributed each sample – an average necessarily blends both once a
-    /// session has covered both flat and inclined stretches, so there's no
-    /// single confidence level left to flag for it the way the instant
-    /// reading's own color-coding does.
+    /// `powerStats` itself.
     @Published private(set) var estimatedPowerStats = LiveStat()
     /// One sample per elapsed second of actual power output, so
     /// `ControlView`'s `WorkoutProgramChart` can plot it alongside the
@@ -845,7 +830,6 @@ final class WorkoutSession: ObservableObject {
         distanceMeters = 0
         estimatedElevationGainMeters = 0
         estimatedPowerWatts = nil
-        estimatedPowerSource = nil
         powerHistory.removeAll()
         heartRateHistory.removeAll()
         speedHistory.removeAll()
@@ -1281,29 +1265,19 @@ final class WorkoutSession: ObservableObject {
             // regardless of whether this treadmill already reports real
             // power – always kept current, even when unused, exactly like
             // `estimatedElevationGainMeters`'s own "always compute the
-            // fallback" precedent. Which formula actually runs depends on
-            // whether there's genuine climbing to measure right now –
-            // `climbingPowerWatts` while there is, `internalWorkPowerWatts`
-            // when there isn't – rather than either one alone across the
-            // whole incline range.
+            // fallback" precedent. `EnergyEstimator.treadmillPowerWatts`
+            // itself sums the climbing and internal-work components rather
+            // than switching between them by incline – see its own doc
+            // comment for the real, reported discontinuity that produced.
             let bodyWeightKg = UserDefaults.standard.double(forKey: SettingsView.bodyWeightKgKey)
             if connection.machineKind == .treadmill, bodyWeightKg > 0 {
                 let inclinePercent = estimatedPhysicalInclinePercent ?? 0
-                let watts: Double?
-                let source: EstimatedPowerSource
-                if inclinePercent > 0 {
-                    watts = EnergyEstimator.climbingPowerWatts(
-                        weightKg: bodyWeightKg,
-                        speedKmh: speedKmh,
-                        inclinePercent: inclinePercent
-                    )
-                    source = .climbing
-                } else {
-                    watts = EnergyEstimator.internalWorkPowerWatts(weightKg: bodyWeightKg, speedKmh: speedKmh)
-                    source = .internalWork
-                }
+                let watts = EnergyEstimator.treadmillPowerWatts(
+                    weightKg: bodyWeightKg,
+                    speedKmh: speedKmh,
+                    inclinePercent: inclinePercent
+                )
                 estimatedPowerWatts = watts.map { Int($0.rounded()) }
-                estimatedPowerSource = watts != nil ? source : nil
                 if let watts {
                     estimatedPowerStats.record(watts)
                 }

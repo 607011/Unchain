@@ -347,21 +347,15 @@ struct ControlView: View {
             rememberConnectedDevice()
             configureWatchCompanion()
         }
-        // `configureWatchCompanion()`'s closures capture `connection`/
-        // `session` (via this struct's own `self`, implicitly, being
-        // `@ObservedObject`/`@StateObject` properties) – and
-        // `WatchConnectivityManager.shared` is a singleton that lives for
-        // the whole process, so whatever it was last handed just keeps
-        // those specific instances alive, strongly, for as long as nothing
-        // overwrites it. Leaving here (back to the device list, same class
-        // of gap `TrainerConnection`'s own `deinit` was just added for)
-        // used to mean neither ever actually got released until the rider
-        // connected to something else and a fresh `configureWatchCompanion()`
-        // call replaced the closures – silently defeating that very
-        // `deinit`-based cleanup, and leaving a stale Watch "start"/"stop"
-        // request able to act on a connection/session nothing on the phone
-        // still considers current. Clearing both here, not just relying on
-        // the next connection to overwrite them.
+        // Defense-in-depth on top of `configureWatchCompanion()`'s own weak
+        // capture (see that method's doc comment for the real fix, and why
+        // this alone used to not be one): belt-and-braces so a stale
+        // request can't even reach the now-harmless-anyway `guard let
+        // session` in either closure, rather than relying on that guard
+        // alone. `WatchConnectivityManager.shared` is a singleton that
+        // lives for the whole process, so whatever it was last handed
+        // would otherwise just sit there, doing nothing, until the next
+        // connection's own `configureWatchCompanion()` call replaces it.
         .onDisappear {
             WatchConnectivityManager.shared.onStartRequested = nil
             WatchConnectivityManager.shared.onStopRequested = nil
@@ -391,6 +385,18 @@ struct ControlView: View {
             guard isWatchCompanionWorkout, summary != nil else { return }
             isWatchCompanionWorkout = false
             session.reset()
+        }
+        // The other half of `session.watchStartRequestCompletion` – see its
+        // own doc comment. `configureWatchCompanion()`'s `onStartRequested`
+        // closure only ever sets it (weakly capturing `session`, nothing
+        // else); the actual decision logic – needing `connection` and
+        // several of this view's own `@State` properties, none of which
+        // that closure may safely capture – lives here instead, where a
+        // normal `self` reference is always the *current* one. Same
+        // `.onReceive`-not-`.onChange` reasoning as `pendingSummary` above.
+        .onReceive(session.$watchStartRequestCompletion) { completion in
+            guard let completion else { return }
+            handleWatchStartRequest(completion: completion)
         }
         .confirmationDialog(
             "Save workout to Apple Health?",
@@ -1529,39 +1535,71 @@ struct ControlView: View {
     }
 
     /// Wires `WatchConnectivityManager`'s two callbacks to this view's own
-    /// start/stop actions – see that type's doc comment for the full
-    /// picture. `onStartRequested` now takes a completion instead of
-    /// returning synchronously: a bike answers it immediately, but a
-    /// treadmill has to show the same "Walking or running?" dialog
-    /// `startWorkout()` does first (`isChoosingTreadmillActivity`), and the
-    /// Watch's reply waits – via `pendingWatchStartCompletion` – until the
-    /// rider actually answers it on the phone. `.unknown` fails immediately;
-    /// there'd be no honest activity type to hand the Watch either way.
+    /// start/stop actions. Deliberately thin – `[weak session]`, nothing
+    /// else, ever captured here – see `session.watchStartRequestCompletion`'s
+    /// own doc comment for why: `WatchConnectivityManager.shared` outlives
+    /// any one `ControlView`, so a closure it holds that captured `self`
+    /// (hence `connection`, transitively, via this struct's own
+    /// `@ObservedObject`) would keep that specific `TrainerConnection` –
+    /// peripheral, delegate, BLE connection and all – alive for as long as
+    /// nothing overwrites the closure, whether or not the rest of the app
+    /// still considers it current. `[weak session]` alone can't do that
+    /// (`self`, `connection`, and every `@State` property below are only
+    /// reachable *through* `self`, which either gets captured too or isn't
+    /// available at all) – so `onStartRequested` only ever does the one
+    /// thing it safely can with a weak `session` and nothing more:  a fast
+    /// `state == .idle` rejection, or handing the request off to
+    /// `session.watchStartRequestCompletion` for `handleWatchStartRequest(completion:)`
+    /// below (still on the main thread, still effectively immediate – a
+    /// `@Published` set is delivered synchronously to `.onReceive`) to
+    /// finish with full, *current* access to `connection` and this view's
+    /// own state. `onStopRequested` needs nothing beyond `session` at all.
     private func configureWatchCompanion() {
-        WatchConnectivityManager.shared.onStartRequested = { completion in
-            guard connection.state == .ready, session.state == .idle else {
+        WatchConnectivityManager.shared.onStartRequested = { [weak session] completion in
+            guard let session, session.state == .idle else {
                 completion(false, nil)
                 return
             }
-            switch connection.machineKind {
-            case .bike:
-                isWatchCompanionWorkout = true
-                treadmillActivityType = nil
-                startSession()
-                completion(true, .cycling)
-            case .treadmill:
-                // `isWatchCompanionWorkout` is set from
-                // `chooseTreadmillActivity(_:)` instead, once the rider
-                // actually answers – not here, where the request could
-                // still be cancelled.
-                pendingWatchStartCompletion = completion
-                isChoosingTreadmillActivity = true
-            case .unknown:
-                completion(false, nil)
-            }
+            session.watchStartRequestCompletion = completion
         }
-        WatchConnectivityManager.shared.onStopRequested = {
-            session.stop()
+        WatchConnectivityManager.shared.onStopRequested = { [weak session] in
+            session?.stop()
+        }
+    }
+
+    /// The other half of `configureWatchCompanion()` – see its own doc
+    /// comment on why this lives here, run from `.onReceive(session
+    /// .$watchStartRequestCompletion)`, instead of inline in the closure
+    /// itself. `completion` takes over from here exactly as it used to
+    /// inside `onStartRequested` directly, back when that closure could
+    /// still reach `connection`/this view's `@State` safely. `.unknown`
+    /// fails immediately; there'd be no honest activity type to hand the
+    /// Watch either way. A treadmill has to show the same "Walking or
+    /// running?" dialog `startWorkout()` does first
+    /// (`isChoosingTreadmillActivity`), so `completion` waits – via
+    /// `pendingWatchStartCompletion` – until the rider actually answers it
+    /// on the phone; a bike answers immediately instead.
+    private func handleWatchStartRequest(completion: @escaping (Bool, HKWorkoutActivityType?) -> Void) {
+        session.watchStartRequestCompletion = nil
+        guard connection.state == .ready else {
+            completion(false, nil)
+            return
+        }
+        switch connection.machineKind {
+        case .bike:
+            isWatchCompanionWorkout = true
+            treadmillActivityType = nil
+            startSession()
+            completion(true, .cycling)
+        case .treadmill:
+            // `isWatchCompanionWorkout` is set from
+            // `chooseTreadmillActivity(_:)` instead, once the rider
+            // actually answers – not here, where the request could
+            // still be cancelled.
+            pendingWatchStartCompletion = completion
+            isChoosingTreadmillActivity = true
+        case .unknown:
+            completion(false, nil)
         }
     }
 }

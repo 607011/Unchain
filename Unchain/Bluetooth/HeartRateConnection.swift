@@ -32,7 +32,11 @@ final class HeartRateConnection: NSObject, ObservableObject {
     /// either (`DeviceListView`'s row action calls both), but this is the
     /// one cleanup path guaranteed to run regardless of *how* that ever
     /// stops being true – belt-and-braces against the same class of crash,
-    /// not a response to a strap-specific repro.
+    /// not a response to a strap-specific repro. Same caveat as
+    /// `TrainerConnection`'s own `deinit` too, though: this alone still
+    /// leaves the window `BLEDisconnectGracePeriod` actually closes (see
+    /// its own doc comment) open for whatever doesn't go through
+    /// `disconnect()` first.
     deinit {
         central?.cancelPeripheralConnection(peripheral)
     }
@@ -55,8 +59,13 @@ final class HeartRateConnection: NSObject, ObservableObject {
         state = .disconnected
     }
 
+    /// See `TrainerConnection.disconnect()`'s own doc comment – same
+    /// primary defense, same reasoning for why it belongs here and not in
+    /// `deinit`.
     func disconnect() {
         central?.cancelPeripheralConnection(peripheral)
+        peripheral.delegate = nil
+        BLEDisconnectGracePeriod.extend(self)
     }
 
     /// Called by `BluetoothManager` right before issuing a fresh `connect()`

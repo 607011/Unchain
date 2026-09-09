@@ -2,6 +2,7 @@ import Foundation
 import UIKit
 import AVFoundation
 import Combine
+import HealthKit
 
 /// How the interval sound (see `SettingsView`) announces a new Program file
 /// entry being reached – `.single` just beeps once on arrival, `.countdown`
@@ -178,6 +179,27 @@ final class WorkoutSession: ObservableObject {
     @Published private(set) var state: WorkoutState = .idle
     @Published private(set) var elapsedSeconds: Int = 0
     @Published var pendingSummary: WorkoutSummary?
+    /// Set by `ControlView.configureWatchCompanion()`'s `onStartRequested`
+    /// closure, `nil`'d again right after `ControlView.handleWatchStartRequest(completion:)`
+    /// consumes it – the session-owned half of the same "session publishes a
+    /// pending decision, the view reacts to it with the UI-state access only
+    /// it has" pattern `pendingSummary` above already uses for the Save-to-
+    /// Health dialog, `Combine`'s `.onReceive` (not `.onChange`, same reason
+    /// as `pendingSummary`'s own: a closure isn't `Equatable` either) is what
+    /// lets `ControlView` react. Exists specifically so `WatchConnectivityManager
+    /// .onStartRequested`/`onStopRequested` (see `configureWatchCompanion()`'s
+    /// own doc comment) only ever need to weakly capture *this session* –
+    /// never `ControlView` itself, `connection`, or any of its `@State` – to
+    /// do their job: `WatchConnectivityManager.shared` is a singleton that
+    /// outlives any one `ControlView`, so a closure it holds that captured
+    /// `self`/`connection` strongly (as this one used to) could keep a whole
+    /// finished session's `TrainerConnection` – peripheral, delegate, BLE
+    /// connection and all – alive well past when the rest of the app
+    /// considers it gone, for as long as nothing happens to overwrite the
+    /// closure. Reported directly, after `.onDisappear` nilling the
+    /// closures out was found to only cover the one case it actually
+    /// runs for, not fix the underlying capture.
+    @Published var watchStartRequestCompletion: ((Bool, HKWorkoutActivityType?) -> Void)?
 
     @Published private(set) var powerStats = LiveStat()
     @Published private(set) var cadenceStats = LiveStat()
@@ -683,6 +705,7 @@ final class WorkoutSession: ObservableObject {
             ))
         }
         pendingSummary = nil
+        watchStartRequestCompletion = nil
         state = .idle
         elapsedSeconds = 0
         distanceMeters = 0

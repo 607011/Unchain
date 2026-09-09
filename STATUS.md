@@ -2293,3 +2293,63 @@ would change, roughly in the order it'd need doing:
       hasn't actually been reported by this trainer yet – same
       independence `warnIfOutOfRange(_:)`'s own two `…OutOfRange` checks
       already had.
+- [x] **Closed the actual race `TrainerConnection`/`HeartRateConnection`'s
+      own `deinit`-based cleanup only narrowed** – pointed out directly,
+      and correct: `deinit` runs once the *last* strong reference is
+      already gone, too late to protect against a callback CoreBluetooth
+      had already queued for its own internal main-thread-deferred
+      delivery *before* that moment – nothing app-side can retroactively
+      cancel an already-scheduled one, and an object can't re-retain
+      itself from inside its own `deinit` to survive longer either way.
+      New `BLEDisconnectGracePeriod` (own file, shared by both types) is
+      the actual fix: called from `disconnect()` instead – while a valid
+      strong reference to hand off still exists, before every real call
+      site immediately drops its own – it keeps the object alive for a
+      short, self-expiring grace period past that point, so a straggler
+      callback that was already queued lands on real (if by then inert)
+      memory instead of freed/reused memory once it does fire. Doesn't
+      stop the callback from firing – can't – just changes what it lands
+      on: the actual difference between this crash and a silent no-op.
+      `disconnect()` on both types also now nils `peripheral.delegate`
+      itself as an extra, best-effort signal alongside the existing
+      `cancelPeripheralConnection` call. `deinit`'s own `cancelPeripheralConnection`
+      call stays – now explicitly documented as the narrower catch-all for
+      whatever path doesn't go through `disconnect()` first, rather than
+      the primary defense it read as before this.
+- [x] **Closed the actual capture behind the Watch-companion closures too,
+      not just the `.onDisappear` symptom of it** – pointed out directly,
+      and correct: `ControlView.configureWatchCompanion()`'s two closures
+      captured `self` (hence `connection`, transitively, via this struct's
+      own `@ObservedObject`) to reach `connection.state`/`connection
+      .machineKind` and several of this view's own `@State` properties
+      (`isWatchCompanionWorkout`, `treadmillActivityType`,
+      `pendingWatchStartCompletion`, `isChoosingTreadmillActivity`) –
+      `WatchConnectivityManager.shared` being a singleton that outlives
+      any one `ControlView` meant that capture, not just the closures
+      existing at all, was the actual problem. `.onDisappear` nilling them
+      back out (see the entry three above this one) covers every path that
+      reaches it, but is still an event-driven convention a future code
+      change could silently bypass, not a guarantee – "only partially
+      fixed", the same critique the `deinit` narrowing above got, and just
+      as correct here.
+      Real fix: split `onStartRequested` into two stages, mirroring
+      `pendingSummary`'s own already-established "session publishes a
+      pending decision, the view reacts to it with the UI-state access
+      only it has" pattern. The closure actually stored on the singleton
+      now captures `[weak session]` and *nothing else* – a fast
+      `session.state == .idle` rejection, or handing the request off to a
+      new `WorkoutSession.watchStartRequestCompletion` (`@Published`, like
+      `pendingSummary`) – `connection` and every `@State` property above
+      are never touched from inside it at all. A new
+      `.onReceive(session.$watchStartRequestCompletion)` on `ControlView`
+      (same `.onReceive`-not-`.onChange` reasoning `pendingSummary` already
+      has: a closure isn't `Equatable`) calls the new
+      `handleWatchStartRequest(completion:)`, which picks up exactly where
+      the old inline logic left off – full, always-*current* `self` access,
+      since it runs live in the view rather than from a stored closure.
+      `onStopRequested` needed nothing beyond `session` in the first place
+      (`session?.stop()`) and is now `[weak session]` too. `.onDisappear`'s
+      nilling stays, now genuinely defense-in-depth rather than the only
+      thing actually closing the gap – with `[weak session]`, a stale
+      request now just resolves to a harmless `guard let session` miss
+      even if it somehow still fired.

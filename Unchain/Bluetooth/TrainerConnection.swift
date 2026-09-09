@@ -133,6 +133,21 @@ final class TrainerConnection: NSObject, ObservableObject {
     /// the one `clearConnection()` was already written to avoid. `deinit`
     /// is the one place guaranteed to run on *every* path this object stops
     /// being referenced from, not just the ones already known about today.
+    ///
+    /// Narrower than it looks, though – pointed out directly, and correct:
+    /// `deinit` runs only once the *last* strong reference is already gone,
+    /// which is too late to protect against a callback CoreBluetooth had
+    /// already queued for main-thread delivery *before* that moment –
+    /// nothing here (or anywhere on the app side) can retroactively cancel
+    /// that. `cancelPeripheralConnection` still matters at this point – it
+    /// stops anything *further* from being scheduled – but the real defense
+    /// against an already-queued straggler is `BLEDisconnectGracePeriod`,
+    /// applied earlier, from `disconnect()`, while a valid reference to
+    /// hand off still exists (see that type's own doc comment for the full
+    /// reasoning on why it has to run there and not here). This stays as
+    /// the catch-all for whatever path *doesn't* go through `disconnect()`
+    /// first – strictly worse odds than one that does, but still better
+    /// than nothing.
     deinit {
         central?.cancelPeripheralConnection(peripheral)
     }
@@ -155,8 +170,17 @@ final class TrainerConnection: NSObject, ObservableObject {
         state = .disconnected
     }
 
+    /// The primary defense against the crash `deinit`'s own doc comment
+    /// describes – not just telling CoreBluetooth to stop (`cancelPeripheralConnection`)
+    /// and best-effort clearing its own delegate reference, but also handing
+    /// `self` to `BLEDisconnectGracePeriod` *before* the caller goes on to
+    /// drop its own last strong reference (every real call site does so
+    /// immediately after this returns) – see that type's own doc comment
+    /// for why the timing here specifically matters.
     func disconnect() {
         central?.cancelPeripheralConnection(peripheral)
+        peripheral.delegate = nil
+        BLEDisconnectGracePeriod.extend(self)
     }
 
     /// Called by `BluetoothManager.reconnectCurrent()` right before issuing a

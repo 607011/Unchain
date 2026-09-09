@@ -199,6 +199,48 @@
   }
   .totalread b { color: var(--ink); font-weight: 600; }
 
+  .menu-wrap { position: relative; align-self: center; }
+  .menu-btn {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 16px;
+    line-height: 1;
+    padding: 7px 10px;
+    background: var(--panel);
+    color: var(--ink-muted);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .menu-btn:hover { color: var(--ink); }
+  .menu-btn:disabled { opacity: 0.35; cursor: default; }
+  .menu-btn:disabled:hover { color: var(--ink-muted); }
+  .undo-redo-group { display: flex; gap: 6px; align-self: center; }
+  .settings-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 10;
+    min-width: 220px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+    padding: 12px 14px;
+  }
+  .settings-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .settings-note {
+    margin: 8px 0 0;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--ink-muted);
+  }
+
   .scope-wrap {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -424,6 +466,20 @@
     </div>
     <div class="spacer"></div>
     <div class="totalread">Total <b id="total-read">20:00</b></div>
+    <div class="undo-redo-group">
+      <button id="undo-btn" class="menu-btn" type="button" aria-label="Undo" title="Undo (Ctrl/⌘Z)" disabled>↶</button>
+      <button id="redo-btn" class="menu-btn" type="button" aria-label="Redo" title="Redo (Ctrl/⌘⇧Z)" disabled>↷</button>
+    </div>
+    <div class="menu-wrap">
+      <button id="settings-menu-btn" class="menu-btn" type="button" aria-label="Settings" aria-haspopup="true" aria-expanded="false">⋮</button>
+      <div class="settings-popover" id="settings-popover" hidden>
+        <label class="settings-row">
+          <input type="checkbox" id="snap-toggle">
+          <span>Snap to start/end</span>
+        </label>
+        <p class="settings-note">While dragging a ramp handle, snaps to the adjacent bin's own end/start when close. Hold Ctrl (⌃ on Mac) to place it exactly instead.</p>
+      </div>
+    </div>
   </div>
 
   <div class="scope-wrap">
@@ -474,6 +530,7 @@
       <span class="sync-status" id="sync-status"></span>
     </div>
     <textarea id="preview-text" spellcheck="false"></textarea>
+    <div class="hint">Or type shorthand instead of a file, e.g. "10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP)" (bike) or "5min 8km/h, 5x(3min 10km/h 6%, 2min 6km/h)" (treadmill) — durations: min/sec/h; distances: m/km/mi/yd/ft; speed: km/h or mph.</div>
   </div>
 
   <footer>
@@ -486,6 +543,18 @@
   "use strict";
 
   var WORKOUT_NAME = "Interval Sketch workout";
+
+  // Genuine pre-existing bug, found while chasing a reload-loses-my-edits
+  // report: this used to be declared down in the "persistence" section
+  // further below, textually *after* `loadStateFromStorage()` is first
+  // called (a few lines down, restoring `state` from it). `var` only
+  // hoists the *declaration*, not the assignment – so at that first call,
+  // `STORAGE_KEY` was still `undefined`, and `storage.getItem(undefined)`
+  // silently reads back the wrong key ("undefined", coerced to a string)
+  // and finds nothing there, every single time, regardless of whether a
+  // real save had just happened moments before. Declared here instead,
+  // before anything can possibly read it too early.
+  var STORAGE_KEY = "interval-sketch-state-v1";
 
   var state = {
     mode: "bike",
@@ -504,23 +573,43 @@
     // (e.g. on a touchscreen, or typing/pasting exact values into the
     // preview textarea directly).
     speedStep: 0.1,
+    // Whether Shift-dragging a ramp handle (Power lane only) snaps onto
+    // the adjacent bin's own end/start when it comes close – see
+    // `ensureLaneSetup`'s `neighborEdgeValue`/`setEdgeValue`. On by
+    // default: it only ever helps land exactly on a value already close
+    // to the one aimed for, and holding Ctrl (⌃ on Mac) overrides it for
+    // one drag when a genuinely close-but-different value is wanted –
+    // the Settings popover's own toggle is for turning it off for good.
+    snapEnabled: true,
     power: [],
     speed: [],
     incline: []
   };
 
+  // Each bin is `{start, end}`, not a plain number – see the "ramped
+  // power bins" note further down for why. `start === end` throughout
+  // here (flat blocks) is just this sample data's own choice, same as a
+  // freshly-painted bin defaults to flat until the rider drags a ramp
+  // handle deliberately.
+  function flatBin(v) { return { start: v, end: v }; }
   function sampleBike(n) {
     var out = [];
     for (var i = 0; i < n; i++) {
       var t = i / (n - 1);
-      if (t < 0.2) out.push(Math.round(110 + t / 0.2 * 70));
-      else if (t > 0.85) out.push(Math.round(180 - (t - 0.85) / 0.15 * 90));
+      if (t < 0.2) out.push(flatBin(Math.round(110 + t / 0.2 * 70)));
+      else if (t > 0.85) out.push(flatBin(Math.round(180 - (t - 0.85) / 0.15 * 90)));
       else {
         var cyclePos = Math.floor((t - 0.2) / 0.1) % 2;
-        out.push(cyclePos === 0 ? 260 : 130);
+        out.push(flatBin(cyclePos === 0 ? 260 : 130));
       }
     }
     return out;
+  }
+  // Old localStorage state (saved before ramped power bins existed) has
+  // `power` as a plain `number[]` – normalized to `{start, end}` here so
+  // a returning rider's saved workout still loads instead of breaking.
+  function normalizePowerBins(power) {
+    return power.map(function (v) { return (v && typeof v === "object") ? v : flatBin(v); });
   }
   function sampleTreadmillSpeed(n) {
     var out = [];
@@ -556,7 +645,8 @@
     state.cooldownBins = Math.max(0, restored.cooldownBins || 0);
     state.ftp = restored.ftp > 0 ? restored.ftp : state.ftp;
     state.speedStep = (restored.speedStep === 0.1 || restored.speedStep === 0.5) ? restored.speedStep : state.speedStep;
-    state.power = restored.power.length ? restored.power : sampleBike(state.bins);
+    state.snapEnabled = typeof restored.snapEnabled === "boolean" ? restored.snapEnabled : state.snapEnabled;
+    state.power = restored.power.length ? normalizePowerBins(restored.power) : sampleBike(state.bins);
     state.speed = restored.speed.length ? restored.speed : sampleTreadmillSpeed(state.bins);
     state.incline = restored.incline.length ? restored.incline : sampleTreadmillIncline(state.bins);
   } else {
@@ -566,7 +656,13 @@
   }
 
   var lanes = {
-    power: { key: "power", svg: document.getElementById("svg-power"), min: 0, max: 500, step: 5, unit: "W", accent: "--accent-power", glow: "--accent-power-glow", fmt: function (v) { return Math.round(v) + " W"; }, hasBoundaryHandles: true },
+    // `hasRamps: true` – the only lane whose bins carry a `{start, end}`
+    // pair rather than one flat value; see `ensureLaneSetup`'s own note
+    // on the Shift+edge-drag gesture that sets them independently. Bike-
+    // only: `TreadmillWorkoutSegment` has no ramp concept at all (every
+    // real .zwo block seen is a single flat Pace/Incline for its whole
+    // duration), so Speed/Incline below stay plain numbers.
+    power: { key: "power", svg: document.getElementById("svg-power"), min: 0, max: 500, step: 5, unit: "W", accent: "--accent-power", glow: "--accent-power-glow", fmt: function (v) { return Math.round(v) + " W"; }, hasBoundaryHandles: true, hasRamps: true },
     // `step` starts at `state.speedStep` (0.1 by default, or whatever was
     // restored from storage) rather than a fixed literal here – the
     // speed-step toggle below keeps this in sync whenever the rider
@@ -578,6 +674,15 @@
 
   var PX_PER_BIN = 42;
   var MIN_PX_PER_BIN = 16;
+  // How close (in the same SVG-space pixels as `PX_PER_BIN`) the pointer
+  // has to be to a bin's own left/right edge for Shift+drag to grab that
+  // endpoint instead of painting – see `ensureLaneSetup`'s `edgeAt(evt)`.
+  var EDGE_HIT_PX = 8;
+  // How close (in on-screen pixels along the value axis, not `EDGE_HIT_PX`'s
+  // x-axis space) a ramp handle's dragged-to value has to be to the
+  // adjacent bin's own end/start for `state.snapEnabled` to snap onto it
+  // exactly – see `ensureLaneSetup`'s `neighborEdgeValue`/`setEdgeValue`.
+  var SNAP_HIT_PX = 6;
 
   function css(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -640,54 +745,233 @@
       return { bin: bin, value: v, clientX: evt.clientX, clientY: evt.clientY };
     }
 
-    function showReadout(bin, value, clientX, clientY) {
+    function showReadout(bin, value, clientX, clientY, labelOverride) {
       var wrect = wrap.getBoundingClientRect();
       readout.style.left = (clientX - wrect.left) + "px";
       readout.style.top = (clientY - wrect.top) + "px";
-      readout.textContent = binTimeLabel(bin * state.binSeconds) + "–" + binTimeLabel((bin + 1) * state.binSeconds) + "  " + lane.fmt(value) + "  ·  " + classify(bin);
+      readout.textContent = labelOverride
+        ? labelOverride + "  " + lane.fmt(value)
+        : binTimeLabel(bin * state.binSeconds) + "–" + binTimeLabel((bin + 1) * state.binSeconds) + "  " + lane.fmt(value) + "  ·  " + classify(bin);
       readout.classList.add("visible");
     }
     function hideReadout() { readout.classList.remove("visible"); }
 
-    function applyPaint(bin, value) {
+    // A flat-painted bin is `{start: v, end: v}` for a ramped lane (Power)
+    // – same shape a ramp's own two ends have, just equal – or plain `v`
+    // for every other lane. Centralized here so `applyPaint` below doesn't
+    // need its own `lane.hasRamps` branch at each of its two call sites.
+    function setFlat(values, index, v) {
+      values[index] = lane.hasRamps ? { start: v, end: v } : v;
+    }
+
+    // Snaps a flat-painted bin's own value onto whichever of its two
+    // immediate neighbors' facing endpoint (the bin to the left's `end`,
+    // the bin to the right's `start`) it's closest to, if that's within
+    // `SNAP_HIT_PX` – the same magnetic snap the ramp handles themselves
+    // use (`setEdgeValue`'s own note), just applied to a whole flat bin
+    // instead of one ramp endpoint. Only ever has candidates at all for a
+    // `hasRamps` lane (Speed/Incline bins are plain numbers, no `.start`/
+    // `.end` to compare against), so this is safe to call unconditionally
+    // from `applyPaint` regardless of which lane it's painting.
+    function snappedFlatValue(bin, rawValue, evt) {
+      if (!lane.hasRamps || !state.snapEnabled || (evt && evt.ctrlKey)) return rawValue;
+      var values = state[lane.key];
+      var candidates = [];
+      if (bin - 1 >= 0) candidates.push(values[bin - 1].end);
+      if (bin + 1 < values.length) candidates.push(values[bin + 1].start);
+      var pxPerValue = lane.geom.plotH / (lane.max - lane.min);
+      var best = null, bestDist = Infinity;
+      candidates.forEach(function (c) {
+        var d = Math.abs(rawValue - c) * pxPerValue;
+        if (d <= SNAP_HIT_PX && d < bestDist) { best = c; bestDist = d; }
+      });
+      return best !== null ? best : rawValue;
+    }
+
+    function applyPaint(bin, value, evt) {
       var values = state[lane.key];
       if (lastBin !== null && Math.abs(bin - lastBin) > 1) {
         var step = bin > lastBin ? 1 : -1;
         for (var bb = lastBin + step; bb !== bin; bb += step) {
           var frac = (bb - lastBin) / (bin - lastBin);
-          values[bb] = Math.round((lastVal + (value - lastVal) * frac) / lane.step) * lane.step;
+          setFlat(values, bb, Math.round((lastVal + (value - lastVal) * frac) / lane.step) * lane.step);
         }
       }
-      values[bin] = value;
+      // Only the bin actually under the pointer right now snaps – the
+      // bins a fast drag smears across in between (the loop just above)
+      // stay plain linear interpolation, not each independently pulled
+      // toward a neighbor, which would fight the smear rather than help
+      // it.
+      setFlat(values, bin, snappedFlatValue(bin, value, evt));
       lastBin = bin; lastVal = value;
       renderLane(lane);
       updatePreview();
     }
 
+    // ---- ramped power bins: Shift + drag a bin's own start/end edge ----
+    //
+    // Only wired up for `lane.hasRamps` (Power) – everywhere else, a bin
+    // stays one flat value and this whole block is simply never reached
+    // (`evt.shiftKey` is checked before anything else below). Holding
+    // Shift while hovering near a bin's left or right edge shows a small
+    // handle right where that endpoint's current value sits; grabbing it
+    // and dragging vertically sets *only* that one endpoint – the bin's
+    // other endpoint, and every other bin, are untouched – which is what
+    // actually draws a ramp within that one bin rather than a flat block.
+    // A plain paint (no Shift, or Shift away from an edge) still sets both
+    // ends equal via `setFlat` above, so painting over a ramped bin is
+    // always how to flatten it again – no separate "reset" control needed.
+    var edgeDragging = false, edgeDragBin = null, edgeDragWhich = null;
+    var edgeHandle = null;
+    if (lane.hasRamps) {
+      edgeHandle = document.createElementNS(svgNS, "circle");
+      edgeHandle.setAttribute("r", "5");
+      edgeHandle.setAttribute("fill", "var(--panel)");
+      edgeHandle.setAttribute("stroke", "var(--ink)");
+      edgeHandle.setAttribute("stroke-width", "2");
+      edgeHandle.style.display = "none";
+      edgeHandle.style.pointerEvents = "none";
+      lane.svg.appendChild(edgeHandle);
+    }
+
+    // Which bin-edge (if any) `evt` is within `EDGE_HIT_PX` of – `null`
+    // when not near one at all. Two adjacent bins' own edges sit at the
+    // very same x, but `Math.floor` below already resolves which bin
+    // "owns" a given x, so approaching from the left lands just inside
+    // the *earlier* bin (→ its `end`) and from the right just inside the
+    // *later* one (→ its `start`) – no separate disambiguation needed.
+    function edgeAt(evt) {
+      var g = lane.geom;
+      var rect = lane.svg.getBoundingClientRect();
+      var scaleX = (g.plotW + g.padLeft) / rect.width;
+      var x = (evt.clientX - rect.left) * scaleX;
+      var bin = Math.floor((x - g.padLeft) / g.pxPerBin);
+      if (bin < 0 || bin >= g.n) return null;
+      var xInBin = x - g.padLeft - bin * g.pxPerBin;
+      var threshold = Math.min(EDGE_HIT_PX, g.pxPerBin / 2 - 1);
+      if (xInBin < threshold) return { bin: bin, which: "start" };
+      if (xInBin > g.pxPerBin - threshold) return { bin: bin, which: "end" };
+      return null;
+    }
+
+    function positionEdgeHandle(bin, which, value) {
+      var g = lane.geom;
+      var x = g.padLeft + (which === "start" ? bin : bin + 1) * g.pxPerBin;
+      var y = g.padTop + g.plotH - (value - lane.min) / (lane.max - lane.min) * g.plotH;
+      edgeHandle.setAttribute("cx", x);
+      edgeHandle.setAttribute("cy", y);
+      edgeHandle.style.display = "";
+    }
+    function hideEdgeHandle() {
+      if (edgeHandle) edgeHandle.style.display = "none";
+    }
+
+    // The *other* end sitting right across the seam from `(bin, which)` –
+    // dragging a bin's `end` compares against the next bin's own `start`,
+    // and a bin's `start` against the previous bin's own `end`. `null` at
+    // either end of the workout, where there's nothing on the other side
+    // of the seam to snap onto at all.
+    function neighborEdgeValue(bin, which) {
+      var values = state[lane.key];
+      if (which === "end") return (bin + 1 < values.length) ? values[bin + 1].start : null;
+      return (bin - 1 >= 0) ? values[bin - 1].end : null;
+    }
+
+    function setEdgeValue(bin, which, rawValue, evt) {
+      var v = Math.max(lane.min, Math.min(lane.max, rawValue));
+      v = Math.round(v / lane.step) * lane.step;
+      // Ctrl (⌃ on Mac) held overrides snapping for this one drag – same
+      // convention plenty of other drag-to-place tools use for exactly
+      // this. `state.snapEnabled` (the Settings popover's own toggle) is
+      // the persistent on/off switch; this is the per-drag escape hatch.
+      var ctrlOverride = !!(evt && evt.ctrlKey);
+      if (state.snapEnabled && !ctrlOverride) {
+        var neighbor = neighborEdgeValue(bin, which);
+        if (neighbor !== null) {
+          var pxPerValue = lane.geom.plotH / (lane.max - lane.min);
+          if (Math.abs(v - neighbor) * pxPerValue <= SNAP_HIT_PX) v = neighbor;
+        }
+      }
+      state[lane.key][bin][which] = v;
+      return v;
+    }
+
     hit.addEventListener("pointerdown", function (evt) {
-      painting = true;
       // Capture on `hit` itself – the same element the listeners live on
       // and that never gets removed/recreated after this point, unlike
       // capturing on `lane.svg` (an ancestor `hit` doesn't bubble *up*
       // into, so its own listeners would simply stop receiving events
-      // once capture moved the target away from it).
-      hit.setPointerCapture(evt.pointerId);
+      // once capture moved the target away from it). Wrapped in try/catch
+      // like every `release`PointerCapture` call already is elsewhere in
+      // this file – setPointerCapture can throw ("no active pointer with
+      // the given id") for a pointer the browser doesn't consider active
+      // by the time this runs, and the rest of this gesture still works
+      // fine without capture, just without the "drag stays live even past
+      // the element's own bounds" guarantee capture normally adds.
+      try { hit.setPointerCapture(evt.pointerId); } catch (e) { /* proceed uncaptured */ }
+      if (lane.hasRamps && evt.shiftKey) {
+        var edge = edgeAt(evt);
+        if (edge) {
+          edgeDragging = true;
+          edgeDragBin = edge.bin;
+          edgeDragWhich = edge.which;
+          pushUndo();
+          var bv0 = eventToBinValue(evt);
+          var v0 = setEdgeValue(edge.bin, edge.which, bv0.value, evt);
+          renderLane(lane);
+          updatePreview();
+          positionEdgeHandle(edge.bin, edge.which, v0);
+          showReadout(edge.bin, v0, evt.clientX, evt.clientY, edge.which === "start" ? "Start" : "End");
+          evt.preventDefault();
+          return;
+        }
+      }
+      painting = true;
+      pushUndo();
       var bv = eventToBinValue(evt);
       lastBin = null; lastVal = null;
-      applyPaint(bv.bin, bv.value);
+      applyPaint(bv.bin, bv.value, evt);
       showReadout(bv.bin, bv.value, bv.clientX, bv.clientY);
       evt.preventDefault();
     });
     hit.addEventListener("pointermove", function (evt) {
+      if (edgeDragging) {
+        var bvE = eventToBinValue(evt);
+        var vE = setEdgeValue(edgeDragBin, edgeDragWhich, bvE.value, evt);
+        renderLane(lane);
+        updatePreview();
+        positionEdgeHandle(edgeDragBin, edgeDragWhich, vE);
+        showReadout(edgeDragBin, vE, evt.clientX, evt.clientY, edgeDragWhich === "start" ? "Start" : "End");
+        return;
+      }
+      if (lane.hasRamps && !painting) {
+        var edge = evt.shiftKey ? edgeAt(evt) : null;
+        if (edge) {
+          lane.svg.style.cursor = "ns-resize";
+          positionEdgeHandle(edge.bin, edge.which, state[lane.key][edge.bin][edge.which]);
+        } else {
+          lane.svg.style.cursor = "";
+          hideEdgeHandle();
+        }
+      }
       var bv = eventToBinValue(evt);
-      if (painting) applyPaint(bv.bin, bv.value);
+      if (painting) applyPaint(bv.bin, bv.value, evt);
       showReadout(bv.bin, bv.value, bv.clientX, bv.clientY);
     });
     hit.addEventListener("pointerup", function (evt) {
+      if (edgeDragging) {
+        edgeDragging = false;
+        hideEdgeHandle();
+        try { hit.releasePointerCapture(evt.pointerId); } catch (e) { /* already released */ }
+        return;
+      }
       painting = false; lastBin = null; lastVal = null;
       try { hit.releasePointerCapture(evt.pointerId); } catch (e) { /* already released */ }
     });
-    hit.addEventListener("pointerleave", function () { if (!painting) hideReadout(); });
+    hit.addEventListener("pointerleave", function () {
+      if (!painting) hideReadout();
+      if (!edgeDragging) hideEdgeHandle();
+    });
 
     // Warm-up/Cool-down boundary handles – dragged directly on the chart,
     // the same "point at what you mean" idea as painting a value, rather
@@ -764,6 +1048,7 @@
 
     grabArea.addEventListener("pointerdown", function (evt) {
       dragging = true;
+      pushUndo();
       grabArea.setPointerCapture(evt.pointerId);
       evt.preventDefault();
       evt.stopPropagation();
@@ -933,11 +1218,17 @@
     baseline.setAttribute("stroke", lineColor); baseline.setAttribute("stroke-width", "1.5");
     group.appendChild(baseline);
 
-    // step path + fill
+    // step path + fill – for a `hasRamps` lane, `values[b]` is
+    // `{start, end}`: reading them separately here is *all* it takes to
+    // draw a sloped line across a ramped bin instead of a flat one –
+    // `start === end` (an unramped bin) still comes out perfectly flat,
+    // so this same code draws both without needing to branch on which.
     var stepPts = [];
     for (var b = 0; b < n; b++) {
-      stepPts.push([xAt(b), yAt(values[b])]);
-      stepPts.push([xAt(b + 1), yAt(values[b])]);
+      var startV = lane.hasRamps ? values[b].start : values[b];
+      var endV = lane.hasRamps ? values[b].end : values[b];
+      stepPts.push([xAt(b), yAt(startV)]);
+      stepPts.push([xAt(b + 1), yAt(endV)]);
     }
     var d = "M " + xAt(0) + " " + (padTop + plotH);
     stepPts.forEach(function (p) { d += " L " + p[0] + " " + p[1]; });
@@ -990,15 +1281,24 @@
     return runs;
   }
 
+  // `values` is `state.power` – always `{start, end}` bins (see the
+  // "ramped power bins" note in `ensureLaneSetup`). Writing the *actual*
+  // start/end values, one at t0 and the other at (t1 - 0.01min), is what
+  // makes an `.erg`/`.mrc` reader draw a genuine linear ramp across the
+  // bin instead of a flat block – exactly like a flat bin already did
+  // when `start === end`, so this one code path covers both without a
+  // separate branch. The 0.01 min still keeps a *step* between bins a
+  // step (not smeared into the next bin's own start), same reasoning as
+  // before this had ramps at all.
   function ergLikeBody(values, toPercentOfFtp) {
     var lines = [];
     var binMin = state.binSeconds / 60;
+    function fmt(v) { return toPercentOfFtp ? Math.round(v / state.ftp * 100) : Math.round(v); }
     for (var i = 0; i < values.length; i++) {
-      var v = toPercentOfFtp ? Math.round(values[i] / state.ftp * 100) : Math.round(values[i]);
       var t0 = i * binMin;
       var t1 = (i + 1) * binMin - 0.01;
-      lines.push(t0.toFixed(2) + "\t" + v);
-      lines.push(t1.toFixed(2) + "\t" + v);
+      lines.push(t0.toFixed(2) + "\t" + fmt(values[i].start));
+      lines.push(t1.toFixed(2) + "\t" + fmt(values[i].end));
     }
     return lines.join("\n");
   }
@@ -1038,10 +1338,23 @@
     if (state.mode === "bike") {
       lines.push('  <sportType>bike</sportType>');
       lines.push('  <workout>');
-      var runs = mergeRuns(state.bins, function (i) { return state.power[i] + "|" + classify(i); });
+      // `.zwo`'s flat blocks can't express a ramp at all (see
+      // `ZWOWorkoutParser`'s own doc comment in the app) – a ramped bin
+      // (`start !== end`) is exported as its start/end average instead of
+      // being silently flattened by merging it with a same-average
+      // neighbor that might have a completely different actual ramp, so
+      // its own unique `"ramp" + i` key here always keeps it as its own
+      // single-bin block rather than merging with anything.
+      var runs = mergeRuns(state.bins, function (i) {
+        var bin = state.power[i];
+        var ramped = bin.start !== bin.end;
+        return (ramped ? "ramp" + i : bin.start) + "|" + classify(i);
+      });
       runs.forEach(function (r) {
         var duration = r.length * state.binSeconds;
-        var fraction = (state.power[r.start] / state.ftp).toFixed(3);
+        var bin = state.power[r.start];
+        var avg = (bin.start + bin.end) / 2;
+        var fraction = (avg / state.ftp).toFixed(3);
         lines.push('    <' + classify(r.start) + ' Duration="' + duration + '" Power="' + fraction + '"/>');
       });
       lines.push('  </workout>');
@@ -1062,18 +1375,53 @@
   var builders = { erg: buildErg, mrc: buildMrc, zwo: buildZwo };
 
   // ---- persistence ----
+  // `STORAGE_KEY` itself is declared up near the top of the file now, not
+  // here – see its own comment there for why that move was the actual fix
+  // for a real bug, not just tidying.
 
-  var STORAGE_KEY = "interval-sketch-state-v1";
+  // Prefers `localStorage` (survives closing the tab/browser entirely) but
+  // falls back to `sessionStorage` (survives a reload, cleared once the
+  // tab closes – still exactly what "restore my in-progress edits after a
+  // reload" needs) when `localStorage` itself isn't usable at all – some
+  // contexts (a strict `file://` origin, a sandboxed preview) block it
+  // outright rather than just letting individual reads/writes fail, which
+  // the old code's own try/catch around *those* never actually caught,
+  // since the failure happened merely *touching* `localStorage`, not
+  // calling a method on it. Probed once (a throwaway set+remove, not the
+  // real key) and cached, rather than re-probing on every save.
+  var cachedStorage; // undefined = not probed yet, null = neither available
+  function pickStorage() {
+    if (cachedStorage !== undefined) return cachedStorage;
+    var probeKey = "__interval_sketch_probe__";
+    try {
+      window.localStorage.setItem(probeKey, "1");
+      window.localStorage.removeItem(probeKey);
+      cachedStorage = window.localStorage;
+    } catch (e) {
+      try {
+        window.sessionStorage.setItem(probeKey, "1");
+        window.sessionStorage.removeItem(probeKey);
+        cachedStorage = window.sessionStorage;
+      } catch (e2) {
+        cachedStorage = null;
+      }
+    }
+    return cachedStorage;
+  }
 
   function saveStateToStorage() {
+    var storage = pickStorage();
+    if (!storage) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) { /* private browsing, quota, or storage disabled – fine, just don't persist */ }
+      storage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) { /* quota exceeded mid-session – fine, just don't persist this time */ }
   }
 
   function loadStateFromStorage() {
+    var storage = pickStorage();
+    if (!storage) return null;
     try {
-      var raw = localStorage.getItem(STORAGE_KEY);
+      var raw = storage.getItem(STORAGE_KEY);
       if (!raw) return null;
       var loaded = JSON.parse(raw);
       if (!loaded || !Array.isArray(loaded.power) || !Array.isArray(loaded.speed) || !Array.isArray(loaded.incline)) return null;
@@ -1083,6 +1431,82 @@
     }
   }
 
+  // ---- undo/redo ----
+  //
+  // Scoped to the *workout itself* – `speedStep`/`snapEnabled` (tool
+  // preferences, not something drawn) and `ftp` (rider profile data, not
+  // itself a drawn value, though %FTP-target math depends on it) stay
+  // out, deliberately. Everything else that changes what the chart or an
+  // exported file actually contains is fair game.
+  var UNDO_FIELDS = ["mode", "binSeconds", "bins", "warmupBins", "cooldownBins", "power", "speed", "incline"];
+  var MAX_UNDO = 100;
+  var undoStack = [];
+  var redoStack = [];
+
+  function snapshotWorkout() {
+    var snap = {};
+    UNDO_FIELDS.forEach(function (key) { snap[key] = JSON.parse(JSON.stringify(state[key])); });
+    return snap;
+  }
+  function applySnapshot(snap) {
+    UNDO_FIELDS.forEach(function (key) { state[key] = snap[key]; });
+  }
+
+  // Records "the workout looked like *this* right before whatever happens
+  // next" – called once at the *start* of a discrete action (a whole
+  // paint/ramp drag, one stepper click, one shorthand/file apply), never
+  // repeatedly during it, so one undo unwinds one whole gesture rather
+  // than needing dozens of presses to back out of a single drag. Any
+  // pending redo history is discarded here too – the usual "a fresh edit
+  // after undoing invalidates whatever you'd have redone to" rule.
+  function pushUndo() {
+    undoStack.push(snapshotWorkout());
+    if (undoStack.length > MAX_UNDO) undoStack.shift();
+    redoStack.length = 0;
+    updateUndoRedoButtons();
+  }
+  function undo() {
+    if (!undoStack.length) return;
+    redoStack.push(snapshotWorkout());
+    applySnapshot(undoStack.pop());
+    clampWarmupCooldown();
+    renderAll();
+    updatePreview();
+    syncControlsFromState();
+    updateUndoRedoButtons();
+  }
+  function redo() {
+    if (!redoStack.length) return;
+    undoStack.push(snapshotWorkout());
+    applySnapshot(redoStack.pop());
+    clampWarmupCooldown();
+    renderAll();
+    updatePreview();
+    syncControlsFromState();
+    updateUndoRedoButtons();
+  }
+  function updateUndoRedoButtons() {
+    document.getElementById("undo-btn").disabled = undoStack.length === 0;
+    document.getElementById("redo-btn").disabled = redoStack.length === 0;
+  }
+  document.getElementById("undo-btn").addEventListener("click", undo);
+  document.getElementById("redo-btn").addEventListener("click", redo);
+  // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y on Windows/Linux, ⌘Z / ⌘⇧Z / ⌘Y on Mac –
+  // `metaKey` is ⌘, unlike the *physical*-Ctrl check the snap-override
+  // gesture uses elsewhere in this file, undo/redo genuinely differs by
+  // platform convention, so both `ctrlKey` and `metaKey` are accepted
+  // here on purpose. Skipped entirely while a text field has focus, so
+  // Ctrl+Z inside the FTP field or the preview textarea still does that
+  // field's own native text-undo instead of the workout's.
+  document.addEventListener("keydown", function (evt) {
+    var tag = document.activeElement ? document.activeElement.tagName : "";
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    if (!(evt.ctrlKey || evt.metaKey)) return;
+    var key = evt.key.toLowerCase();
+    if (key === "z" && !evt.shiftKey) { evt.preventDefault(); undo(); }
+    else if ((key === "z" && evt.shiftKey) || key === "y") { evt.preventDefault(); redo(); }
+  });
+
   function syncControlsFromState() {
     document.querySelectorAll("#mode-toggle button").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-mode") === state.mode); });
     document.querySelectorAll("#bin-select button").forEach(function (b) { b.classList.toggle("active", parseInt(b.getAttribute("data-bin"), 10) === state.binSeconds); });
@@ -1091,6 +1515,7 @@
     document.getElementById("cooldown-count").value = String(state.cooldownBins);
     document.getElementById("ftp-input").value = String(state.ftp);
     document.querySelectorAll("#speed-step-toggle button").forEach(function (b) { b.classList.toggle("active", parseFloat(b.getAttribute("data-step")) === state.speedStep); });
+    document.getElementById("snap-toggle").checked = state.snapEnabled;
   }
 
   // ---- parsing the preview back into a profile (typed or pasted) ----
@@ -1148,6 +1573,26 @@
     return out;
   }
 
+  // The Power-lane counterpart of `resampleToBins` above, for a
+  // `{start, end}`-per-bin lane – reads the curve at each bin's own
+  // *start* and *end* time instead of its midpoint, so a ramp already
+  // present in the source (an `.erg`/`.mrc` ramp, or a bike shorthand
+  // step's own "->") survives the import as an actual ramp rather than
+  // being flattened to whatever single value its midpoint happened to
+  // land on. `valueAtMinutes` itself already resolves an exact breakpoint
+  // seam deterministically (see its own body), so landing exactly on one
+  // here isn't the ambiguity `resampleToBins`' own note above worries
+  // about avoiding.
+  function resampleToBinsRamped(rows, count) {
+    var out = [];
+    for (var i = 0; i < count; i++) {
+      var t0 = i * state.binSeconds / 60;
+      var t1 = (i + 1) * state.binSeconds / 60;
+      out.push({ start: valueAtMinutes(rows, t0), end: valueAtMinutes(rows, t1) });
+    }
+    return out;
+  }
+
   function applyErgLikeText(text, isPercent) {
     var rows = parseErgLikeRows(text);
     if (rows.length < 2) throw new Error("No [COURSE DATA] rows found");
@@ -1155,11 +1600,14 @@
     var newBins = Math.max(2, Math.min(96, Math.round(totalMinutes * 60 / state.binSeconds)));
     var ftpMatch = text.match(/FTP\s*=\s*(\d+(?:\.\d+)?)/i);
     var ftp = ftpMatch ? parseFloat(ftpMatch[1]) : state.ftp;
-    var raw = resampleToBins(rows, newBins);
-    var power = raw.map(function (v) {
+    var raw = resampleToBinsRamped(rows, newBins);
+    function clampRound(v) {
       var watts = isPercent ? (v / 100 * ftp) : v;
       watts = Math.max(lanes.power.min, Math.min(lanes.power.max, watts));
       return Math.round(watts / lanes.power.step) * lanes.power.step;
+    }
+    var power = raw.map(function (pair) {
+      return { start: clampRound(pair.start), end: clampRound(pair.end) };
     });
     state.mode = "bike";
     state.ftp = ftp;
@@ -1219,11 +1667,15 @@
 
     if (isBike) {
       var ftp = state.ftp;
+      // `.zwo` has no ramp concept at all (every block is a single flat
+      // Power fraction – see `ZWOWorkoutParser`'s own doc comment in the
+      // app), so every imported bin comes in flat (`start === end`).
       state.power = Array.from({ length: newBins }, function (_, i) {
         var seg = segmentAt((i + 0.5) * state.binSeconds);
         var watts = isFinite(seg.power) ? seg.power * ftp : lanes.power.min;
         watts = Math.max(lanes.power.min, Math.min(lanes.power.max, watts));
-        return Math.round(watts / lanes.power.step) * lanes.power.step;
+        var rounded = Math.round(watts / lanes.power.step) * lanes.power.step;
+        return { start: rounded, end: rounded };
       });
       state.mode = "bike";
     } else {
@@ -1247,18 +1699,366 @@
     syncControlsFromState();
   }
 
+  // ---- shorthand notation (compact hand-typed interval text) ----
+  //
+  // The JavaScript counterpart of Unchain's own `ShorthandNotation`/
+  // `ShorthandWorkoutParser`/`TreadmillShorthandParser` (see
+  // Unchain/Models/*.swift in the repo) – same grammar, same tolerance for
+  // a missing space ("10min60%FTP") and a German-keyboard `,` decimal
+  // separator, ported here so the same "type a workout instead of dragging
+  // one" convenience works in this tool too, not just the app. Feeds its
+  // result through the *same* bin-resampling this file's own `.erg`/`.zwo`
+  // import already uses (`resampleToBins`, `segmentAt`-style lookup) rather
+  // than a separate "shorthand → chart" path of its own – this is already
+  // exactly how any imported file gets fit onto the fixed-width bin grid a
+  // rider then edits by dragging.
+  //
+  // Grammar (informal, identical in shape between bike and treadmill):
+  //   program     := segment (',' segment)*
+  //   segment     := repeatGroup | step
+  //   repeatGroup := INT 'x' '(' segment (',' segment)* ')' | INT 'x' step
+  //   bike step   := duration target ('->' target)?
+  //   tread step  := length speed incline?
+  // See Unchain/Models/ShorthandWorkoutParser.swift and
+  // Unchain/Models/TreadmillShorthandParser.swift for the full prose.
+
+  function shorthandParseNumber(text) {
+    var n = parseFloat(String(text).replace(",", "."));
+    return isFinite(n) ? n : null;
+  }
+
+  // Matches `NUMBER UNIT` at the start of `input` – with or without
+  // whitespace/anything between the two – trying every candidate in
+  // `units` longest-suffix-first, and rejecting a match whose next
+  // character is still a letter (so "minutes" is never mistaken for
+  // "minute" plus a dangling "s"). Returns `null` if nothing matches.
+  function shorthandConsumePrefixedValue(input, units) {
+    var text = input.trim();
+    var m = /^([0-9]+(?:[.,][0-9]+)?)/.exec(text);
+    if (!m) return null;
+    var rawValue = shorthandParseNumber(m[1]);
+    if (rawValue === null) return null;
+    var rest = text.slice(m[1].length).trim();
+    var sorted = units.slice().sort(function (a, b) { return b.suffix.length - a.suffix.length; });
+    for (var i = 0; i < sorted.length; i++) {
+      var unit = sorted[i];
+      if (rest.toLowerCase().indexOf(unit.suffix.toLowerCase()) !== 0) continue;
+      var afterUnit = rest.slice(unit.suffix.length);
+      if (afterUnit.length > 0 && /[a-zA-Z]/.test(afterUnit.charAt(0))) continue;
+      return { value: rawValue * unit.multiplier, unitSuffix: unit.suffix, remainder: afterUnit.trim() };
+    }
+    return null;
+  }
+
+  // Splits on `separator` outside `(...)` nesting, and – when `separator`
+  // is `,` – never at a comma with a digit on both sides (a decimal
+  // separator, not a step boundary).
+  function shorthandSplitTopLevel(text, separator) {
+    var parts = [];
+    var depth = 0;
+    var current = "";
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      if (ch === "(") { depth++; current += ch; }
+      else if (ch === ")") { depth--; current += ch; }
+      else if (ch === separator && depth === 0) {
+        var isDecimalComma = separator === ","
+          && i > 0 && /[0-9]/.test(text.charAt(i - 1))
+          && i + 1 < text.length && /[0-9]/.test(text.charAt(i + 1));
+        if (isDecimalComma) { current += ch; }
+        else { parts.push(current); current = ""; }
+      } else {
+        current += ch;
+      }
+    }
+    if (current.length) parts.push(current);
+    return parts;
+  }
+
+  // "'" (a bare prime for minutes, e.g. "10'") is a bike-only alias – not
+  // added to TREADMILL_DURATION_UNITS below, where it would be genuinely
+  // ambiguous with feet (the same prime-for-minutes-or-feet overload this
+  // notation always has), which a bike step never needs to worry about
+  // since it has no distance unit at all. '"' (a bare double prime for
+  // seconds, e.g. "90\"") is the other half of the same notation – added
+  // *and* to TREADMILL_DURATION_UNITS below, unlike "'", since its usual
+  // other meaning (inches) was never a supported distance unit here in
+  // the first place, so there's nothing for it to collide with.
+  var BIKE_DURATION_UNITS = [
+    { suffix: "m", multiplier: 60 }, { suffix: "min", multiplier: 60 }, { suffix: "minute", multiplier: 60 }, { suffix: "minuten", multiplier: 60 }, { suffix: "'", multiplier: 60 },
+    { suffix: "s", multiplier: 1 }, { suffix: "sec", multiplier: 1 }, { suffix: "sekunde", multiplier: 1 }, { suffix: "sekunden", multiplier: 1 }, { suffix: "\"", multiplier: 1 },
+    { suffix: "h", multiplier: 3600 }, { suffix: "std", multiplier: 3600 }, { suffix: "stunde", multiplier: 3600 }, { suffix: "stunden", multiplier: 3600 }
+  ];
+
+  function parseBikeTarget(text) {
+    var trimmed = text.trim();
+    // A rider sometimes puts a space before the unit ("105% FTP",
+    // "200 W") – stripped before matching, since neither of this
+    // parser's own suffixes nor a legitimate target value ever contains
+    // a meaningful internal space of their own. `text` (with whatever
+    // spacing it actually had) is still what error messages report.
+    var compact = trimmed.replace(/ /g, "");
+    var lower = compact.toLowerCase();
+    if (lower.slice(-4) === "%ftp") {
+      var percent = shorthandParseNumber(compact.slice(0, -4));
+      if (percent === null || percent < 0) throw new Error('Couldn’t understand the target "' + text + '"');
+      if (!(state.ftp > 0)) throw new Error("This workout uses %FTP, but no FTP is set above.");
+      return Math.round(percent / 100 * state.ftp);
+    }
+    var suffixes = ["watts", "watt", "w"];
+    for (var i = 0; i < suffixes.length; i++) {
+      if (lower.slice(-suffixes[i].length) === suffixes[i]) {
+        var watts = shorthandParseNumber(compact.slice(0, compact.length - suffixes[i].length));
+        if (watts === null || watts < 0) throw new Error('Couldn’t understand the target "' + text + '"');
+        return Math.round(watts);
+      }
+    }
+    throw new Error('Couldn’t understand the target "' + text + '"');
+  }
+
+  function parseBikeStep(text) {
+    var trimmed = text.trim();
+    var match = shorthandConsumePrefixedValue(trimmed, BIKE_DURATION_UNITS);
+    if (!match) throw new Error('Couldn’t understand "' + text + '"');
+    if (!(match.value > 0)) throw new Error('Couldn’t understand the duration "' + text + '"');
+    if (!match.remainder) throw new Error('Couldn’t understand "' + text + '"');
+    var rampParts = match.remainder.split("->");
+    if (rampParts.length !== 1 && rampParts.length !== 2) throw new Error('Couldn’t understand the target "' + match.remainder + '"');
+    var startWatts = parseBikeTarget(rampParts[0]);
+    var endWatts = rampParts.length === 2 ? parseBikeTarget(rampParts[1]) : startWatts;
+    return [{ duration: match.value, startWatts: startWatts, endWatts: endWatts }];
+  }
+
+  // Either a repeat group – `Nx(...)` or the parens-free single-step
+  // `Nx step` – or a plain step; returns a flat array of
+  // `{duration, startWatts, endWatts}` steps (a repeat group's own
+  // contents already expanded `count` times, in order).
+  function parseBikeSegment(text) {
+    var xIndex = text.search(/x/i);
+    if (xIndex !== -1) {
+      var countText = text.slice(0, xIndex).trim();
+      var rest = text.slice(xIndex + 1).trim();
+      var count = parseInt(countText, 10);
+      if (String(count) === countText && count > 0) {
+        if (rest.charAt(0) === "(" && rest.charAt(rest.length - 1) === ")") {
+          var inner = rest.slice(1, -1);
+          var innerSteps = parseBikeSegments(inner);
+          var expanded = [];
+          for (var r = 0; r < count; r++) expanded = expanded.concat(innerSteps);
+          return expanded;
+        }
+        if (rest.length) {
+          var one = parseBikeStep(rest);
+          var expandedOne = [];
+          for (var r2 = 0; r2 < count; r2++) expandedOne = expandedOne.concat(one);
+          return expandedOne;
+        }
+      }
+    }
+    return parseBikeStep(text);
+  }
+
+  function parseBikeSegments(text) {
+    var parts = shorthandSplitTopLevel(text, ",").map(function (p) { return p.trim(); }).filter(function (p) { return p.length; });
+    if (!parts.length) throw new Error("Type a workout, e.g. \"10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP)\".");
+    var steps = [];
+    for (var i = 0; i < parts.length; i++) steps = steps.concat(parseBikeSegment(parts[i]));
+    return steps;
+  }
+
+  /// Parses `text` as bike shorthand into `{minutes, value}` rows – the
+  /// same shape `parseErgLikeRows`/`resampleToBins` already work with, so
+  /// the caller can resample this exactly like an imported `.erg`/`.mrc`.
+  function parseBikeShorthandRows(text) {
+    var steps = parseBikeSegments(text);
+    var rows = [];
+    var cursorMin = 0;
+    for (var i = 0; i < steps.length; i++) {
+      var step = steps[i];
+      rows.push({ minutes: cursorMin, value: step.startWatts });
+      cursorMin += step.duration / 60;
+      rows.push({ minutes: cursorMin, value: step.endWatts });
+    }
+    return rows;
+  }
+
+  var TREADMILL_DURATION_UNITS = [
+    { suffix: "min", multiplier: 60 }, { suffix: "minute", multiplier: 60 }, { suffix: "minuten", multiplier: 60 },
+    { suffix: "s", multiplier: 1 }, { suffix: "sec", multiplier: 1 }, { suffix: "sekunde", multiplier: 1 }, { suffix: "sekunden", multiplier: 1 }, { suffix: "\"", multiplier: 1 },
+    { suffix: "h", multiplier: 3600 }, { suffix: "std", multiplier: 3600 }, { suffix: "stunde", multiplier: 3600 }, { suffix: "stunden", multiplier: 3600 }
+  ];
+  // Bare "m" stays meters here (unlike the bike table above, where it's
+  // minutes) – see TreadmillShorthandParser.swift's own doc comment on
+  // why that's a deliberate difference, not an inconsistency.
+  var TREADMILL_DISTANCE_UNITS = [
+    { suffix: "m", multiplier: 1 }, { suffix: "meter", multiplier: 1 }, { suffix: "meters", multiplier: 1 },
+    { suffix: "km", multiplier: 1000 }, { suffix: "kilometer", multiplier: 1000 }, { suffix: "kilometers", multiplier: 1000 },
+    { suffix: "mi", multiplier: 1609.344 }, { suffix: "mile", multiplier: 1609.344 }, { suffix: "miles", multiplier: 1609.344 },
+    { suffix: "yd", multiplier: 0.9144 }, { suffix: "yard", multiplier: 0.9144 }, { suffix: "yards", multiplier: 0.9144 },
+    { suffix: "ft", multiplier: 0.3048 }, { suffix: "foot", multiplier: 0.3048 }, { suffix: "feet", multiplier: 0.3048 }
+  ];
+  var TREADMILL_LENGTH_UNITS = TREADMILL_DURATION_UNITS.concat(TREADMILL_DISTANCE_UNITS);
+  var TREADMILL_DURATION_SUFFIXES = {};
+  TREADMILL_DURATION_UNITS.forEach(function (u) { TREADMILL_DURATION_SUFFIXES[u.suffix] = true; });
+  var TREADMILL_SPEED_UNITS = [
+    { suffix: "km/h", multiplier: 1 }, { suffix: "kmh", multiplier: 1 }, { suffix: "kph", multiplier: 1 },
+    { suffix: "mi/h", multiplier: 1.609344 }, { suffix: "mph", multiplier: 1.609344 }
+  ];
+
+  function parseTreadmillStep(text) {
+    var trimmed = text.trim();
+    var lengthMatch = shorthandConsumePrefixedValue(trimmed, TREADMILL_LENGTH_UNITS);
+    if (!lengthMatch) throw new Error('Couldn’t understand "' + text + '"');
+    if (!(lengthMatch.value > 0)) throw new Error('Couldn’t understand the length "' + text + '"');
+    if (!lengthMatch.remainder) throw new Error('Couldn’t understand "' + text + '"');
+
+    var speedMatch = shorthandConsumePrefixedValue(lengthMatch.remainder, TREADMILL_SPEED_UNITS);
+    if (!speedMatch) throw new Error('Couldn’t understand the speed "' + lengthMatch.remainder + '"');
+    var speedKmh = speedMatch.value;
+    if (!(speedKmh > 0)) throw new Error('Couldn’t understand the speed "' + lengthMatch.remainder + '"');
+
+    var duration;
+    if (TREADMILL_DURATION_SUFFIXES[lengthMatch.unitSuffix]) {
+      duration = lengthMatch.value;
+    } else {
+      duration = lengthMatch.value * 3.6 / speedKmh;
+    }
+
+    var inclinePercent = 0;
+    if (speedMatch.remainder) {
+      var inclineMatch = shorthandConsumePrefixedValue(speedMatch.remainder, [{ suffix: "%", multiplier: 1 }]);
+      if (!inclineMatch || inclineMatch.remainder) throw new Error('Couldn’t understand the incline "' + speedMatch.remainder + '"');
+      inclinePercent = inclineMatch.value;
+    }
+    return [{ duration: duration, speedKmh: speedKmh, inclinePercent: inclinePercent }];
+  }
+
+  function parseTreadmillSegment(text) {
+    var xIndex = text.search(/x/i);
+    if (xIndex !== -1) {
+      var countText = text.slice(0, xIndex).trim();
+      var rest = text.slice(xIndex + 1).trim();
+      var count = parseInt(countText, 10);
+      if (String(count) === countText && count > 0) {
+        if (rest.charAt(0) === "(" && rest.charAt(rest.length - 1) === ")") {
+          var inner = rest.slice(1, -1);
+          var innerSteps = parseTreadmillSegments(inner);
+          var expanded = [];
+          for (var r = 0; r < count; r++) expanded = expanded.concat(innerSteps);
+          return expanded;
+        }
+        if (rest.length) {
+          var one = parseTreadmillStep(rest);
+          var expandedOne = [];
+          for (var r2 = 0; r2 < count; r2++) expandedOne = expandedOne.concat(one);
+          return expandedOne;
+        }
+      }
+    }
+    return parseTreadmillStep(text);
+  }
+
+  function parseTreadmillSegments(text) {
+    var parts = shorthandSplitTopLevel(text, ",").map(function (p) { return p.trim(); }).filter(function (p) { return p.length; });
+    if (!parts.length) throw new Error("Type a workout, e.g. \"5min 8km/h, 5x(3min 10km/h 6%, 2min 6km/h)\".");
+    var steps = [];
+    for (var i = 0; i < parts.length; i++) steps = steps.concat(parseTreadmillSegment(parts[i]));
+    return steps;
+  }
+
+  /// Parses `text` as treadmill shorthand into a flat list of
+  /// `{startSeconds, duration, speedKmh, inclinePercent}` blocks.
+  function parseTreadmillShorthandBlocks(text) {
+    var steps = parseTreadmillSegments(text);
+    var blocks = [];
+    var cursor = 0;
+    for (var i = 0; i < steps.length; i++) {
+      blocks.push({ startSeconds: cursor, duration: steps[i].duration, speedKmh: steps[i].speedKmh, inclinePercent: steps[i].inclinePercent });
+      cursor += steps[i].duration;
+    }
+    return blocks;
+  }
+
+  // A pasted/typed `.erg`/`.mrc`/`.zwo` file always has one of these –
+  // anything else in the preview textarea is read as shorthand instead
+  // (see `handlePreviewEdit` below).
+  function looksLikeWorkoutFile(text) {
+    return /\[course\s+data\]/i.test(text) || /<workout_file>/i.test(text);
+  }
+
+  // Parses `text` as shorthand for whichever `state.mode` is currently
+  // active, then feeds the result through the exact same bin-resampling
+  // `applyErgLikeText`/`applyZwoText` already use above, rather than a
+  // separate "shorthand → chart" path of its own.
+  function applyShorthandText(text) {
+    if (state.mode === "bike") {
+      var rows = parseBikeShorthandRows(text);
+      var totalMinutes = rows[rows.length - 1].minutes;
+      var newBins = Math.max(2, Math.min(96, Math.round(totalMinutes * 60 / state.binSeconds)));
+      // Ramped, not the plain midpoint-only `resampleToBins` – so a
+      // shorthand ramp step ("20min 100W->300W") survives as an actual
+      // ramp instead of collapsing to one flat value per bin.
+      var raw = resampleToBinsRamped(rows, newBins);
+      function clampRoundBike(v) {
+        var watts = Math.max(lanes.power.min, Math.min(lanes.power.max, v));
+        return Math.round(watts / lanes.power.step) * lanes.power.step;
+      }
+      state.power = raw.map(function (pair) {
+        return { start: clampRoundBike(pair.start), end: clampRoundBike(pair.end) };
+      });
+      state.bins = newBins;
+    } else {
+      var blocks = parseTreadmillShorthandBlocks(text);
+      var totalSeconds = blocks[blocks.length - 1].startSeconds + blocks[blocks.length - 1].duration;
+      var newBinsT = Math.max(2, Math.min(96, Math.round(totalSeconds / state.binSeconds)));
+      function blockAt(elapsed) {
+        for (var i = 0; i < blocks.length; i++) {
+          if (elapsed < blocks[i].startSeconds + blocks[i].duration || i === blocks.length - 1) return blocks[i];
+        }
+        return blocks[blocks.length - 1];
+      }
+      state.speed = Array.from({ length: newBinsT }, function (_, i) {
+        var v = blockAt((i + 0.5) * state.binSeconds).speedKmh;
+        v = Math.max(lanes.speed.min, Math.min(lanes.speed.max, v));
+        return Math.round(v / lanes.speed.step) * lanes.speed.step;
+      });
+      state.incline = Array.from({ length: newBinsT }, function (_, i) {
+        var v = blockAt((i + 0.5) * state.binSeconds).inclinePercent;
+        v = Math.max(lanes.incline.min, Math.min(lanes.incline.max, v));
+        return Math.round(v / lanes.incline.step) * lanes.incline.step;
+      });
+      state.bins = newBinsT;
+    }
+    clampWarmupCooldown();
+    syncControlsFromState();
+  }
+
   var previewEditTimer = null;
   function handlePreviewEdit() {
     clearTimeout(previewEditTimer);
     previewEditTimer = setTimeout(function () {
-      var active = document.querySelector(".jack button.active-fmt");
-      var fmt = active ? active.getAttribute("data-fmt") : "erg";
       var text = document.getElementById("preview-text").value;
       var statusEl = document.getElementById("sync-status");
       try {
-        if (fmt === "erg") applyErgLikeText(text, false);
-        else if (fmt === "mrc") applyErgLikeText(text, true);
-        else applyZwoText(text);
+        // Pushed before the parse attempt itself, not just before a
+        // confirmed-successful one – on a parse failure this leaves one
+        // harmless no-op undo entry behind (undoing it just restores the
+        // state it already was), simpler than threading a "did anything
+        // actually change" signal out of three different apply functions
+        // for a rare edge case.
+        pushUndo();
+        if (looksLikeWorkoutFile(text)) {
+          var active = document.querySelector(".jack button.active-fmt");
+          var fmt = active ? active.getAttribute("data-fmt") : "erg";
+          if (fmt === "erg") applyErgLikeText(text, false);
+          else if (fmt === "mrc") applyErgLikeText(text, true);
+          else applyZwoText(text);
+        } else {
+          // Doesn't look like a `.erg`/`.mrc`/`.zwo` file at all – read it
+          // as shorthand notation instead, for whichever machine kind is
+          // currently active (Profile toggle).
+          applyShorthandText(text);
+        }
         // Redraws the chart from the newly-applied state, but deliberately
         // *not* `updatePreview()` here – that would overwrite this
         // textarea's own content (and reset the caret) with the
@@ -1331,6 +2131,7 @@
   document.getElementById("mode-toggle").addEventListener("click", function (evt) {
     var btn = evt.target.closest("button[data-mode]");
     if (!btn) return;
+    pushUndo();
     state.mode = btn.getAttribute("data-mode");
     document.querySelectorAll("#mode-toggle button").forEach(function (b) { b.classList.toggle("active", b === btn); });
     renderAll();
@@ -1340,6 +2141,7 @@
   document.getElementById("bin-select").addEventListener("click", function (evt) {
     var btn = evt.target.closest("button[data-bin]");
     if (!btn) return;
+    pushUndo();
     state.binSeconds = parseInt(btn.getAttribute("data-bin"), 10);
     document.querySelectorAll("#bin-select button").forEach(function (b) { b.classList.toggle("active", b === btn); });
     renderAll();
@@ -1359,12 +2161,22 @@
   }
 
   function resizeBins(newCount) {
+    pushUndo();
     newCount = Math.max(2, Math.min(96, newCount));
-    ["power", "speed", "incline"].forEach(function (key) {
+    ["speed", "incline"].forEach(function (key) {
       var arr = state[key];
-      while (arr.length < newCount) arr.push(arr.length ? arr[arr.length - 1] : (key === "power" ? 150 : key === "speed" ? 6 : 1));
+      while (arr.length < newCount) arr.push(arr.length ? arr[arr.length - 1] : (key === "speed" ? 6 : 1));
       arr.length = newCount;
     });
+    // Power's own bins are `{start, end}` – a newly appended bin
+    // continues flat from the previous last bin's own *end* value
+    // (rather than reusing that whole `{start, end}` pair verbatim,
+    // which would wrongly repeat its ramp too).
+    while (state.power.length < newCount) {
+      var lastEnd = state.power.length ? state.power[state.power.length - 1].end : 150;
+      state.power.push({ start: lastEnd, end: lastEnd });
+    }
+    state.power.length = newCount;
     state.bins = newCount;
     document.getElementById("bins-count").value = String(newCount);
     clampWarmupCooldown();
@@ -1374,6 +2186,10 @@
   document.getElementById("bins-plus").addEventListener("click", function () { resizeBins(state.bins + 1); });
   document.getElementById("bins-minus").addEventListener("click", function () { resizeBins(state.bins - 1); });
 
+  // Deliberately *not* where `pushUndo()` is called for these two below –
+  // both are also called on every `pointermove` of a boundary-handle drag
+  // (see `setupBoundaryHandle`), where pushing here would flood the
+  // history with one entry per pixel dragged instead of one per gesture.
   function setWarmup(v) {
     state.warmupBins = Math.max(0, Math.min(state.bins - 1 - state.cooldownBins, v));
     document.getElementById("warmup-count").value = String(state.warmupBins);
@@ -1384,14 +2200,19 @@
     document.getElementById("cooldown-count").value = String(state.cooldownBins);
     renderAll(); updatePreview();
   }
-  document.getElementById("warmup-plus").addEventListener("click", function () { setWarmup(state.warmupBins + 1); });
-  document.getElementById("warmup-minus").addEventListener("click", function () { setWarmup(state.warmupBins - 1); });
-  document.getElementById("cooldown-plus").addEventListener("click", function () { setCooldown(state.cooldownBins + 1); });
-  document.getElementById("cooldown-minus").addEventListener("click", function () { setCooldown(state.cooldownBins - 1); });
+  document.getElementById("warmup-plus").addEventListener("click", function () { pushUndo(); setWarmup(state.warmupBins + 1); });
+  document.getElementById("warmup-minus").addEventListener("click", function () { pushUndo(); setWarmup(state.warmupBins - 1); });
+  document.getElementById("cooldown-plus").addEventListener("click", function () { pushUndo(); setCooldown(state.cooldownBins + 1); });
+  document.getElementById("cooldown-minus").addEventListener("click", function () { pushUndo(); setCooldown(state.cooldownBins - 1); });
 
   document.getElementById("speed-step-toggle").addEventListener("click", function (evt) {
     var btn = evt.target.closest("button[data-step]");
     if (!btn) return;
+    // Only `state.speed`'s own re-rounding below is workout content;
+    // `speedStep` itself is a tool preference, out of `UNDO_FIELDS` – but
+    // pushing here anyway is still correct, since `pushUndo()` only ever
+    // *reads* `UNDO_FIELDS` regardless of what else changed alongside them.
+    pushUndo();
     state.speedStep = parseFloat(btn.getAttribute("data-step"));
     lanes.speed.step = state.speedStep;
     document.querySelectorAll("#speed-step-toggle button").forEach(function (b) { b.classList.toggle("active", b === btn); });
@@ -1402,6 +2223,34 @@
     renderAll();
     updatePreview();
   });
+
+  // ---- settings popover (⋮) ----
+  (function setupSettingsMenu() {
+    var menuBtn = document.getElementById("settings-menu-btn");
+    var popover = document.getElementById("settings-popover");
+    function closePopover() {
+      popover.hidden = true;
+      menuBtn.setAttribute("aria-expanded", "false");
+    }
+    menuBtn.addEventListener("click", function (evt) {
+      evt.stopPropagation();
+      var willOpen = popover.hidden;
+      popover.hidden = !willOpen;
+      menuBtn.setAttribute("aria-expanded", String(willOpen));
+    });
+    // Outside click / Escape closes it – the same "click away dismisses"
+    // convention as every other overflow menu.
+    document.addEventListener("click", function (evt) {
+      if (!popover.hidden && !popover.contains(evt.target) && evt.target !== menuBtn) closePopover();
+    });
+    document.addEventListener("keydown", function (evt) {
+      if (evt.key === "Escape" && !popover.hidden) closePopover();
+    });
+    document.getElementById("snap-toggle").addEventListener("change", function () {
+      state.snapEnabled = this.checked;
+      saveStateToStorage();
+    });
+  })();
 
   document.getElementById("ftp-input").addEventListener("change", function () {
     var v = parseInt(this.value, 10);

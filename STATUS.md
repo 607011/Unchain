@@ -1915,6 +1915,30 @@ would change, roughly in the order it'd need doing:
       treadmill, via a temporary `#if DEBUG` entry point removed again
       afterward) – live preview updates correctly while typing, Save
       round-trips through to the machine-kind-appropriate closure.
+- [x] **Ported the same shorthand notation to `docs/builder.html`
+      ("Interval Sketch")** – the rider asked for it directly after the
+      app-side hardening above, correctly pointing out the same "type
+      instead of drag" convenience, and the same missing-space/decimal-
+      comma "Fehlbedienung", would apply there too. No shared code between
+      Swift and a static HTML page, so this is a hand-ported JavaScript
+      twin of `ShorthandNotation`/`ShorthandWorkoutParser`/
+      `TreadmillShorthandParser` – same grammar, same tolerance rules –
+      rather than an attempt at literally sharing the implementation.
+      Hooks into the *existing* `.erg`/`.mrc`/`.zwo` preview textarea
+      (already editable, already synced back to the chart on `input` –
+      see `handlePreviewEdit`) instead of adding a separate input field:
+      `looksLikeWorkoutFile(text)` checks for `[COURSE DATA]`/
+      `<workout_file>`, and only falls through to the new shorthand parser
+      when neither is present. The parsed result is fed through the exact
+      same bin-resampling the file importers already use
+      (`resampleToBins` for bike, the same `segmentAt`-style lookup
+      `applyZwoText` already had for treadmill) rather than a second
+      "shorthand → chart" path of its own. Verified two ways: a Node.js
+      harness running the extracted parsing functions directly against
+      the identical cases used for the Swift version's own test (every
+      result – including the distance/imperial-unit conversions – matched
+      exactly), and a live browser check of the actual textarea → chart
+      wiring for both machine kinds plus an error case.
 - [x] **Two more bike shorthand tolerances, reported against a real
       example** (`10' 60%FTP, 4x(5min 105% FTP, 3min 50% FTP), 10min
       55% FTP`) – ported to both `ShorthandWorkoutParser.swift` and
@@ -1943,6 +1967,161 @@ would change, roughly in the order it'd need doing:
       first place, so there's nothing for it to collide with the way `'`
       would with feet. Verified in both languages, plain and nested
       inside a repeat group, on both machine kinds.
+- [x] **`docs/builder.html`'s Power lane can now draw genuine linear
+      ramps within one bin**, not just flat blocks – matching what
+      `.erg`/`.mrc` already support natively (a bike shorthand ramp step,
+      "20min 100W->300W", could already produce one; the chart itself
+      couldn't draw or edit one until now). Bike/Power only –
+      `TreadmillWorkoutSegment` has no ramp concept at all (every real
+      `.zwo` block is a single flat Pace/Incline for its whole duration),
+      so Speed/Incline are untouched.
+    - Interaction, exactly as the rider described it: hold Shift and
+      hover near a bin's own left or right edge to reveal a small handle
+      sitting at that endpoint's current value; grab and drag it
+      vertically to move *only* that one endpoint. A plain paint (no
+      Shift, or Shift away from an edge) still sets both ends equal, so
+      painting over a ramped bin remains how to flatten it – no separate
+      reset control needed. Two adjacent bins' edges sit at the same x
+      but are independent values; which one a Shift-drag grabs falls out
+      for free from which bin `Math.floor` already resolves the pointer
+      to, needing no extra disambiguation.
+    - Data model: `state.power[i]` changed from a plain number to
+      `{start, end}` (`start === end` for a flat bin, same as every
+      existing bin). Touched every place that assumed a plain number:
+      rendering (`renderLane` now reads `.start`/`.end` for its step-path,
+      which draws a slope across a ramped bin for free, no extra branch),
+      `.erg`/`.mrc` export (now writes the real start/end pair instead of
+      one repeated value – a bin that's flat still round-trips
+      identically), `.zwo` export (can't represent a ramp at all, so a
+      ramped bin is exported as its own single-bin block at its start/end
+      average, deliberately never merged with a neighbor even if that
+      neighbor's own average happens to match), file/shorthand import (a
+      new `resampleToBinsRamped` reads the source curve at each bin's own
+      start/end instant instead of its midpoint, so an imported ramp –
+      from a real `.erg` file or a bike shorthand "->" step – survives
+      as an actual ramp instead of collapsing to one flat value),
+      bin-count changes, and old-localStorage migration (a returning
+      rider's plain-number `power` array is normalized to `{start, end}`
+      on load).
+    - Found and fixed a real bug while testing this with synthetic
+      pointer events: `hit.setPointerCapture(evt.pointerId)` in
+      `pointerdown` had no try/catch, unlike every `releasePointerCapture`
+      call elsewhere in this file – it can throw ("no active pointer with
+      the given id"), which silently aborted the *entire* gesture,
+      painting included, not just the new ramp handles. Wrapped it the
+      same defensive way release already was.
+    - Verified with synthetic `PointerEvent`s dispatched directly at
+      computed bin-edge coordinates (Shift+drag a start edge, an end
+      edge, and a plain flatten-paint over a ramped bin), reading the
+      result back from the regenerated `.erg`/`.zwo` preview text each
+      time – confirmed a ramped bin's two ends move independently, a
+      plain paint flattens it again, `.erg` output shows the genuine
+      ramp, and `.zwo` isolates the ramped bin into its own block rather
+      than merging it. Treadmill mode re-checked afterward, unaffected.
+- [x] **A ⋮ Settings popover in `docs/builder.html`'s toolbar, with its
+      first setting: "Snap to start/end"** – while Shift-dragging a ramp
+      handle, the dragged endpoint snaps exactly onto the adjacent bin's
+      own end/start once it comes within `SNAP_HIT_PX` (6px) of it, so
+      building a smooth multi-bin ramp (each bin's end meeting the next
+      one's start with no jump) doesn't need pixel-perfect placement by
+      hand. On by default, toggle-able (persisted in `state.snapEnabled`
+      the same way `speedStep` already is), and – the rider's own
+      addition to the idea – overridable per-drag by holding Ctrl (⌃ on
+      Mac; `evt.ctrlKey` reads the same physical key on both without
+      needing to branch on platform, unlike ⌘/Meta) when a genuinely
+      close-but-different value is actually wanted. The popover itself
+      (`#settings-menu-btn`/`#settings-popover`, click-outside and Escape
+      both dismiss it) is built to hold more settings rows later, not
+      just this one. Verified with the same synthetic-`PointerEvent`
+      technique as the ramp handles themselves: a near-neighbor drag
+      snaps, the identical drag with `ctrlKey: true` doesn't, and
+      unchecking the popover's own toggle turns snapping off entirely –
+      all three read back from the regenerated `.erg` preview text.
+- [x] **Snap to start/end now also applies to a plain (non-Shift) paint
+      drag**, not just the ramp-handle gesture above – reported right
+      after, extending the same idea to a whole flat bin: painting a bin
+      to a value close to its left neighbor's own `end` or right
+      neighbor's own `start` snaps onto whichever of the two it's closer
+      to, within the same `SNAP_HIT_PX`. Only the bin actually under the
+      pointer snaps this way – the intermediate bins a fast multi-bin
+      drag smears across stay plain linear interpolation, not each
+      independently pulled toward a neighbor. Same Ctrl override and
+      popover toggle as the ramp-handle case, sharing the same
+      `state.snapEnabled` flag – one setting governs both gestures.
+      Verified the same way: a close value snaps, Ctrl held keeps it
+      exact, and a value far from either neighbor is left untouched.
+- [x] **Found and fixed a real reload-loses-your-edits bug in
+      `docs/builder.html`, and added Undo/Redo** – reported together
+      since the fix's own verification needed something to actually
+      undo/redo against.
+    - The bug: `STORAGE_KEY` used to be declared down in the "persistence"
+      section, textually *after* `loadStateFromStorage()` is first called
+      a few lines into the file (restoring `state` from whatever's saved).
+      `var` only hoists the *declaration*, not the assignment – so at that
+      first call, `STORAGE_KEY` was still `undefined`, and
+      `storage.getItem(undefined)` silently reads back the wrong key
+      ("undefined", coerced to a string) and finds nothing there, every
+      single time, regardless of whether a real save had just happened
+      moments before. This is *not* something introduced this session –
+      it's been there since this file's own persistence code was first
+      written, just never actually exercised in a way that surfaced it
+      (this session's own testing, both earlier and today, mostly used
+      the sandboxed preview pane, where `localStorage` throws outright
+      just being touched – a *different* failure this file's `try/catch`
+      already handled fine, which is exactly why this second, more subtle
+      bug went unnoticed until tested over a real local HTTP server –
+      `python3 -m http.server`, not `file://` or the sandboxed preview –
+      where `localStorage` genuinely works and the wrong-key read could
+      actually be observed). Fixed by moving `STORAGE_KEY`'s declaration
+      to the very top of the file, before anything can possibly read it
+      too early. Also hardened the storage layer itself while in there:
+      `pickStorage()` now probes `localStorage` first and falls back to
+      `sessionStorage` (survives a reload, cleared when the tab closes –
+      still exactly what "restore my in-progress edits" needs) if
+      `localStorage` itself throws merely being touched, rather than only
+      catching failures from individual `get`/`setItem` calls.
+    - Undo/Redo: a proper history stack (`undoStack`/`redoStack`, capped
+      at 100 entries), scoped to the *workout itself*
+      (`mode`/`binSeconds`/`bins`/`warmupBins`/`cooldownBins`/`power`/
+      `speed`/`incline`) – `ftp`/`speedStep`/`snapEnabled` (tool
+      preferences/rider data, not drawn content) stay out. `pushUndo()`
+      is called once at the *start* of each discrete action (a whole
+      paint/ramp/boundary-handle drag, one stepper click, one mode/
+      interval-length switch, one shorthand/file apply) – critically,
+      *not* inside `setWarmup`/`setCooldown` themselves, which (unlike
+      every other mutator) are also called on every `pointermove` of a
+      boundary-handle drag; pushing there would have flooded the history
+      with one entry per pixel dragged instead of one per gesture, found
+      and avoided before it ever shipped. Undo/Redo buttons in the
+      toolbar (disabled when their stack is empty) plus Ctrl+Z/Ctrl+
+      Shift+Z/Ctrl+Y (⌘ variants on Mac – `metaKey`, unlike the snap-
+      override gesture's deliberately-platform-identical `ctrlKey`, since
+      undo/redo genuinely differs by platform convention), skipped
+      entirely while an `INPUT`/`TEXTAREA` has focus so a field's own
+      native text-undo isn't hijacked. History itself is session-only –
+      resets on reload, same as most editors' own undo history – only the
+      *current* state persists across one, per the fix above.
+    - Verification took real work: synthetic `PointerEvent`s plus
+      `console.log` debugging kept showing confusing, seemingly-wrong
+      results at first, traced back to two artifacts of the test setup
+      itself rather than real bugs – `read_console_messages` turned out
+      to return logs accumulated across every earlier navigation in the
+      session, not just the current page load (misread as stray
+      duplicate pushes), and a `localStorage.clear()` called *after*
+      navigating to a fresh load (rather than before) left an
+      already-fixed reload correctly restoring a previous test's own
+      leftover edit (misread as undo doing nothing). Switching to a
+      `window.__debug*`-hook style of introspection (removed again once
+      done) instead of console logging, and clearing storage *before*
+      each fresh navigation, resolved both false leads – the underlying
+      undo/redo logic itself turned out correct the whole time. Final,
+      clean run over a real `http://127.0.0.1` server (not the sandboxed
+      preview, not `file://`, both of which restrict storage in ways that
+      would have hidden the original bug entirely): paint, paint again,
+      undo twice, redo twice – values and button-disabled states correct
+      at every step; the reload fix confirmed by painting a value,
+      reloading, and reading it back unchanged; the keyboard shortcut and
+      its text-field exception both confirmed directly.
 - [x] **Investigated a real crash from a live walking workout**, reported
       with a suspicion it was tied to a treadmill segment transition
       involving a negative (device-unsupported) incline value. That turned

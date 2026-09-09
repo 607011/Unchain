@@ -2596,6 +2596,45 @@ would change, roughly in the order it'd need doing:
       quietly ignored, falling back to the local clock the same way an
       unreported `deviceElapsedSeconds` already did before this existed at
       all.
+- [x] **Reacts to a device-initiated stop** (console Stop button, or an
+      emergency/safety key pulled) – requested directly, prompted by the
+      crash investigation above: an FTMS machine can physically halt with
+      zero control-point command from this app involved at all, and this
+      app had no way to even notice, let alone react – `WorkoutSession`
+      just kept showing `.running`, still computing elapsed time and
+      sending targets against a belt (or, in principle, a bike's own
+      resistance unit) that had already stopped. FTMS defines exactly the
+      characteristic for this – Fitness Machine Status (0x2ADA), the
+      machine's own side of "something changed here", never a response to
+      anything this app sent – previously undiscovered, unsubscribed,
+      completely unhandled. Now discovered in its own separate
+      `discoverCharacteristics` call (same "optional, shouldn't be able to
+      take the essential control-point flow down with it" reasoning the
+      speed/inclination range pair already established), subscribed to,
+      and parsed for the two op codes (of the FTMS spec's full table) this
+      app actually reacts to: "Stopped or Paused by the User" (0x02) and
+      "Stopped by Safety Key" (0x03) – both published as a new
+      `TrainerConnection.deviceInitiatedStopReason`.
+      `ControlView` observes it and calls a new `WorkoutSession
+      .pauseDueToDeviceStop()` – the same local state transition `pause()`
+      itself makes (factored out into a shared `pauseLocalState()` once
+      there were two callers), but deliberately *not* also sending
+      `connection.pauseWorkout()` back to the device the way `pause()`
+      does: the machine already told this app it stopped, sending it a
+      command asking it to do exactly that again would be redundant, not
+      corrective. Pausing, not stopping outright, mirrors what an
+      app-initiated Pause already does – recoverable, the rider decides
+      from here whether to resume or end the workout through the normal
+      Stop flow – with an alert naming which of the two reasons it was
+      (worded distinctly for the safety-key case, since that one's the
+      more safety-relevant of the two). Not gated on machine kind either –
+      the FTMS characteristic itself is generic across every machine type,
+      not treadmill-specific, so a bike trainer with its own e-stop or
+      physical button is covered exactly the same way. `deviceInitiatedStopReason`
+      is cleared back to `nil` the moment `ControlView` reacts (new
+      `TrainerConnection.acknowledgeDeviceInitiatedStop()`) – left standing
+      otherwise, a second, later stop for the identical reason wouldn't
+      register as a `@Published` change at all.
 - [x] **Questioned directly, correctly: `maxPlausibleDeviceElapsedSecondsAhead`
       only bounded a *display* symptom** – the actual root cause is that a
       crash never sends the machine a Stop, so *its* own console never

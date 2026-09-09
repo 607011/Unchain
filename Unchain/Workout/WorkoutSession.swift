@@ -681,12 +681,37 @@ final class WorkoutSession: ObservableObject {
     func pause() {
         guard state == .running else { return }
         connection.pauseWorkout()
-        // `max(...)`, not a flat overwrite – freezes at the moment Pause
-        // was tapped, not the last refresh, same as before, but without
-        // regressing *below* whatever `elapsedSeconds` was last published
-        // as. That published value can be treadmill-sourced (see
-        // `refreshWorkoutState`'s own note) and momentarily ahead of what
-        // this purely local, `startDate`-based recompute alone would say.
+        pauseLocalState()
+    }
+
+    /// The `TrainerConnection.deviceInitiatedStopReason` counterpart to
+    /// `pause()` above – same local state transition (see
+    /// `pauseLocalState()`'s own doc comment), but deliberately doesn't
+    /// also call `connection.pauseWorkout()` the way `pause()` itself
+    /// does: the machine already told *this app* it stopped – on its own,
+    /// via a console Stop button or a pulled safety key – sending it a
+    /// control-point command asking it to do exactly that again would be
+    /// redundant, not corrective. Reacting at all matters regardless:
+    /// without this, a physically-stopped belt left `WorkoutSession`
+    /// showing `.running` and still computing elapsed time/sending targets
+    /// against it. `ControlView` is what actually calls this, from
+    /// observing `connection.deviceInitiatedStopReason` – see that
+    /// property's own doc comment for the full picture, including why it
+    /// also alerts the rider with *which* of the two reasons this was.
+    func pauseDueToDeviceStop() {
+        guard state == .running else { return }
+        pauseLocalState()
+    }
+
+    /// The state transition `pause()` and `pauseDueToDeviceStop()` share –
+    /// factored out once there were two callers, not because either needs
+    /// it re-explained on its own. `max(...)`, not a flat overwrite –
+    /// freezes at the moment this actually happened, not the last refresh,
+    /// but without regressing *below* whatever `elapsedSeconds` was last
+    /// published as. That published value can be treadmill-sourced (see
+    /// `refreshWorkoutState`'s own note) and momentarily ahead of what this
+    /// purely local, `startDate`-based recompute alone would say.
+    private func pauseLocalState() {
         elapsedSeconds = max(currentElapsedSeconds(), elapsedSeconds)
         state = .paused
         stopTracking()

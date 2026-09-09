@@ -2490,6 +2490,36 @@
           }
         }
       }
+    },
+    "Workout Paused": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workout pausiert"
+          }
+        }
+      }
+    },
+    "The treadmill's own Stop button was pressed. Your workout has been paused to match.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Stopp-Knopf am Laufband wurde gedrückt. Dein Workout wurde entsprechend pausiert."
+          }
+        }
+      }
+    },
+    "The treadmill's emergency stop (safety key) was triggered. Your workout has been paused to match — make sure it's safe before resuming.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Notaus (Sicherheitsclip) am Laufband wurde ausgelöst. Dein Workout wurde entsprechend pausiert – stelle sicher, dass alles sicher ist, bevor du fortsetzt."
+          }
+        }
+      }
     }
   },
   "version": "1.1"

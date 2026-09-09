@@ -46,6 +46,18 @@ enum ConnectionState: Equatable {
     case disconnected
 }
 
+/// See `TrainerConnection.deviceInitiatedStopReason`'s own doc comment –
+/// the two `FTMS.StatusOpCode` cases this app actually reacts to, named
+/// for what `ControlView` shows the rider rather than the raw FTMS wording.
+enum DeviceInitiatedStopReason: Equatable {
+    /// FTMS's own "Fitness Machine Stopped or Paused by the User" (0x02) –
+    /// the console's own Stop/Pause button, not this app's.
+    case stoppedByUser
+    /// FTMS's own "Fitness Machine Stopped by Safety Key" (0x03) – an
+    /// emergency stop/safety clip pulled, physically halting the belt.
+    case safetyKey
+}
+
 /// Represents the active connection to exactly one FTMS trainer:
 /// discovery of characteristics, live metrics, and writing control commands.
 final class TrainerConnection: NSObject, ObservableObject {
@@ -102,6 +114,25 @@ final class TrainerConnection: NSObject, ObservableObject {
     /// Deliberately the raw list CoreBluetooth handed back, not filtered
     /// down to only the ones this app actually reads.
     @Published private(set) var discoveredCharacteristics: [CBUUID] = []
+
+    /// Which reason the *machine itself* most recently reported for having
+    /// stopped, via the Fitness Machine Status characteristic (0x2ADA) –
+    /// see `FTMS.StatusOpCode`'s own doc comment for why this exists at
+    /// all: a console Stop button or a pulled safety key/emergency stop
+    /// physically halts the belt with no control-point command from this
+    /// app involved at all, and without reading this characteristic there
+    /// was previously no way for this app to even notice, let alone react
+    /// – `WorkoutSession` would keep computing elapsed time and sending
+    /// targets against a belt that had already stopped moving. `nil`
+    /// initially and reset back to it once `ControlView` has actually
+    /// reacted to a non-`nil` value (see `handleFitnessMachineStatus(_:)`'s
+    /// own call site there) – deliberately not left standing, or a second,
+    /// later stop for the *same* reason (a plausible thing for a rider to
+    /// trigger twice) wouldn't register as a new value at all (`@Published`
+    /// only fires on ObjectWillChange for the property *changing*, and
+    /// this app has no other, cheaper way to distinguish "already reacted
+    /// to this one" from "this is a fresh occurrence" here).
+    @Published private(set) var deviceInitiatedStopReason: DeviceInitiatedStopReason?
 
     let peripheral: CBPeripheral
     private weak var central: CBCentralManager?
@@ -188,6 +219,16 @@ final class TrainerConnection: NSObject, ObservableObject {
     /// instead of lingering on "Disconnected" until the callback arrives.
     func prepareForReconnect() {
         state = .connecting
+    }
+
+    /// Called by `ControlView` right after it's actually reacted to
+    /// `deviceInitiatedStopReason` (paused the session, shown an alert) –
+    /// see that property's own doc comment for why clearing it back to
+    /// `nil` here, rather than leaving whatever reason last fired standing,
+    /// matters: a second, later stop for the identical reason wouldn't
+    /// otherwise register as a change at all.
+    func acknowledgeDeviceInitiatedStop() {
+        deviceInitiatedStopReason = nil
     }
 
     // MARK: - Control commands
@@ -339,6 +380,15 @@ extension TrainerConnection: CBPeripheralDelegate {
             FTMS.supportedSpeedRange,
             FTMS.supportedInclinationRange
         ], for: service)
+        // Same "own, separate call" reasoning as the speed/inclination
+        // range pair above – Fitness Machine Status is optional too, and a
+        // device that errors out or behaves oddly discovering it shouldn't
+        // be able to take the essential control-point flow down with it.
+        // Worst case without it: no `deviceInitiatedStopReason` – exactly
+        // the "no way to notice a console Stop/safety key" gap this exists
+        // to close, just left open for a device that doesn't cooperate,
+        // rather than the whole connection failing over it.
+        peripheral.discoverCharacteristics([FTMS.fitnessMachineStatus], for: service)
     }
 
     /// `service.characteristics` is CoreBluetooth's *cumulative* list of
@@ -388,6 +438,8 @@ extension TrainerConnection: CBPeripheralDelegate {
             case FTMS.fitnessMachineControlPoint:
                 controlPoint = characteristic
                 peripheral.setNotifyValue(true, for: characteristic) // indications for control responses
+            case FTMS.fitnessMachineStatus:
+                peripheral.setNotifyValue(true, for: characteristic)
             case FTMS.fitnessMachineFeature, FTMS.supportedPowerRange, FTMS.supportedResistanceLevelRange,
                  FTMS.supportedSpeedRange, FTMS.supportedInclinationRange:
                 peripheral.readValue(for: characteristic)
@@ -428,6 +480,8 @@ extension TrainerConnection: CBPeripheralDelegate {
             metrics = TrainerMetrics(treadmillData: data)
         case FTMS.fitnessMachineControlPoint:
             handleControlPointResponse(data)
+        case FTMS.fitnessMachineStatus:
+            handleFitnessMachineStatus(data)
         case FTMS.supportedPowerRange:
             hasReceivedPowerRange = true
             if data.count >= 4 {
@@ -482,6 +536,25 @@ extension TrainerConnection: CBPeripheralDelegate {
             state = .ready
         } else {
             state = .controlNotGranted
+        }
+    }
+
+    /// A Fitness Machine Status notification (0x2ADA) – the *machine's*
+    /// own side of "something changed here", never a response to anything
+    /// this app itself sent (unlike `handleControlPointResponse` above).
+    /// Every op code carries at least the one leading byte handled here;
+    /// several (Target Speed Changed, etc. – see `FTMS.StatusOpCode`'s own
+    /// doc comment for the full table this app doesn't otherwise need) add
+    /// further parameter bytes this app has no use for and doesn't parse.
+    private func handleFitnessMachineStatus(_ data: Data) {
+        guard let opCodeByte = data.first else { return }
+        switch opCodeByte {
+        case FTMS.StatusOpCode.stoppedOrPausedByUser.rawValue:
+            deviceInitiatedStopReason = .stoppedByUser
+        case FTMS.StatusOpCode.stoppedBySafetyKey.rawValue:
+            deviceInitiatedStopReason = .safetyKey
+        default:
+            break
         }
     }
 }

@@ -64,6 +64,11 @@ struct ControlView: View {
     /// only makes it visible up front instead of the rider discovering it
     /// mid-workout as a target number that stopped matching the file).
     @State private var rangeWarning: RangeWarningAlert?
+    /// Set from observing `connection.deviceInitiatedStopReason` – see that
+    /// property's own doc comment. Purely presentational; `session
+    /// .pauseDueToDeviceStop()` (the actual reaction) already ran by the
+    /// time this is shown, not gated on the rider dismissing this alert.
+    @State private var deviceStopAlert: DeviceStopAlert?
     /// True while an async HealthKit save is in flight — guards the
     /// confirmation dialog's dismiss handler from mistaking the dialog closing
     /// itself (after "Save as …" was tapped) for the user cancelling.
@@ -359,6 +364,34 @@ struct ControlView: View {
                 sendCurrentTarget()
             }
         }
+        // See `connection.deviceInitiatedStopReason`'s own doc comment –
+        // requested directly: a console Stop button or a pulled safety
+        // key/emergency stop physically halts the belt with no
+        // control-point command from this app involved, and without this,
+        // `session` had no way to notice at all, let alone react – it kept
+        // showing `.running` and computing elapsed time/sending targets
+        // against a belt that had already stopped. Pausing (not stopping
+        // outright) mirrors what an app-initiated Pause already does –
+        // recoverable, the rider decides from here whether to resume or
+        // end the workout via the normal Stop flow, rather than this
+        // silently discarding it for them. Acknowledges immediately, not
+        // gated on the alert being dismissed – see `TrainerConnection
+        // .acknowledgeDeviceInitiatedStop()`'s own doc comment on why a
+        // second, later stop for the identical reason needs this cleared
+        // first to even register as a change at all.
+        .onChange(of: connection.deviceInitiatedStopReason) { reason in
+            guard let reason else { return }
+            session.pauseDueToDeviceStop()
+            let message: String
+            switch reason {
+            case .stoppedByUser:
+                message = String(localized: "The treadmill's own Stop button was pressed. Your workout has been paused to match.")
+            case .safetyKey:
+                message = String(localized: "The treadmill's emergency stop (safety key) was triggered. Your workout has been paused to match — make sure it's safe before resuming.")
+            }
+            deviceStopAlert = DeviceStopAlert(message: message)
+            connection.acknowledgeDeviceInitiatedStop()
+        }
         .onChange(of: scenePhase) { newPhase in
             if newPhase == .active {
                 session.refreshNow()
@@ -491,6 +524,9 @@ struct ControlView: View {
         }
         .alert(item: $rangeWarning) { warning in
             Alert(title: Text("Some Targets Will Be Adjusted"), message: Text(warning.message), dismissButton: .default(Text("OK")))
+        }
+        .alert(item: $deviceStopAlert) { alert in
+            Alert(title: Text("Workout Paused"), message: Text(alert.message), dismissButton: .default(Text("OK")))
         }
         .fileExporter(
             isPresented: $isShowingExporter,
@@ -1672,6 +1708,11 @@ private struct LoadErrorAlert: Identifiable {
 }
 
 private struct RangeWarningAlert: Identifiable {
+    let id = UUID()
+    let message: String
+}
+
+private struct DeviceStopAlert: Identifiable {
     let id = UUID()
     let message: String
 }

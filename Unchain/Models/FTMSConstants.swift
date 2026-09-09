@@ -50,6 +50,27 @@ enum FTMS {
         case pause = 0x02
     }
 
+    /// The op code a Fitness Machine Status notification (0x2ADA) itself
+    /// leads with – the *machine*'s own side of "something changed here",
+    /// unprompted by any control-point command this app sent (see FTMS
+    /// spec, table 4.18, for the full op-code table; only the two this app
+    /// actually reacts to are listed here, same "only what's handled"
+    /// scope `OpCode`/`ResultCode` above already keep). Both cover a real,
+    /// safety-relevant scenario this app had no way to notice before: the
+    /// treadmill physically stopping – console Stop button, or an
+    /// emergency/safety key pulled – with this app's own `WorkoutSession`
+    /// having no idea, still showing `.running` and still computing
+    /// elapsed time/targets against a belt that's no longer moving. See
+    /// `TrainerConnection.deviceInitiatedStopReason`.
+    enum StatusOpCode: UInt8 {
+        /// The spec uses one op code for both a stop and a pause
+        /// initiated at the console – no separate parameter to tell them
+        /// apart the way the control-point's own "Stop or Pause" op code
+        /// (0x08) has one, unlike `StopPauseControlParameter` above.
+        case stoppedOrPausedByUser = 0x02
+        case stoppedBySafetyKey = 0x03
+    }
+
     /// Fixed physical defaults sent with every "Set Indoor Bike Simulation
     /// Parameters" command (0x11) alongside the actual grade – this app has
     /// no wind or bike/tire model, so it always simulates a windless ride on

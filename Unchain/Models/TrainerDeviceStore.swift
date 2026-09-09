@@ -102,8 +102,19 @@ enum LiveMetricKind: String, Codable, CaseIterable, Identifiable {
             return [.bike, .treadmill]
         case .pace, .heartRateMax, .elevationGain:
             return [.treadmill]
-        case .speedKmhAverage, .power, .powerAverage, .cadence, .cadenceAverage:
+        // `.power`/`.powerAverage` used to be bike-only – some treadmills
+        // genuinely report real FTMS power too (see `TrainerMetrics`'s own
+        // doc comment), and even one that doesn't now has
+        // `WorkoutSession.estimatedPowerWatts` as a fallback (see its own
+        // doc comment: mechanical climbing power while actually climbing,
+        // a rougher literature-derived estimate on the flat, shown in red
+        // there – see `EstimatedPowerSource`). `.cadence`/`.cadenceAverage`
+        // stay bike-only – FTMS defines no cadence field for a treadmill at
+        // all, nothing to show or estimate there.
+        case .speedKmhAverage, .cadence, .cadenceAverage:
             return [.bike]
+        case .power, .powerAverage:
+            return [.bike, .treadmill]
         }
     }
 }

@@ -34,6 +34,12 @@ struct ControlView: View {
     @AppStorage("lastTargetGradePercent") private var targetGrade: Double = 0
     @AppStorage("lastTargetSpeedKmh") private var targetSpeedKmh: Double = 5.0
     @AppStorage("lastTargetInclinePercent") private var targetInclinePercent: Double = 0
+    /// See `SettingsView.bodyWeightKgKey`'s own doc comment and
+    /// `refreshBodyWeightKgFromHealth()` – written here (from Health), read
+    /// directly from `UserDefaults` by `WorkoutSession.refreshWorkoutState`
+    /// (not through this binding), same split `estimatedVO2Max(samples:)`'s
+    /// own Max Heart Rate read already has.
+    @AppStorage(SettingsView.bodyWeightKgKey) private var bodyWeightKg: Double = 0
     @State private var saveResult: SaveResultAlert?
     @State private var savedSummary: WorkoutSummary?
     /// Captured alongside `savedSummary` in `save(_:as:)` – *before*
@@ -176,6 +182,36 @@ struct ControlView: View {
     /// guard the way `ensureModeIsAvailable()` needs for `mode` itself.
     private func rememberConnectedDevice() {
         TrainerDeviceStore.recordConnection(id: connection.peripheral.identifier, name: connection.deviceName, machineKind: connection.machineKind)
+    }
+
+    /// Keeps `bodyWeightKg` (`SettingsView.bodyWeightKgKey`, read directly
+    /// by `WorkoutSession.refreshWorkoutState` for its live power estimate –
+    /// see that property's own doc comment) in sync with Health, every
+    /// treadmill workout Start – called from `startSession()`, not
+    /// `.onAppear`: reported directly that a value fetched once per
+    /// connection (this used to cache into `WorkoutSession` itself the
+    /// moment a treadmill connected, then never ask again) could go stale
+    /// well before the connection itself ends. `SettingsView`'s own
+    /// identically-named twin covers the other real gap this alone left –
+    /// nothing populated the field at all before a rider's first-ever
+    /// treadmill workout, reported directly too – by refreshing every time
+    /// that screen appears instead, not gated on a treadmill connection the
+    /// way this one is. Same "overwrite from Health every time, but only
+    /// when Health actually has an answer, never with an invented one"
+    /// reasoning `DeviceListView.refreshRestingHeartRateBPMFromHealth()`
+    /// already established for Resting Heart Rate – `bodyWeightKg` itself
+    /// stays a plain, editable `SettingsView` field throughout, exactly
+    /// like Resting Heart Rate does, for whenever this auto-refresh isn't
+    /// precise enough on its own. Treadmill-only here specifically (unlike
+    /// its `SettingsView` twin): a bike rider would never see this used at
+    /// all (bikes always have real FTMS power), so there's no reason for
+    /// *this* call site to ever prompt one for Health body-weight access.
+    private func refreshBodyWeightKgFromHealth() {
+        guard connection.machineKind == .treadmill else { return }
+        HealthKitManager.shared.fetchBodyWeightKgForLiveEstimate { weightKg in
+            guard let weightKg else { return }
+            bodyWeightKg = weightKg
+        }
     }
 
     var body: some View {
@@ -560,9 +596,26 @@ struct ControlView: View {
             let meters = connection.metrics.elevationGainMeters ?? Int(session.estimatedElevationGainMeters.rounded())
             MetricTile(title: "m ↑", value: "\(meters)", stat: LiveStat())
         case .power:
-            MetricTile(title: "Watt", value: connection.metrics.instantaneousPowerWatts.map { "\($0)" } ?? "–", stat: session.powerStats)
+            // The device's own real reading takes priority when it reports
+            // one (every bike does; some treadmills do too – see
+            // `TrainerMetrics`'s own doc comment); `WorkoutSession
+            // .estimatedPowerWatts` only ever fills in for a treadmill that
+            // doesn't – see that property's own doc comment for the two
+            // formulas behind it. `stat:` falls back the same way, so
+            // tapping the tile still shows *something* on an estimate-only
+            // treadmill instead of an empty summary. Colored red only for
+            // an `.internalWork`-sourced estimate specifically – see
+            // `WorkoutSession.EstimatedPowerSource`'s own doc comment on
+            // why that one, unlike a real reading or the exact-physics
+            // `.climbing` estimate, carries real, worth-flagging
+            // uncertainty of its own.
+            let watts = connection.metrics.instantaneousPowerWatts ?? session.estimatedPowerWatts
+            let stat = session.powerStats.count > 0 ? session.powerStats : session.estimatedPowerStats
+            let isUncertainEstimate = connection.metrics.instantaneousPowerWatts == nil && session.estimatedPowerSource == .internalWork
+            MetricTile(title: "Watt", value: watts.map { "\($0)" } ?? "–", stat: stat, valueColor: isUncertainEstimate ? .red : nil)
         case .powerAverage:
-            MetricTile(title: "Ø Watt", value: session.powerStats.average.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: LiveStat())
+            let average = session.powerStats.average ?? session.estimatedPowerStats.average
+            MetricTile(title: "Ø Watt", value: average.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: LiveStat())
         case .cadence:
             MetricTile(title: "RPM", value: connection.metrics.instantaneousCadenceRPM.map { String(format: "%.0f", locale: .current, $0) } ?? "–", stat: session.cadenceStats)
         case .cadenceAverage:
@@ -1476,11 +1529,14 @@ struct ControlView: View {
     /// here since it's needed at all three of this view's
     /// `session.start(usingProgram:)` call sites – the plain phone Start
     /// button above, the "Walking or running?" dialog's answer, and a
-    /// Watch-triggered bike start, both further down.
+    /// Watch-triggered bike start, both further down – which, as a side
+    /// effect, is also exactly why this is where `refreshBodyWeightKgFromHealth()`
+    /// lives: every real Start, whatever triggered it, goes through here.
     private func startSession() {
         session.start(usingProgram: mode == .program)
         sendCurrentTarget()
         beginRecordingIfNeeded()
+        refreshBodyWeightKgFromHealth()
     }
 
     /// Starts recording this session's own target schedule (see
@@ -2569,6 +2625,16 @@ private struct MetricTile: View {
     /// since a pace's min/average/max need converting from the underlying
     /// speed-in-km/h samples `stat` actually stores, not just rounding.
     var formatValue: (Double?) -> String = formatStatValue
+    /// `nil` (the default primary color, every tile but one) unless a tile
+    /// needs to flag the *current* reading as carrying more uncertainty
+    /// than usual – so far only the `Watt` tile's `.internalWork`-sourced
+    /// estimate (see `WorkoutSession.EstimatedPowerSource`'s own doc
+    /// comment). Deliberately not applied to the tapped-summary state
+    /// below: min/average/max there can blend readings of differing
+    /// confidence together (an average spanning both flat and inclined
+    /// stretches, say), so there's no single color left to honestly flag
+    /// for the summary the way there is for one live instant.
+    var valueColor: Color?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showsSummary = false
 
@@ -2590,6 +2656,7 @@ private struct MetricTile: View {
             } else {
                 Text(value)
                     .font(.system(size: isRegularWidth ? 44 : 28, weight: .semibold, design: .rounded))
+                    .foregroundStyle(valueColor ?? .primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.4)
                     .monospacedDigit()

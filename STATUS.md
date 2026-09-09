@@ -2353,3 +2353,119 @@ would change, roughly in the order it'd need doing:
       thing actually closing the gap – with `[weak session]`, a stale
       request now just resolves to a harmless `guard let session` miss
       even if it somehow still fired.
+- [x] **Estimated treadmill power** – `.power`/`.powerAverage` were bike-only
+      tiles (`LiveMetricKind.compatibleMachineKinds`); now available for a
+      treadmill too, same "device's own real reading first, an estimate
+      only when that's genuinely absent" fallback shape `estimatedElevationGainMeters`
+      already established. Went through two real revisions before landing
+      here, each one a direct, reasoned pushback on the last:
+      - First cut: a metabolic (VO2-based) estimate, reusing the ACSM
+        equation `walkRunActiveEnergyKcal(...)` already had for the
+        post-workout calorie figure, this time with its grade term
+        actually included. Flagged directly as "a wrong track" – the
+        resulting Watt figures ran noticeably higher than a bike's own
+        power meter would for a similar felt effort (resting metabolism
+        and gross inefficiency both baked into VO2), not a comparable
+        number under the same "Watt" label.
+      - Second cut: pure physics instead – `EnergyEstimator
+        .climbingPowerWatts(weightKg:speedKmh:inclinePercent:)`,
+        $P = m \cdot g \cdot v \cdot \frac{\text{incline}}{100}$, the rate
+        of work done raising body weight against gravity. No efficiency
+        factor, no regression, genuine mechanical watts. Trade-off: `nil`
+        on the flat, not `0` – a treadmill belt offers no real external
+        resistance to steady-pace walking/running the way a bike's
+        wind/rolling resistance does, so there's nothing for this formula
+        to measure there. Flagged as a real gap on its own: the app would
+        show "–" for the majority of ordinary flat-ground treadmill time.
+      - Landed on adding a second formula for exactly that flat stretch
+        rather than reworking the first: `EnergyEstimator
+        .internalWorkPowerWatts(weightKg:speedKmh:)`, from classic
+        gait-energetics literature (Cavagna, Saibene & Margaria; later
+        R. McN. Alexander) – the *internal* mechanical work of
+        swinging/decelerating the limbs relative to the body's own center
+        of mass, roughly 0.3–0.6 J/(kg·m), `0.5` used here as the
+        midpoint. Explicitly a rougher, literature-derived coefficient,
+        not exact physics like the climbing formula – new `WorkoutSession
+        .EstimatedPowerSource` (`.climbing`/`.internalWork`) tracks which
+        one produced the current reading, and `ControlView`'s `Watt` tile
+        colors an `.internalWork` value red specifically, rather than
+        presenting both with the same visual confidence. Deliberately
+        left for real-use measurement to judge, not tuned further up
+        front: "wie plausibel die Werte bei geringer Steigung sind, werde
+        ich empirisch ermitteln."
+      Neither formula takes a gender parameter, nor distinguishes walking
+      from running – weighed directly for the metabolic attempt (ACSM is
+      already weight-normalized and sex-independent) and carried forward
+      unchanged since; the internal-work coefficient is really best
+      established for running specifically, applying it to walking too
+      likely overstates a walker's own internal work somewhat, noted
+      in-code as a known simplification rather than silently assumed away.
+      New `WorkoutSession.bodyWeightKg` – the one input only `ControlView`
+      has – and a new `HealthKitManager.fetchBodyWeightKgForLiveEstimate(completion:)`
+      (same `bodyMassReadType`-only authorization scoping as `save()`'s own
+      request, see this class's own doc comment for the real bug that
+      established why – and, since this is treadmill-triggered only, a
+      bike rider is never prompted for a permission this app wouldn't even
+      use for their workout). Called from `ControlView`'s `.onAppear`/
+      `.onChange(of: connection.machineKind)`, not gated on Start, so
+      whatever the answer turns out to be is already resolved long before
+      the rider presses it – never something a live tile is left waiting
+      on mid-workout. `estimatedPowerWatts` itself is instantaneous, not
+      cumulative (recomputed, not integrated, each tick) – its own running
+      min/average/max is tracked in a dedicated new `estimatedPowerStats`
+      (blending both formulas' own samples together, unlike the instant
+      reading's own color-coding – an average spanning both flat and
+      inclined stretches has no single confidence level left to flag),
+      kept deliberately separate from `powerStats`/`workDoneJoules`/
+      `powerHistory`, all three of which mean *real*, device-reported
+      mechanical power elsewhere in this app (`WorkoutSummary
+      .workDoneKilojoules`'s own doc comment is explicit it's `nil` "for
+      machines that don't report power") – folding an estimate into any of
+      those would quietly contradict that.
+- [x] **Body Weight – new explicit Settings field, refreshed from Health at
+      every treadmill Start** – the power estimate above was still missing
+      the one input driving its mass term: it fetched once per connection
+      (`WorkoutSession.bodyWeightKg`, cached the moment a treadmill
+      connected, never asked again) with no way to see or correct it.
+      Reported directly as missing. Replaced with a new `SettingsView
+      .bodyWeightKgKey` field – a plain, editable `Double`, same "e.g. …"
+      placeholder/`InfoButton` shape every other profile number on that
+      screen already has (own `zeroAsEmptyText(_: Binding<Double>)`
+      overload, tolerant of a German-keyboard decimal comma same as the
+      shorthand notation elsewhere) – kept in sync automatically by a new
+      `ControlView.refreshBodyWeightKgFromHealth()`, called from
+      `startSession()` so it runs on *every* actual Start regardless of
+      what triggered it (the plain phone button, the "Walking or running?"
+      dialog, a Watch-triggered start – `startSession()` is already the
+      one shared chokepoint for all three). Same "overwrite from Health
+      every time, but only when Health actually has an answer, never with
+      an invented one" reasoning `DeviceListView
+      .refreshRestingHeartRateBPMFromHealth()` already established for
+      Resting Heart Rate – deliberately reused rather than inventing a
+      third pattern, since the two are genuinely the same shape: a
+      Health-measured value the rider almost certainly isn't hand-editing
+      day to day, refreshed automatically, but still a plain field for the
+      cases that reasoning doesn't cover (no scale synced to Health, a
+      stale reading). `WorkoutSession.refreshWorkoutState` now reads
+      `UserDefaults.standard.double(forKey: SettingsView.bodyWeightKgKey)`
+      directly rather than through a stored property – the same
+      "fresh from `UserDefaults` at the point of use" pattern
+      `estimatedVO2Max(samples:)` already used for Max Heart Rate, so
+      `WorkoutSession` doesn't need its own settable `bodyWeightKg`
+      property (removed) or any cross-object wiring to stay current with a
+      value `ControlView`'s own Settings sheet might change mid-session.
+- [x] **Fixed a real gap the entry above left**: Body Weight showed up
+      empty the first time Settings was opened – reported directly.
+      `ControlView.refreshBodyWeightKgFromHealth()` only ever ran at a
+      treadmill workout's own Start, so nothing had populated the field at
+      all before a rider's first-ever treadmill session. New,
+      identically-named twin in `SettingsView` itself, run every time that
+      screen appears (not gated on a connected treadmill – this screen has
+      no connection to check in the first place, and reaching it at all is
+      already a deliberate visit) – same "overwrite every time, only when
+      Health actually has an answer" shape as its `ControlView` namesake.
+      Placed alongside `prefillHeartRateProfileIfNeeded()`, but
+      deliberately not sharing its gentler "only if still unset" logic –
+      body weight, like resting heart rate, is treated as a Health value
+      that genuinely drifts and is worth refreshing every visit, not a
+      one-time default.

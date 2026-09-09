@@ -2460,6 +2460,36 @@
           }
         }
       }
+    },
+    "Body Weight (kg)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Körpergewicht (kg)"
+          }
+        }
+      }
+    },
+    "e.g. 74.5": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. 74,5"
+          }
+        }
+      }
+    },
+    "Used for a treadmill's live estimated power reading (Health doesn't report real power the way a bike's power meter does). Refreshed from Health automatically every time a treadmill workout starts, so this normally never needs touching by hand – edit it here yourself only if Health's own figure is missing or out of date.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird für die geschätzte Live-Leistungsanzeige beim Laufband verwendet (Health liefert keine echte Leistung wie ein Leistungsmesser beim Bike). Wird bei jedem Start eines Laufband-Workouts automatisch aus Health aktualisiert – normalerweise muss hier nichts von Hand geändert werden. Nur anpassen, wenn der Wert in Health fehlt oder veraltet ist."
+          }
+        }
+      }
     }
   },
   "version": "1.1"

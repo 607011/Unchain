@@ -37,10 +37,31 @@ struct SettingsView: View {
     /// not on record in Health", in which case `HeartRateZone` quietly falls
     /// back to the plain %-of-max-heart-rate breakpoints instead.
     static let restingHeartRateBPMKey = "userRestingHeartRateBPM"
+    /// `UserDefaults` key for the rider's body weight – used, on a
+    /// treadmill, as the mass term in `WorkoutSession`'s own live power
+    /// estimate (see `EnergyEstimator.climbingPowerWatts`/
+    /// `.internalWorkPowerWatts`, and `WorkoutSession.refreshWorkoutState`,
+    /// which reads this key directly, the same "read fresh from
+    /// `UserDefaults` at the point of use" pattern it already uses for Max
+    /// Heart Rate in `estimatedVO2Max(samples:)`). `0` means "not set yet",
+    /// same convention as `ftpWattsKey`/`maxHeartRateBPMKey` above. Kept in
+    /// sync with Health automatically from two call sites – this screen's
+    /// own `refreshBodyWeightKgFromHealth()`, every time it appears (so the
+    /// field is never just sitting empty before the rider's first treadmill
+    /// workout), and `ControlView.refreshBodyWeightKgFromHealth()`
+    /// (different type, same name, same job), every treadmill workout
+    /// Start – same "overwrite from Health every time, but only when Health
+    /// actually has an answer" reasoning `DeviceListView
+    /// .refreshRestingHeartRateBPMFromHealth()` already established for
+    /// Resting Heart Rate – but still a plain, editable field here for
+    /// whenever that isn't precise enough (no scale synced to Health, a
+    /// stale reading, …).
+    static let bodyWeightKgKey = "userBodyWeightKg"
 
     @AppStorage(ftpWattsKey) private var ftpWatts: Int = 188
     @AppStorage(maxHeartRateBPMKey) private var maxHeartRateBPM: Int = 0
     @AppStorage(restingHeartRateBPMKey) private var restingHeartRateBPM: Int = 0
+    @AppStorage(bodyWeightKgKey) private var bodyWeightKg: Double = 0
     @AppStorage(HeartRateZone.zone2LowerBPMKey) private var zone2LowerBPM: Int = 0
     @AppStorage(HeartRateZone.zone3LowerBPMKey) private var zone3LowerBPM: Int = 0
     @AppStorage(HeartRateZone.zone4LowerBPMKey) private var zone4LowerBPM: Int = 0
@@ -115,6 +136,15 @@ struct SettingsView: View {
                     HStack(spacing: 4) {
                         Text("FTP (Watts)")
                         InfoButton(text: "Your Functional Threshold Power – the highest average power you can sustain for about an hour, commonly estimated as 95 % of your best 20-minute effort (a \"20-minute FTP test\"), or read off a ramp test's result. Used throughout the app: to interpret %FTP-based workout targets, both in files that declare an FTP header (e.g. TrainerDay's .mrc exports) and in the Create sheet's own shorthand notation (e.g. \"75%FTP\"), and to draw the FTP reference line on the Program workout chart.")
+                    }
+                }
+                Section {
+                    TextField("e.g. 74.5", text: zeroAsEmptyText($bodyWeightKg))
+                        .keyboardType(.decimalPad)
+                } header: {
+                    HStack(spacing: 4) {
+                        Text("Body Weight (kg)")
+                        InfoButton(text: "Used for a treadmill's live estimated power reading (Health doesn't report real power the way a bike's power meter does). Refreshed from Health automatically every time a treadmill workout starts, so this normally never needs touching by hand – edit it here yourself only if Health's own figure is missing or out of date.")
                     }
                 }
                 Section {
@@ -293,6 +323,7 @@ struct SettingsView: View {
                 // needs to sit behind.
                 prefillHeartRateZonesIfNeeded()
             }
+            refreshBodyWeightKgFromHealth()
         }
         .onChange(of: maxHeartRateBPM) { _ in
             prefillHeartRateZonesIfNeeded()
@@ -305,12 +336,23 @@ struct SettingsView: View {
     /// A `TextField` bound directly to a stored `Int` would show a
     /// persistent "0" before anything's entered – this shows an empty field
     /// with a placeholder instead, since `@AppStorage` has no natural `Int?`
-    /// support. Shared by every numeric field on this screen (FTP, Max Heart
-    /// Rate, the four zone boundaries).
+    /// support. Shared by every whole-number field on this screen (FTP, Max
+    /// Heart Rate, the four zone boundaries).
     private func zeroAsEmptyText(_ value: Binding<Int>) -> Binding<String> {
         Binding(
             get: { value.wrappedValue == 0 ? "" : String(value.wrappedValue) },
             set: { value.wrappedValue = Int($0) ?? 0 }
+        )
+    }
+
+    /// Same reasoning as the `Int` overload above, for Body Weight's own
+    /// one-decimal `Double` – also accepts a German-keyboard decimal comma
+    /// (`,`) alongside a plain `.`, same tolerance the shorthand workout
+    /// notation elsewhere in this app already extends to a typed-in number.
+    private func zeroAsEmptyText(_ value: Binding<Double>) -> Binding<String> {
+        Binding(
+            get: { value.wrappedValue == 0 ? "" : String(format: "%.1f", value.wrappedValue) },
+            set: { value.wrappedValue = Double($0.replacingOccurrences(of: ",", with: ".")) ?? 0 }
         )
     }
 
@@ -347,6 +389,30 @@ struct SettingsView: View {
             if restingHeartRateBPM == 0 {
                 restingHeartRateBPM = profile.restingBPM ?? Self.restingHeartRateFallbackBPM
             }
+        }
+    }
+
+    /// The Body Weight field's own refresh, run every time this screen
+    /// appears – not gated behind a connected treadmill the way
+    /// `ControlView.refreshBodyWeightKgFromHealth()` (the *other* call site,
+    /// same reasoning, run at every treadmill workout Start – see
+    /// `bodyWeightKgKey`'s own doc comment) is, since this screen has no
+    /// connection to check in the first place, and reaching it at all is
+    /// already a deliberate visit. Reported directly: without this, the
+    /// field simply stayed empty until the rider's first treadmill workout
+    /// ever – nothing had populated it before that point. Same "overwrite
+    /// every time, but only when Health actually has an answer" shape as
+    /// that other call site (and as `DeviceListView
+    /// .refreshRestingHeartRateBPMFromHealth()` before either of them) –
+    /// deliberately *not* the gentler "only if still unset" pattern
+    /// `prefillHeartRateProfileIfNeeded()` above uses for Max Heart Rate,
+    /// since body weight, like resting heart rate, is a Health-measured
+    /// value that genuinely drifts and that the rider almost certainly
+    /// isn't hand-editing day to day.
+    private func refreshBodyWeightKgFromHealth() {
+        HealthKitManager.shared.fetchBodyWeightKgForLiveEstimate { weightKg in
+            guard let weightKg else { return }
+            bodyWeightKg = weightKg
         }
     }
 

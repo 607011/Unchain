@@ -189,6 +189,31 @@ final class HealthKitManager {
         }
     }
 
+    /// The live counterpart to `save()`'s own body-weight read, for
+    /// `WorkoutSession.estimatedPowerWatts` (see its own doc
+    /// comment) – called from `ControlView` once a treadmill's actually
+    /// connected, not gated on Start, so whatever the answer turns out to
+    /// be (a weight on record or not, permission granted or not) is already
+    /// resolved by the time the rider presses it, never something a live
+    /// tile is left waiting on mid-workout. Requests only `bodyMassReadType`,
+    /// same scoping reasoning as `save()`'s own request – see this class's
+    /// doc comment for the real bug that established it, and why a bike
+    /// rider (who never triggers this call at all) is never prompted for a
+    /// permission this app wouldn't even use for their workout.
+    func fetchBodyWeightKgForLiveEstimate(completion: @escaping (Double?) -> Void) {
+        guard isAvailable else {
+            completion(nil)
+            return
+        }
+        store.requestAuthorization(toShare: [], read: bodyMassReadType) { [weak self] granted, _ in
+            guard let self, granted else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            self.fetchLatestBodyMassKg(completion: completion)
+        }
+    }
+
     /// Cycling needs no biometric data (power → work → kcal, see
     /// `EnergyEstimator`). Walking/running needs body weight, fetched from
     /// Health; if there's no weight on record there, the workout is still

@@ -2491,3 +2491,138 @@ would change, roughly in the order it'd need doing:
       Localizable.xcstrings: renamed the two affected keys' entries in
       place (English source + German translation) rather than leaving the
       old, now-unreferenced ones behind as clutter.
+- [x] **A third real crash, same signature, confirmed on a build that
+      already had the previous two fixes** (`objc_msgSend` ←
+      `__NSThreadPerformPerform` ← `__CFRunLoopDoSource0`, zero app frames,
+      "possible pointer authentication failure" – see the two entries
+      documenting `BLEDisconnectGracePeriod` and the Watch-companion
+      `[weak session]` refactor above) – reported directly, with the one
+      detail that actually narrows things down: no user interaction at
+      all, ~25 minutes into the run. Investigated as thoroughly as an
+      unsymbolicated, all-system-frames stack allows (this Mac still has no
+      dSYM matching this specific build – see the very first crash
+      investigation entry, above both of those, for why that search comes
+      up empty every time) – swept every `NSObject`-conforming class in the
+      app that sets itself as a system-framework delegate
+      (`TrainerConnection`, `HeartRateConnection`, `BluetoothManager`,
+      `WatchConnectivityManager`, the two `XMLParserDelegate` collectors,
+      `DiagnosticsReporter`) for the same "released without a chance to
+      protect itself" shape the first two fixes closed.
+      Found one more real, independently-reachable instance:
+      `BluetoothManager.connectHeartRate(to:)` – tapping a *different*
+      strap's row in `DeviceListView` while already connected to one –
+      used to overwrite `currentHeartRateConnection` outright, dropping the
+      old `HeartRateConnection`'s last strong reference without ever
+      calling its own `disconnect()` first, bypassing `BLEDisconnectGracePeriod`
+      entirely (its `deinit` still ran, but that's the narrower catch-all,
+      not the actual protection – same distinction the first fix already
+      drew). Fixed by disconnecting the old connection first, same as
+      `disconnectHeartRateCurrent()` already does on its own. Not a fit for
+      *this specific* crash, though (it requires tapping a row, and there
+      was no interaction that time) – a real bug, found along the way, not
+      a confirmed explanation.
+      Also hardened `BluetoothManager` itself with a `deinit` (`central?.stopScan()`)
+      – it's `central`'s own `CBCentralManagerDelegate`, the same class of
+      risk one level up, currently with zero protection of its own. Flagged
+      honestly as weaker than the other fixes, though: under ordinary use
+      this instance never actually gets deallocated at all (a `@StateObject`
+      on the app's persistent root); the one path that would – `UnchainApp`
+      `DeviceListView().id(languageOverride)` – has no equivalent to
+      `TrainerConnection.disconnect()`'s "about to be released, still safe
+      to act" checkpoint to hang a real `BLEDisconnectGracePeriod` call off
+      of, and a language change doesn't fit "no interaction" either.
+      Bottom line, stated plainly rather than overclaimed: two real,
+      independently-valid hardening fixes came out of this investigation,
+      but neither is a *confirmed* explanation for this specific incident –
+      the crashed thread's own stack has no app code on it at all to point
+      at one. If this recurs, a properly symbolicated report (Xcode
+      Organizer, connected to the device that produced it, with matching
+      debug symbols) is the way to actually pin down a real call site
+      instead of continuing to reason from a blind system-only stack.
+      Followed up with the one detail that actually narrowed this down:
+      the Polar H10 strap connected that session is known to drop out on
+      its own mid-workout (reported directly, as a recalled, plausible
+      detail, not a confirmed cause either) – and `BluetoothManager
+      .centralManager(_:didDisconnectPeripheral:error:)`'s own
+      auto-reconnect for exactly that case is the *only* path anywhere in
+      this app that re-issues a CoreBluetooth connection with genuinely
+      zero user interaction (the trainer's own `reconnectCurrent()` only
+      ever runs from a tapped button – no equivalent auto-retry exists for
+      it). That handler used to call `central.connect(peripheral:options:)`
+      straight back out from *inside* CoreBluetooth's own delivery of the
+      disconnect that made it necessary – plausible reentrancy, and, for a
+      strap that's genuinely flapping (intermittent skin contact), no gap
+      at all between one drop and immediately reconnecting into the next
+      one. Now deferred a second via `DispatchQueue.main.asyncAfter`
+      instead of called inline – breaks the direct reentrancy and doubles
+      as a natural debounce against exactly that flapping, rather than
+      hammering `connect` in a tight loop – with a `[weak self]` plus a
+      `currentHeartRateConnection === heartRate` identity check once the
+      delay elapses, so a strap disconnected/switched out in the meantime
+      doesn't get reconnected to by a now-stale retry. Still not provable
+      as *the* cause from an unsymbolicated report – flagged as such
+      deliberately – but the one concrete change actually motivated by
+      what matches "no interaction" specifically, rather than a generic
+      hardening pass.
+- [x] **Fixed a genuinely separate real bug, spotted while testing right
+      after that same crash**: relaunching the app and pressing "Workout
+      starten" again looked like the *previous* (crashed) workout was
+      still running – the same interval-list row highlighted as "current"
+      varied between attempts, and the displayed elapsed duration itself
+      started somewhere past 0, not at it. Confirmed first that nothing in
+      this app persists `elapsedSeconds`/`startDate` across a relaunch at
+      all (a fresh `WorkoutSession` genuinely starts at `elapsedSeconds =
+      0` every time) – so the "leftover" value had to be coming from
+      *outside* the app. It was: `refreshWorkoutState`'s existing
+      clock-drift correction (see the entry documenting the crash that
+      *that* itself was fixed from, much earlier in this log) trusts a
+      connected machine's own `deviceElapsedSeconds` outright, on the
+      premise that it's "the workout duration as far as the machine's own
+      console is concerned" – true for correcting small, genuine drift
+      over one continuous session, but not once the app crashes: nothing
+      ever sent that treadmill a Stop, so *its* own elapsed-time counter
+      never got told the workout ended either, and apparently just kept
+      running (or held wherever it last reached) independently of the
+      phone. A fresh session's very first tick could see a
+      `deviceElapsedSeconds` minutes ahead of a local clock that had only
+      been running a second or two, and jump straight into that stale
+      position – varying by however long it had actually been since the
+      crash, exactly as reported. Fixed with a plausibility bound: a
+      connected machine's own counter is only trusted when it's within a
+      minute of what the local clock itself expects (comfortably past any
+      *real* drift or console-countdown discrepancy – both are ordinary
+      quartz clocks, genuine drift is seconds, not minutes) – anything
+      further ahead than that is treated as a stale leftover instead and
+      quietly ignored, falling back to the local clock the same way an
+      unreported `deviceElapsedSeconds` already did before this existed at
+      all.
+- [x] **Questioned directly, correctly: `maxPlausibleDeviceElapsedSecondsAhead`
+      only bounded a *display* symptom** – the actual root cause is that a
+      crash never sends the machine a Stop, so *its* own console never
+      learns the workout ended either, and can keep going (or hold
+      wherever it last reached) entirely on its own. The better fix:
+      correct the machine's own state directly, not just decline to trust
+      whatever it reports afterward. New `WorkoutSession
+      .watchForOrphanedActiveWorkout()`, set up once in `init` – the very
+      first genuine metrics notification a connection ever delivers (once
+      both `hasControl`, so a stop command can actually be sent, and real
+      data, not the placeholder `.empty` a fresh connection starts at) is
+      checked for whether the machine already looks active – moving, or
+      its own elapsed-time counter already ticking – despite this app's
+      own session still sitting `.idle`. If so, `connection.stopWorkout()`
+      is sent immediately. Deliberately one-shot (`.first()`), not an
+      ongoing watch: FTMS notifications only start flowing once this app
+      itself subscribes, moments after connecting, so there's no
+      *legitimate* earlier window for a rider to have started walking on
+      their own before tapping this app's own Start button – but there
+      absolutely is a *later* one (warming up before officially starting),
+      which this must not interfere with, and doesn't: only the one moment
+      right after connecting is ever checked.
+      `maxPlausibleDeviceElapsedSecondsAhead` itself stays – not replaced,
+      kept deliberately as a second, independent layer: this new check
+      only ever fires once, right after connecting, so it can't catch
+      every conceivable way a stale reading might still show up later (a
+      gap in this reasoning not yet found, a different device behaving
+      unexpectedly, …) – cheap, harmless, general-purpose insurance
+      underneath a fix that now actually addresses the real cause for the
+      specific scenario reported.

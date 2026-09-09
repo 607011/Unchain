@@ -52,6 +52,30 @@ final class BluetoothManager: NSObject, ObservableObject {
         central = CBCentralManager(delegate: self, queue: nil) // nil -> callbacks on the main thread
     }
 
+    /// This instance is itself `central`'s own `CBCentralManagerDelegate` –
+    /// same class of risk `TrainerConnection`/`HeartRateConnection`'s own
+    /// `deinit` guards against (see that type's doc comment), just one
+    /// level up: if CoreBluetooth already has a scan/connection-state
+    /// callback queued for delivery to *this* object when it's deallocated,
+    /// that callback still fires later regardless, on whatever this
+    /// object's own storage holds by then. Belt-and-braces here too, though
+    /// with a real caveat this doesn't have: under ordinary use this
+    /// instance never actually gets deallocated at all – it's a
+    /// `@StateObject` on `DeviceListView`, the app's persistent root,
+    /// pushed on top of but never itself torn down by navigating into
+    /// `ControlView`. The one path that *would* discard it is `UnchainApp`'s
+    /// own `DeviceListView().id(languageOverride)`, rebuilding the whole
+    /// subtree on a language change – unlike `TrainerConnection`'s own
+    /// `disconnect()`, there's no equivalent "about to be released, still
+    /// safe to act" checkpoint here to hang a `BLEDisconnectGracePeriod`
+    /// call off of; `deinit` itself is too late to self-rescue from.
+    /// `stopScan()` at least tells CoreBluetooth to stop scheduling
+    /// anything *further*, same limited value `TrainerConnection.deinit`'s
+    /// own `cancelPeripheralConnection` call already has.
+    deinit {
+        central?.stopScan()
+    }
+
     var trainerDevices: [DiscoveredDevice] { discoveredDevices.filter { $0.kind == .trainer } }
     var heartRateDevices: [DiscoveredDevice] { discoveredDevices.filter { $0.kind == .heartRateMonitor } }
 
@@ -110,8 +134,28 @@ final class BluetoothManager: NSObject, ObservableObject {
 
     // MARK: - Heart rate strap
 
+    /// Found while investigating a second real "dangling CoreBluetooth
+    /// callback" crash (2026-09-09, no user interaction at all – see
+    /// `TrainerConnection.disconnect()`'s own doc comment for the class of
+    /// bug and its `BLEDisconnectGracePeriod` fix): tapping a *different*
+    /// strap's row in `DeviceListView` while already connected to one
+    /// reaches this directly – `HeartRateDeviceRow` only ever offers a
+    /// plain connect button for a device that *isn't* the currently
+    /// connected one – and used to just overwrite `currentHeartRateConnection`
+    /// outright, dropping the old `HeartRateConnection`'s last strong
+    /// reference without ever calling its own `disconnect()` first. That's
+    /// exactly the gap `BLEDisconnectGracePeriod` exists to close, bypassed
+    /// entirely here – this old connection's own `deinit` still ran (the
+    /// narrower catch-all, see its own doc comment), but the actual
+    /// protection never got a chance to. Explicitly disconnecting the old
+    /// one here first, same as `disconnectHeartRateCurrent()` already does
+    /// on its own, closes it – not confirmed as *the* cause of that
+    /// specific crash (no user interaction that time rules this exact path
+    /// out for it), but a real, independently-reachable instance of the
+    /// same class of bug, found along the way.
     func connectHeartRate(to device: DiscoveredDevice) {
         UserDefaults.standard.set(device.id.uuidString, forKey: Self.lastHeartRateStrapUUIDKey)
+        currentHeartRateConnection?.disconnect()
         let connection = HeartRateConnection(peripheral: device.peripheral, central: central)
         currentHeartRateConnection = connection
         central.connect(device.peripheral, options: nil)
@@ -214,7 +258,34 @@ extension BluetoothManager: CBCentralManagerDelegate {
             // making the user notice and reconnect by hand, since there's no
             // "Reconnect" button for the HR strap.
             heartRate.prepareForReconnect()
-            central.connect(peripheral, options: nil)
+            // Deliberately deferred, not called inline here – identified as
+            // the likely real trigger for a crash investigated right above
+            // (same signature: a dangling CoreBluetooth main-thread
+            // callback), once it turned out a Polar H10 dropping out mid-
+            // workout, on its own, no interaction needed, is a known real
+            // quirk of that specific strap – exactly this path, and the
+            // only one of the app's auto-reconnect paths that fires with
+            // zero user interaction (the trainer has no equivalent –
+            // `reconnectCurrent()` only ever runs from a tapped button).
+            // Calling `central.connect(_:options:)` straight back out
+            // *from inside* CoreBluetooth's own delivery of the disconnect
+            // that made it necessary is exactly the kind of reentrancy
+            // that's plausible to provoke internal state confusion in
+            // CoreBluetooth itself – and, for a strap that's genuinely
+            // flapping (poor skin contact, on-again-off-again), doing this
+            // inline means immediately reconnecting into the very next
+            // drop too, with no gap between them at all. A short,
+            // deliberate delay breaks the direct reentrancy and doubles as
+            // a natural debounce against exactly that flapping, rather
+            // than hammering `connect` in a tight loop. Not provable as
+            // *the* cause from an unsymbolicated crash report – see that
+            // entry's own doc comment for the honest limits here – but the
+            // one concrete change directly motivated by what actually
+            // matches "no interaction at all".
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard let self, self.currentHeartRateConnection === heartRate else { return }
+                self.central.connect(peripheral, options: nil)
+            }
         }
     }
 }

@@ -468,6 +468,14 @@ final class WorkoutSession: ObservableObject {
     private var recordedTreadmillSegmentStartSeconds: TimeInterval?
     private var recordedTreadmillSpeedKmh: Double?
     private var recordedTreadmillInclinePercent: Double?
+    /// One-shot: the very first genuine metrics notification this
+    /// connection ever delivers, checked for whether the machine already
+    /// looks like it's mid-workout *before* this app ever told it to start
+    /// – see `watchForOrphanedActiveWorkout()`'s own doc comment for why.
+    /// `nil` again once it's fired once (or the session's own `deinit`
+    /// releases it) – deliberately not kept alive to re-check anything
+    /// later, only this one moment right after connecting matters.
+    private var orphanedActiveWorkoutCancellable: AnyCancellable?
 
     init(connection: TrainerConnection, heartRateProvider: @escaping () -> HeartRateConnection?) {
         self.connection = connection
@@ -478,6 +486,51 @@ final class WorkoutSession: ObservableObject {
         // way `.ambient` would be – best-effort, a workout shouldn't fail to
         // start just because the audio session couldn't be configured.
         try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
+        watchForOrphanedActiveWorkout()
+    }
+
+    /// Reported directly, as a better fix for the same crash-relaunch
+    /// scenario `maxPlausibleDeviceElapsedSecondsAhead` above only bounded
+    /// the *display* symptom of: if this app crashes (or is force-quit)
+    /// mid-workout, it never sends the machine a Stop – so the machine's
+    /// own console never learns the workout ended either, and can keep
+    /// going (or hold wherever it last reached) entirely on its own,
+    /// independent of whether anything's even connected to it. Relaunching
+    /// and reconnecting used to just quietly display whatever that
+    /// leftover state happened to be from that point on. This instead
+    /// corrects the actual root cause: the very first genuine metrics
+    /// notification this connection ever delivers – once it has both
+    /// `hasControl` (so `connection.stopWorkout()` below can actually be
+    /// sent at all) and real data (not the placeholder `.empty` a fresh
+    /// connection starts at) – is checked for whether the machine already
+    /// looks active (moving, or its own elapsed-time counter already
+    /// ticking) despite this app's own session still sitting `.idle`. If
+    /// so, that's not a legitimate "rider stepped on and started walking
+    /// before tapping Start" – FTMS notifications only start flowing once
+    /// this app itself subscribes to them, moments after connecting, so
+    /// there's no *earlier* legitimate window for that to have happened in
+    /// – it's a leftover from a session this app never got to close out
+    /// properly, and `connection.stopWorkout()` tells the machine outright
+    /// to stop, rather than this app just declining to trust whatever it
+    /// reports afterward. One-shot on purpose (`.first()`): only this
+    /// initial moment right after connecting is checked, never an ongoing
+    /// watch – a rider genuinely starting to walk before tapping this
+    /// app's own Start button, once a connection's already been open a
+    /// while, is exactly the legitimate case this must *not* interfere
+    /// with.
+    private func watchForOrphanedActiveWorkout() {
+        orphanedActiveWorkoutCancellable = connection.$state
+            .combineLatest(connection.$metrics)
+            .filter { state, metrics in state == .ready && metrics != .empty }
+            .first()
+            .sink { [weak self] _, metrics in
+                guard let self, self.state == .idle else { return }
+                let isMoving = (metrics.instantaneousSpeedKmh ?? 0) > 0
+                let deviceThinksItsRunning = (metrics.deviceElapsedSeconds ?? 0) > 0
+                if isMoving || deviceThinksItsRunning {
+                    self.connection.stopWorkout()
+                }
+            }
     }
 
     /// - Parameter usingProgram: Whether this run should follow `activeWorkout`
@@ -1071,6 +1124,18 @@ final class WorkoutSession: ObservableObject {
         }
     }
 
+    /// How far ahead of this session's own local clock a connected
+    /// machine's `deviceElapsedSeconds` is still allowed to pull
+    /// `elapsedSeconds` – see `refreshWorkoutState`'s own note on the real
+    /// crash-relaunch bug this bound was added for. A full minute:
+    /// comfortably past any genuine clock drift or console-countdown
+    /// discrepancy this was actually meant to correct for (both clocks are
+    /// ordinary quartz timers – real drift is seconds at most, not
+    /// minutes), while still well short of how far off a leftover counter
+    /// from an already-ended, crash-orphaned session would realistically
+    /// be.
+    private static let maxPlausibleDeviceElapsedSecondsAhead = 60
+
     /// Re-derives elapsed time and integrates distance/work/heart-rate-zone
     /// time over the real time since the last refresh (`lastMetricsSampleDate`)
     /// rather than assuming exactly one second, since refreshes can now come
@@ -1125,7 +1190,27 @@ final class WorkoutSession: ObservableObject {
         // or one that does but hasn't sent its first notification with it
         // yet).
         let localElapsedSeconds = currentElapsedSeconds(at: now)
-        if let deviceElapsedSeconds = metrics.deviceElapsedSeconds, localElapsedSeconds > elapsedSeconds {
+        // Bounded to `maxPlausibleDeviceElapsedSecondsAhead` beyond what the
+        // local clock itself expects – reported directly, and confirmed:
+        // if the app is killed (crash, force-quit) mid-workout without ever
+        // sending a Stop, the treadmill itself was never told the workout
+        // ended, and some consoles just keep their own elapsed-time counter
+        // running (or hold it at whatever it last reached) independently of
+        // whether anything's still connected. Relaunching and starting a
+        // *new* session used to trust that leftover value outright – the
+        // very first tick's `deviceElapsedSeconds` could be minutes ahead
+        // of a local clock that had only been running for a second or two
+        // – jumping the new session straight into the old one's own
+        // interval-list position (and its own displayed duration), varying
+        // by however long it had been since the crash each time, exactly
+        // as reported. Small genuine drift between the two clocks (or a
+        // treadmill whose own elapsed counter starts a moment before/after
+        // this app's own `startDate`) is still trusted, same reasoning as
+        // ever; only a gap implausibly large for that – almost certainly a
+        // stale counter from an already-ended session, not real drift – is
+        // rejected now, falling back to the local value instead.
+        if let deviceElapsedSeconds = metrics.deviceElapsedSeconds, localElapsedSeconds > elapsedSeconds,
+           deviceElapsedSeconds - localElapsedSeconds <= Self.maxPlausibleDeviceElapsedSecondsAhead {
             elapsedSeconds = max(deviceElapsedSeconds, elapsedSeconds)
         } else {
             elapsedSeconds = localElapsedSeconds

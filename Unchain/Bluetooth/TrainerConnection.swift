@@ -116,6 +116,27 @@ final class TrainerConnection: NSObject, ObservableObject {
         peripheral.delegate = self
     }
 
+    /// Belt-and-braces counterpart to `BluetoothManager.clearConnection()`'s
+    /// own `disconnect()` call (see that method's doc comment for the real
+    /// crash that prompted it): that call only runs on the one path that
+    /// happens to route through `clearConnection()` – a swipe-back out of
+    /// `ControlView`. Confirmed from a second real crash (2026-09-09, mid-
+    /// workout, no navigation involved) that this instance can still end up
+    /// deallocated some *other* way – `UnchainApp`'s own `DeviceListView()
+    /// .id(languageOverride)` discarding the whole subtree on a language
+    /// change is one such path, and there's no guarantee it's the only one.
+    /// Whatever the trigger, letting ARC deallocate this while CoreBluetooth
+    /// still has a callback queued for delivery to it (its own internal
+    /// main-thread-deferred `perform`, not something this app schedules or
+    /// can cancel directly) risks that callback landing on already-freed
+    /// memory once it fires – an `objc_msgSend` crash indistinguishable from
+    /// the one `clearConnection()` was already written to avoid. `deinit`
+    /// is the one place guaranteed to run on *every* path this object stops
+    /// being referenced from, not just the ones already known about today.
+    deinit {
+        central?.cancelPeripheralConnection(peripheral)
+    }
+
     var deviceName: String { peripheral.name ?? "Trainer" }
 
     // MARK: - Callbacks invoked by BluetoothManager

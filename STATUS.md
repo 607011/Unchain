@@ -1857,3 +1857,174 @@ would change, roughly in the order it'd need doing:
       bike (e.g. ~9 % of a brisk 5.5 km/h walk per tap), and pace-based
       training in particular calls for finer adjustments. Incline's own
       step, and every other mode's, are unaffected.
+- [x] **Hardened `ShorthandWorkoutParser` and added its treadmill
+      counterpart, `TreadmillShorthandParser`** – the deterministic,
+      offline alternative settled on after `feature/ai-workout-generator`
+      (Apple's on-device Foundation Models framework, see that branch and
+      its own commit history) turned out simultaneously unreliable for
+      anything beyond a single stated number *and* out of proportion for
+      what this app actually needs: a classical, testable parser handles
+      the same "type a workout in plain-ish text" job without a model,
+      a context window, or an iOS 26 requirement.
+    - New shared file `ShorthandNotation.swift`: `consumePrefixedValue(_:units:)`
+      matches `NUMBER UNIT` at the start of a string – with or without a
+      space, and with `,` or `.` as the decimal separator – trying every
+      candidate unit longest-first and rejecting a match that's actually
+      just a prefix of some longer, unlisted word (so "minutes" is never
+      mistaken for "minute" plus a dangling "s"). Both parsers' own
+      tokenizing is built on this now, rather than the previous exact
+      single-space-delimited split, which is what "Fehlbedienung" (a rider
+      reported the current one working "reasonably" but too easy to get
+      wrong) actually meant in practice: "10min60%FTP" (no space) or
+      "3,5min 200W" (German decimal comma) used to be hard parse failures
+      despite being perfectly unambiguous asks. `splitTopLevel(_:separator:)`
+      (top-level comma-splitting, shared between both parsers) also learned
+      not to treat a `,` between two digits as a step separator, for the
+      same decimal-comma reason.
+    - Both parsers also gained a parenthesis-free single-step repeat –
+      "4x5min 105%FTP" / "8x400m 12km/h", the way this is actually phrased
+      in practice – alongside the original "Nx(...)" multi-step form,
+      which still works unchanged.
+    - `TreadmillShorthandParser` (new): `step := length speed incline?` –
+      `length` is either a duration (min/sec/h, plus German synonyms) or a
+      *distance* (m/km, plus the imperial units asked for specifically:
+      mi/yd/ft), converted to the block's actual duration via whichever
+      `speed` follows it in the same step (`durationSeconds = distanceMeters
+      × 3.6 / speedKmh`) – unambiguous because, unlike a bike step, a
+      treadmill step never ramps between two different speeds
+      (`TreadmillWorkoutSegment` itself only ever holds one flat speed for
+      its whole duration). `speed` itself accepts `km/h`/`kmh`/`kph` or
+      `mph`/`mi/h`, always converted to km/h at parse time – this app's one
+      canonical unit throughout, same as every file format it reads.
+      `incline` is optional, defaulting to flat (`0%`) when omitted. Wired
+      into `CreateWorkoutView` (now takes `machineKind`, and both a
+      `WorkoutProgram`/`TreadmillWorkoutProgram` save closure – only the
+      one the chosen grammar can actually produce ever fires) and
+      `ControlView`'s "Create" button, gated the same way `.zwo` loading
+      already is (`supportsSpeedTarget || supportsInclinationTarget`)
+      rather than the bike-only `supportsPowerTarget` it was stuck behind
+      before.
+    - Verified with a standalone `swiftc`-compiled test harness (no Xcode
+      project needed for the parser logic itself) covering both parsers:
+      the original grammar's examples still parse identically, plus the
+      no-space/decimal-comma/German-synonym/parens-free-repeat cases, plus
+      `TreadmillShorthandParser`'s own distance-to-duration conversion
+      (400 m, 0.5 mi, 100 ft, 40 yd, all cross-checked by hand against the
+      expected seconds) and every error path. Also smoke-tested the full
+      UI wiring end-to-end in the Simulator (`CreateWorkoutView` for
+      treadmill, via a temporary `#if DEBUG` entry point removed again
+      afterward) – live preview updates correctly while typing, Save
+      round-trips through to the machine-kind-appropriate closure.
+- [x] **Two more bike shorthand tolerances, reported against a real
+      example** (`10' 60%FTP, 4x(5min 105% FTP, 3min 50% FTP), 10min
+      55% FTP`) – ported to both `ShorthandWorkoutParser.swift` and
+      `docs/builder.html`'s JS twin identically:
+    - `'` (a bare prime) as a minutes alias, so `10'` means the same as
+      `10min`. Bike-only, deliberately not added to
+      `TreadmillShorthandParser`'s own duration units – there `'` would be
+      genuinely ambiguous with feet (the same prime-for-minutes-or-feet
+      overload this notation always carries), a collision a bike step
+      never has to worry about since it has no distance unit at all.
+    - A space before the target's own unit ("105% FTP", "200 W") – target
+      matching now strips internal whitespace before comparing suffixes,
+      rather than requiring the value and its unit glued together with no
+      space at all.
+    - Verified against the exact reported example, both in the standalone
+      Swift test harness and the Node.js one for the web tool – both
+      produce the identical 20-breakpoint, 3120s (52 min) result the
+      original (space/prime-free) phrasing of the same workout already
+      did, confirmed live in the browser too (chart syncs, reads 52:00).
+- [x] **`"` (a bare double prime) as a seconds alias** – `90"` means the
+      same as `90sec` – the other half of the same prime/double-prime
+      notation `'` already covers for minutes. Unlike `'`, added to
+      *both* `ShorthandWorkoutParser` and `TreadmillShorthandParser` (and
+      both's JS twins in `docs/builder.html`) – `"` 's usual other
+      meaning, inches, was never a supported distance unit here in the
+      first place, so there's nothing for it to collide with the way `'`
+      would with feet. Verified in both languages, plain and nested
+      inside a repeat group, on both machine kinds.
+- [x] **Investigated a real crash from a live walking workout**, reported
+      with a suspicion it was tied to a treadmill segment transition
+      involving a negative (device-unsupported) incline value. That turned
+      out to be a dead end, but only after real digging: the app's own
+      MetricKit diagnostic (`DiagnosticsReporter`, see its entry above) only
+      carries binary-UUID/offset pairs, not symbol names, and this Mac had
+      no dSYM matching the crashed build anywhere (`~/Library/Developer/
+      Xcode/Archives` empty, current DerivedData build a different UUID
+      entirely, no Spotlight hit for the UUID either) – so the first, more
+      thorough pass through the incline-clamping code in `WorkoutSession
+      .sendCurrentWorkoutTarget(for:)` and `TrainerConnection
+      .setTargetInclination(percent:)` (confirming both already clamp to
+      `inclinationRangePercent`, and that clamp already predates this crash
+      by five days) was done *blind*, without being able to prove it was
+      even looking at the right function. Two full device `.ips` crash logs
+      later (fetched via Xcode's Devices and Simulators → View Device Logs,
+      the reliable way to get one Xcode can actually symbolicate) resolved
+      it properly – but the first one pasted turned out to be a *different,
+      already-fixed* crash from six days earlier (a `Dictionary
+      (uniqueKeysWithValues:)` duplicate-key fatal error in
+      `mergedWorkoutSamples()`, fixed the same evening it happened, see the
+      clock-drift entry above – confirmed via `git log -S` against its own
+      `uniquingKeysWith:` fix landing 52 minutes after that log's own
+      timestamp). The real one, matching the original MetricKit report's
+      own binary UUID and faulting address exactly, was something else
+      entirely: `EXC_BAD_ACCESS`/`SIGSEGV`, "possible pointer authentication
+      failure", with `objc_msgSend` called from `__NSThreadPerformPerform` –
+      CoreBluetooth's own internal mechanism for delivering a delegate
+      callback to the main thread after the fact, not anything this app
+      schedules or can cancel directly. That's the same class of crash
+      `BluetoothManager.clearConnection()` was already hardened against on
+      2026-09-01 (see its own doc comment) – but that fix only runs on the
+      one path that happens to route through it (navigating back out of
+      `ControlView`), and this crash happened mid-workout, no navigation
+      involved. Found one genuine, still-open way `TrainerConnection`
+      could be dropped without ever reaching that cleanup: `UnchainApp`'s
+      `DeviceListView().id(languageOverride)` discards and rebuilds the
+      *entire* subtree – `BluetoothManager`, `TrainerConnection`, the
+      `CBCentralManager` itself – on any language-setting change, bypassing
+      `clearConnection()`'s careful disconnect-before-release order
+      completely; not provably what happened here (nothing suggests the
+      language setting changed mid-walk), but a real gap regardless, and a
+      sign the original fix's scope (one specific navigation path) was
+      never actually the full guarantee its own doc comment implied.
+      Neither `TrainerConnection` nor `HeartRateConnection` had a `deinit`
+      at all – added one to each, calling the same
+      `central?.cancelPeripheralConnection(peripheral)` `disconnect()`
+      already does, as the one cleanup path guaranteed to run no matter
+      *which* way the object stops being referenced, present or future,
+      rather than only the ones already known about today. Can't claim
+      certainty this was *the* trigger – the crashed thread's own stack is
+      100% system frames (run loop → source0 → perform → objc_msgSend),
+      no app code on it at all to point at a specific call site – but it's
+      a real, previously-unguarded gap in the same already-diagnosed class
+      of bug, fixed the same defensive way the first instance of it was.
+      Followed up with a deliberate sweep of the rest of the app for the
+      same *family* of bug – something async/system-framework-mediated
+      outliving, or acting on stale state from, the app-side object that
+      set it up – not just the one CoreBluetooth-specific shape above.
+      Found and fixed one more, real one: `WatchConnectivityManager.shared`
+      (a singleton, living for the whole process) holds `onStartRequested`/
+      `onStopRequested` closures that `ControlView.configureWatchCompanion()`
+      sets on every `.onAppear` – but nothing cleared them on the way back
+      out. Since those closures capture `connection`/`session` via this
+      struct's own `self` (`@ObservedObject`/`@StateObject`, both real
+      class references), leaving `ControlView` used to leave the singleton
+      holding a strong reference to that specific `TrainerConnection`/
+      `WorkoutSession` pair indefinitely – silently defeating the very
+      `deinit`-based cleanup just added above (it never fires while
+      something else still holds a strong reference) until the next
+      connection's own `configureWatchCompanion()` call happened to
+      overwrite the closures, and, worse, leaving a stale Watch "start"/
+      "stop" request able to act on a connection nothing on the phone
+      still considers current. Fixed with a matching `.onDisappear` that
+      clears both closures – everything else checked (`WorkoutSession`'s
+      own `Timer`/Combine `metricsCancellable`, `HealthKitManager`'s
+      completion-closure calls, `WatchWorkoutManager`'s watchOS-side
+      `HKWorkoutSession`/`HKLiveWorkoutBuilder`/`WCSession` handling, the
+      long-press-repeat `Timer` behind `ControlView`'s own +/- stepper
+      buttons) already followed this same discipline correctly –
+      consistent `[weak self]` where a class could actually outlive its
+      own callback, cancellation on teardown, no stored closures on a
+      long-lived singleton left unguarded anywhere else. `git grep`-level
+      sweep, not exhaustive proof nothing else remains, but a real,
+      deliberate pass, not just the one spot the crash happened to point at.

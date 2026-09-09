@@ -283,7 +283,11 @@ struct ControlView: View {
             RecentWorkoutsView(recents: compatibleRecents, onSelect: loadRecentEntry, onDelete: deleteRecentEntry)
         }
         .sheet(isPresented: $isShowingCreateWorkout) {
-            CreateWorkoutView(onSave: loadProgramIntoSession)
+            CreateWorkoutView(
+                machineKind: connection.machineKind,
+                onSave: loadProgramIntoSession,
+                onSaveTreadmillProgram: loadTreadmillProgramIntoSession
+            )
         }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView()
@@ -342,6 +346,25 @@ struct ControlView: View {
             loadPersistedOrDefaultProgramIfCapabilitiesKnown()
             rememberConnectedDevice()
             configureWatchCompanion()
+        }
+        // `configureWatchCompanion()`'s closures capture `connection`/
+        // `session` (via this struct's own `self`, implicitly, being
+        // `@ObservedObject`/`@StateObject` properties) – and
+        // `WatchConnectivityManager.shared` is a singleton that lives for
+        // the whole process, so whatever it was last handed just keeps
+        // those specific instances alive, strongly, for as long as nothing
+        // overwrites it. Leaving here (back to the device list, same class
+        // of gap `TrainerConnection`'s own `deinit` was just added for)
+        // used to mean neither ever actually got released until the rider
+        // connected to something else and a fresh `configureWatchCompanion()`
+        // call replaced the closures – silently defeating that very
+        // `deinit`-based cleanup, and leaving a stale Watch "start"/"stop"
+        // request able to act on a connection/session nothing on the phone
+        // still considers current. Clearing both here, not just relying on
+        // the next connection to overwrite them.
+        .onDisappear {
+            WatchConnectivityManager.shared.onStartRequested = nil
+            WatchConnectivityManager.shared.onStopRequested = nil
         }
         .onChange(of: connection.supportedFeatures) { _ in
             ensureModeIsAvailable()
@@ -783,12 +806,15 @@ struct ControlView: View {
             Button("Recent") { isShowingRecentWorkouts = true }
                 .buttonStyle(.bordered)
                 .disabled(compatibleRecents.isEmpty)
-            // The shorthand notation only ever produces a power-kind
-            // program (no %-of-resistance-range target), so this needs
-            // Power Target support the same way ".erg" does.
+            // On a bike, the shorthand notation only ever produces a
+            // power-kind program (no %-of-resistance-range target), so
+            // this needs Power Target support the same way ".erg" does. On
+            // a treadmill, `CreateWorkoutView` instead uses
+            // `TreadmillShorthandParser` (speed+incline), gated the same
+            // way ".zwo" already is via `allowedFileContentTypes`.
             Button("Create") { isShowingCreateWorkout = true }
                 .buttonStyle(.bordered)
-                .disabled(!supportsPowerTarget)
+                .disabled(!canCreateShorthandWorkout)
         }
         .disabled(session.state == .running || session.state == .paused)
     }
@@ -809,6 +835,15 @@ struct ControlView: View {
             types.append(zwo)
         }
         return types
+    }
+
+    /// Whether `CreateWorkoutView`'s shorthand notation applies to the
+    /// connected machine at all – power-only on a bike (`supportsPowerTarget`,
+    /// same as `.erg`), speed+incline on a treadmill (same `.zwo` gate as
+    /// `allowedFileContentTypes` above).
+    private var canCreateShorthandWorkout: Bool {
+        if connection.machineKind == .treadmill { return supportsSpeedTarget || supportsInclinationTarget }
+        return supportsPowerTarget
     }
 
     /// The currently loaded Program (not a GPX route – there's no route

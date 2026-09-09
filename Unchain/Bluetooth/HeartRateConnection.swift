@@ -26,6 +26,17 @@ final class HeartRateConnection: NSObject, ObservableObject {
         peripheral.delegate = self
     }
 
+    /// Same reasoning as `TrainerConnection`'s own `deinit` – see its doc
+    /// comment. Nothing here today drops the last reference to a
+    /// `HeartRateConnection` without already calling `disconnect()` first
+    /// either (`DeviceListView`'s row action calls both), but this is the
+    /// one cleanup path guaranteed to run regardless of *how* that ever
+    /// stops being true – belt-and-braces against the same class of crash,
+    /// not a response to a strap-specific repro.
+    deinit {
+        central?.cancelPeripheralConnection(peripheral)
+    }
+
     var deviceName: String { peripheral.name ?? "HR Strap" }
 
     // MARK: - Callbacks invoked by BluetoothManager

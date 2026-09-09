@@ -2400,6 +2400,66 @@
           }
         }
       }
+    },
+    "Type a workout, e.g. \"5min 8km/h, 5x(3min 10km/h 6%, 2min 6km/h), 5min 8km/h\".": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib ein Workout ein, z. B. „5min 8km/h, 5x(3min 10km/h 6%, 2min 6km/h), 5min 8km/h“."
+          }
+        }
+      }
+    },
+    "Couldn't understand \"%@\" – expected something like \"5min 8km/h\", \"400m 10km/h 2%%\", or \"3x(...)\".": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ konnte nicht verstanden werden – erwartet wird z. B. „5min 8km/h“, „400m 10km/h 2%%“ oder „3x(...)“."
+          }
+        }
+      }
+    },
+    "Couldn't understand the length \"%@\" – use a duration like \"10min\" or a distance like \"400m\", \"0.5mi\", \"440yd\".": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Länge „%@“ konnte nicht verstanden werden – verwende eine Dauer wie „10min“ oder eine Strecke wie „400m“, „0.5mi“, „440yd“."
+          }
+        }
+      }
+    },
+    "Couldn't understand the speed \"%@\" – use e.g. \"8km/h\" or \"5mph\".": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Geschwindigkeit „%@“ konnte nicht verstanden werden – verwende z. B. „8km/h“ oder „5mph“."
+          }
+        }
+      }
+    },
+    "Couldn't understand the incline \"%@\" – use e.g. \"2%%\".": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Steigung „%@“ konnte nicht verstanden werden – verwende z. B. „2%%“."
+          }
+        }
+      }
+    },
+    "e.g. \"5min 8km/h, 5x(3min 10km/h 6%, 2min 6km/h), 5min 8km/h\", or by distance: \"8x400m 12km/h\". Length: min/sec/h, or a distance – m/km/mi/yd/ft. Speed: km/h or mph. Incline is optional (default flat): 2%.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. „5min 8km/h, 5x(3min 10km/h 6%, 2min 6km/h), 5min 8km/h“, oder per Strecke: „8x400m 12km/h“. Länge: min/sec/h, oder eine Strecke – m/km/mi/yd/ft. Geschwindigkeit: km/h oder mph. Steigung ist optional (Standard: flach): 2%."
+          }
+        }
+      }
     }
   },
   "version": "1.1"

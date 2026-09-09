@@ -24,15 +24,14 @@ struct TrainerMetrics: Equatable {
     var deviceElapsedSeconds: Int?
     /// Treadmill-only – the *cumulative* meters climbed so far this
     /// workout (FTMS's own "Positive Elevation Gain" field, whole meters),
-    /// reported directly by the treadmill rather than estimated from
-    /// incline × distance here: this app has no live *actual* incline
-    /// reading to integrate from in the first place (Treadmill Data's own
-    /// Inclination field is still unread, see `init(treadmillData:)`'s own
-    /// note), so a self-computed number would be a guess dressed up as a
-    /// measurement. `nil` for any treadmill that doesn't report this
-    /// optional field at all – shown as "–" rather than `0`, so "not
-    /// climbing" and "doesn't say" stay
-    /// visibly different.
+    /// reported directly by the treadmill. `nil` for any treadmill that
+    /// doesn't report this optional field at all – `ControlView`'s `m ↑`
+    /// tile falls back to `WorkoutSession.estimatedElevationGainMeters`
+    /// (integrated from live speed × the currently *commanded* incline,
+    /// which this app always knows regardless of what the treadmill itself
+    /// reports back) in that case, rather than showing "–" forever – see
+    /// that property's own doc comment for why a self-computed number was
+    /// decided to be worth it after all.
     var elevationGainMeters: Int?
 
     static let empty = TrainerMetrics()

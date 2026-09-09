@@ -2218,3 +2218,78 @@ would change, roughly in the order it'd need doing:
       wide search, `formattedDuration(_:)` in `WorkoutHistoryView.swift`
       (overall workout duration, h:mm:ss) is a different, unrelated
       formatter and stays as-is.
+- [x] **The `m ↑` elevation-gain tile now falls back to a self-computed
+      estimate** for a treadmill that doesn't report FTMS's own "Positive
+      Elevation Gain" field – previously just "–" forever on any such
+      device, a call I'd made and explained in `TrainerMetrics
+      .elevationGainMeters`'s own doc comment, on the reasoning that this
+      app never reads the treadmill's own live *actual* inclination back
+      (the Treadmill Data characteristic's Inclination field was, and
+      still is, parsed-past/unused), so a self-computed number would be a
+      guess dressed up as a measurement. Revisited, and disagreed with,
+      directly: this app already knows the incline it *commanded* the
+      treadmill to hold, continuously, for either kind of treadmill
+      session – `WorkoutSession.lastSentTreadmillInclinePercent` for a
+      `.zwo`-driven one, `recordedTreadmillInclinePercent` for a manual
+      `.speedIncline` one (exactly one of the two is ever non-`nil` in a
+      given session, so no separate "which mode" branch is needed) – and
+      combined with the genuinely live, real `instantaneousSpeedKmh`
+      already integrated into `distanceMeters` every tick, that's enough
+      for a reasonably precise running total, physical incline-motor lag
+      aside. New `WorkoutSession.estimatedElevationGainMeters`, integrated
+      in `refreshWorkoutState` the same way `distanceMeters` already is –
+      `distance × commandedInclinePercent / 100` per tick, only while the
+      commanded incline is positive (flat/descending contributes nothing,
+      same "gained never means descended" convention the real FTMS field
+      already follows) – and only for a treadmill at all, a bike's
+      `setSimulationGrade(percent:)` being a resistance simulation with
+      nothing physical to climb. `ControlView`'s tile still prefers the
+      device's own real reading first; the estimate only fills in when
+      that's genuinely absent, and – matching `.distance`'s own tile right
+      above it, which has never shown "–" either – shows a plain running
+      number throughout, not a fallback special-cased only once a workout
+      is actually under way.
+- [x] **Tightened the elevation-gain estimate above with the treadmill's own
+      per-degree incline travel time** – it was integrating the flatly-
+      commanded target incline the instant a `.treadmillProgram` transition
+      sent it, same as `sendCurrentWorkoutTarget(for:)`'s own speed ramp
+      used to before *that* was added (see "Fix treadmill speed ramp taking
+      too long…"). New `WorkoutSession.estimatedPhysicalInclinePercent`
+      models the incline as still catching up during that same window,
+      reusing the identical ramp timing (`treadmillSpeedRampStartSeconds`/
+      `treadmillSpeedRampDurationSeconds`, itself already computed from
+      `TrainerDeviceSettingsStore`'s `effectiveInclineChangeSecondsPerDegree`)
+      the speed ramp already paces itself against – never fed back into
+      what's actually *sent*, which still goes out as one flat target
+      immediately, only into this session's own estimate of where the belt
+      physically is. A manual `.speedIncline` session mirrors its own
+      commanded incline immediately instead, with no ramp modeling – a
+      rider's own `+`/`-` tap has no comparable safety-ramp reason to model
+      a lag for, and each step is small enough for the flat-instant
+      assumption to barely matter there.
+- [x] **A loaded workout with illegal targets now gets quietly corrected in
+      place, not just warned about** – `warnIfOutOfRange(_:)` (both the
+      `.power`-kind `WorkoutProgram` overload and the `TreadmillWorkoutProgram`
+      one) still shows the exact same alert it always has, but now also
+      rewrites the loaded program's own out-of-range breakpoints/segments
+      to whatever this trainer's real range clamps them to, via two new
+      `WorkoutSession` methods (`clampActiveProgramPowerTargets(to:)`,
+      `clampActiveTreadmillProgram(speedRange:inclineRange:)`). Requested
+      directly: `setTargetPower`/`setTargetSpeed`/`setTargetInclination`
+      already clamped everything actually *sent* regardless, but
+      `WorkoutProgramChart` and `TreadmillProgramSegmentList`'s table (and
+      its own current-segment row – a treadmill program's only "what's it
+      doing right now" indicator, there's no chart for that workout kind)
+      kept showing the file's original, illegal figures for the rest of
+      the workout, quietly disagreeing with the live numbers once playback
+      actually reached one of them. Both new methods are deliberately
+      *not* gated on `state == .idle` the way `loadProgram(_:)`/
+      `loadTreadmillProgram(_:)` themselves are – they only ever rewrite
+      the workout's own stored values, never touch playback position or
+      any other session state, so it's exactly as safe to call mid-workout
+      (the moment a range answer actually arrives late over BLE, one of
+      the two call sites) as before Start. The treadmill version clamps
+      speed/incline independently, passing `nil` for whichever range
+      hasn't actually been reported by this trainer yet – same
+      independence `warnIfOutOfRange(_:)`'s own two `…OutOfRange` checks
+      already had.

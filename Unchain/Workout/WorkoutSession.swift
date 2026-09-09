@@ -188,6 +188,28 @@ final class WorkoutSession: ObservableObject {
     /// the final `WorkoutSummary`) so a route's live progress can be shown
     /// against `GradeProfile.totalDistanceMeters` while riding.
     @Published private(set) var distanceMeters: Double = 0
+    /// Treadmill-only fallback for `TrainerMetrics.elevationGainMeters`,
+    /// integrated the same way `distanceMeters` above already is – from the
+    /// live reported speed times `sampleDuration` – but using this app's own
+    /// `estimatedPhysicalInclinePercent` rather than a device reading, since
+    /// this app already knows that value regardless of whether the connected
+    /// treadmill reports its own actual inclination back at all. Requested
+    /// directly, after weighing this the same way `elevationGainMeters`'s
+    /// own doc comment once did (a self-computed number is a real estimate,
+    /// not a measurement) and concluding the "–" that produced instead was
+    /// the worse trade-off for a value this predictable: the incline is
+    /// exactly what was asked for, and – after a second request, once the
+    /// treadmill's own per-degree travel time was pointed out as a way to
+    /// tighten this further – `estimatedPhysicalInclinePercent` now models
+    /// that lag explicitly during a `.treadmillProgram` transition instead
+    /// of assuming the incline motor gets there instantly, rather than
+    /// leaving the resulting error to just be "bounded" and calling it good
+    /// enough. Only descends into this per-tick in `refreshWorkoutState` for
+    /// a treadmill, and only while the estimated incline is positive – same
+    /// "gained" convention (climbed, not descended) the real FTMS field
+    /// already uses. `ControlView`'s `m ↑` tile prefers the device's own
+    /// real reading when present, falling back to this only when it isn't.
+    @Published private(set) var estimatedElevationGainMeters: Double = 0
     /// One sample per elapsed second of actual power output, so
     /// `ControlView`'s `WorkoutProgramChart` can plot it alongside the
     /// planned target curve – a power-kind Program's whole point is
@@ -281,10 +303,16 @@ final class WorkoutSession: ObservableObject {
     private var lastProgramBreakpointIndex: Int?
     /// Speed-ramp state for a `.treadmillProgram` interval transition – see
     /// `sendCurrentWorkoutTarget(for:)`'s own note on why speed (not
-    /// incline) is what gets smoothed here. `treadmillSpeedRampDurationSeconds`
-    /// staying `0` (its default, and after a delta-free transition) is what
-    /// keeps the ramp inactive – speed is sent as a flat target whenever
-    /// it's `0`, the same as before this existed.
+    /// incline) is what actually gets *sent* smoothed here – the incline
+    /// itself is still sent as one flat target immediately either way (see
+    /// that same note). `treadmillInclineRampFromPercent`/`ToPercent`
+    /// below reuse this same window purely to *model* the incline's own
+    /// physical catch-up for `estimatedElevationGainMeters`'s benefit,
+    /// without that ever feeding back into what's transmitted here.
+    /// `treadmillSpeedRampDurationSeconds` staying `0` (its default, and
+    /// after a delta-free transition) is what keeps the ramp inactive –
+    /// speed is sent as a flat target whenever it's `0`, the same as
+    /// before this existed.
     private var treadmillSpeedRampFromKmh: Double?
     private var treadmillSpeedRampToKmh: Double?
     private var treadmillSpeedRampStartSeconds: TimeInterval?
@@ -296,6 +324,33 @@ final class WorkoutSession: ObservableObject {
     /// finished continues smoothly from wherever the belt actually is.
     private var lastSentTreadmillSpeedKmh: Double?
     private var lastSentTreadmillInclinePercent: Double?
+    /// Same shape as `treadmillSpeedRampFromKmh`/`ToKmh` above, and driven
+    /// by the exact same `treadmillSpeedRampStartSeconds`/
+    /// `treadmillSpeedRampDurationSeconds` window – but never sent to the
+    /// treadmill itself (`sendCurrentWorkoutTarget(for:)` still sends the
+    /// incline as one flat target immediately, per that method's own note
+    /// on why nothing here controls how fast the motor physically moves).
+    /// Exists purely so `estimatedPhysicalInclinePercent` below can model
+    /// the *physical* incline as still catching up during that same
+    /// window, rather than assuming it's already sitting at the just-
+    /// commanded target the instant that's sent – requested directly,
+    /// after `estimatedElevationGainMeters` first shipped treating a
+    /// transition as instantaneous.
+    private var treadmillInclineRampFromPercent: Double?
+    private var treadmillInclineRampToPercent: Double?
+    /// This session's own best estimate of the treadmill's *actual*,
+    /// physical incline right now – ramped during a `.treadmillProgram`
+    /// transition (see the two properties above), a plain immediate mirror
+    /// of `recordedTreadmillInclinePercent` for a manual `.speedIncline`
+    /// session (see `beginRecordingTreadmillTarget(speedKmh:inclinePercent:)`/
+    /// `recordTreadmillTarget(speedKmh:inclinePercent:)` – a rider's own
+    /// `+`/`-` tap has no comparable ramp-safety reason to model a lag for,
+    /// and each step is small enough that the difference wouldn't be worth
+    /// it even if it did). What `refreshWorkoutState` actually integrates
+    /// into `estimatedElevationGainMeters`, in place of the flatly-commanded
+    /// `lastSentTreadmillInclinePercent`/`recordedTreadmillInclinePercent`
+    /// that property used until this was added.
+    private var estimatedPhysicalInclinePercent: Double?
     /// Set by `jump(toElapsedSeconds:)`, consumed (and cleared) by the very
     /// next `sendCurrentWorkoutTarget(for:)` call. Unlike `didReachNewEntry`
     /// (used only for vibration/interval-sound, which a jump deliberately
@@ -410,6 +465,58 @@ final class WorkoutSession: ObservableObject {
         activeWorkout = .treadmillProgram(program)
         isProgramFinished = false
         intensityAdjustmentPercent = 0
+    }
+
+    /// Rewrites the currently loaded `.power`-kind `.program`'s own
+    /// breakpoints to whatever's out of `range`, clamped into it – called
+    /// by `ControlView.warnIfOutOfRange(_:)` right alongside the warning
+    /// alert itself (see that method's own doc comment), so the rider isn't
+    /// left staring at the file's original, out-of-range figures in
+    /// `WorkoutProgramChart` for the rest of the workout after being told
+    /// they'll be capped anyway – this makes that capping visible up front
+    /// instead of only becoming apparent once a live number quietly stops
+    /// matching the plan. Deliberately *not* gated on `state == .idle` the
+    /// way `loadProgram(_:)` itself is: unlike that method, this never
+    /// resets playback position, `isProgramFinished`, or anything else –
+    /// only the workout's own stored values change, which is exactly as
+    /// safe to do mid-workout (the moment the real power range actually
+    /// arrives, mid-session, is one of this method's two call sites – see
+    /// `warnIfOutOfRange(_:)`'s own `.onChange` note) as it is before
+    /// Start. A no-op for anything but a currently-loaded `.power`-kind
+    /// `.program` – `.resistance` programs can't be out of range in the
+    /// first place (see `warnIfOutOfRange(_:)`'s own note on why), and
+    /// there's nothing to rewrite for a `.route`/`.treadmillProgram`.
+    func clampActiveProgramPowerTargets(to range: ClosedRange<Int>) {
+        guard case .program(let program) = activeWorkout, program.targetKind == .power else { return }
+        let clampedBreakpoints = program.breakpoints.map {
+            WorkoutProgramBreakpoint(timeSeconds: $0.timeSeconds, value: range.clamp($0.value))
+        }
+        activeWorkout = .program(WorkoutProgram(name: program.name, targetKind: program.targetKind, breakpoints: clampedBreakpoints))
+    }
+
+    /// The `TreadmillWorkoutProgram` counterpart to
+    /// `clampActiveProgramPowerTargets(to:)` above – same reasoning, same
+    /// "safe regardless of `state`" guarantee, just rewriting
+    /// `speedKmh`/`inclinePercent` on every segment instead of a
+    /// breakpoint's own single `value`. `speedRange`/`inclineRange` are
+    /// each independently optional so a caller can clamp only whichever of
+    /// the two this treadmill has actually reported a real range for so
+    /// far – mirroring `warnIfOutOfRange(_:)`'s own independent
+    /// `speedOutOfRange`/`inclineOutOfRange` checks – rather than needing
+    /// both to have arrived before either gets corrected. `nil` leaves that
+    /// field's values untouched.
+    func clampActiveTreadmillProgram(speedRange: ClosedRange<Double>?, inclineRange: ClosedRange<Double>?) {
+        guard case .treadmillProgram(let program) = activeWorkout else { return }
+        let clampedSegments = program.segments.map { segment in
+            TreadmillWorkoutSegment(
+                startSeconds: segment.startSeconds,
+                duration: segment.duration,
+                speedKmh: speedRange?.clamp(segment.speedKmh) ?? segment.speedKmh,
+                inclinePercent: inclineRange?.clamp(segment.inclinePercent) ?? segment.inclinePercent,
+                kind: segment.kind
+            )
+        }
+        activeWorkout = .treadmillProgram(TreadmillWorkoutProgram(name: program.name, segments: clampedSegments))
     }
 
     /// Nudges `intensityAdjustmentPercent` by `delta` (1 per +/- tap),
@@ -579,6 +686,7 @@ final class WorkoutSession: ObservableObject {
         state = .idle
         elapsedSeconds = 0
         distanceMeters = 0
+        estimatedElevationGainMeters = 0
         powerHistory.removeAll()
         heartRateHistory.removeAll()
         speedHistory.removeAll()
@@ -601,6 +709,9 @@ final class WorkoutSession: ObservableObject {
         treadmillSpeedRampDurationSeconds = 0
         lastSentTreadmillSpeedKmh = nil
         lastSentTreadmillInclinePercent = nil
+        treadmillInclineRampFromPercent = nil
+        treadmillInclineRampToPercent = nil
+        estimatedPhysicalInclinePercent = nil
         pendingTreadmillSpeedRampRestart = false
         powerStats = LiveStat()
         cadenceStats = LiveStat()
@@ -736,6 +847,9 @@ final class WorkoutSession: ObservableObject {
         recordedTreadmillSegmentStartSeconds = 0
         recordedTreadmillSpeedKmh = speedKmh
         recordedTreadmillInclinePercent = inclinePercent
+        // See `estimatedPhysicalInclinePercent`'s own doc comment on why a
+        // manual session mirrors this immediately, with no ramp modeling.
+        estimatedPhysicalInclinePercent = inclinePercent
     }
 
     /// The `.speedIncline` counterpart to `recordManualTarget(value:)` –
@@ -758,6 +872,7 @@ final class WorkoutSession: ObservableObject {
             // rather than closing off a zero-length segment.
             recordedTreadmillSpeedKmh = speedKmh
             recordedTreadmillInclinePercent = inclinePercent
+            estimatedPhysicalInclinePercent = inclinePercent
             return
         }
         recordedTreadmillSegments.append(TreadmillWorkoutSegment(
@@ -770,6 +885,7 @@ final class WorkoutSession: ObservableObject {
         recordedTreadmillSegmentStartSeconds = now
         recordedTreadmillSpeedKmh = speedKmh
         recordedTreadmillInclinePercent = inclinePercent
+        estimatedPhysicalInclinePercent = inclinePercent
     }
 
     /// Builds the recorded `.power`/`.resistance`/`.speedIncline` target
@@ -947,6 +1063,27 @@ final class WorkoutSession: ObservableObject {
             if speedHistory.last?.timeSeconds != TimeInterval(elapsedSeconds) {
                 speedHistory.append(SpeedSample(timeSeconds: TimeInterval(elapsedSeconds), kmh: speedKmh))
             }
+            // See `estimatedElevationGainMeters`'s own doc comment. Treadmill
+            // only – a bike's `setSimulationGrade(percent:)` grade is a
+            // resistance simulation, not a real incline, so there's no
+            // physical climbing to estimate there at all (and no `m ↑` tile
+            // offered for one either, see `LiveMetricKind`). Reads
+            // `estimatedPhysicalInclinePercent`, not the flatly-commanded
+            // target directly – see that property's own doc comment on why:
+            // during a `.treadmillProgram` transition, it ramps toward the
+            // new target over the same device-specific per-degree travel
+            // time (`effectiveInclineChangeSecondsPerDegree`) the speed
+            // ramp already paces itself against, rather than assuming the
+            // incline motor gets there instantly. Only while the estimated
+            // incline is positive – flat or descending adds nothing, same
+            // as the real FTMS field only ever counts climbed, never
+            // descended.
+            if connection.machineKind == .treadmill,
+               let inclinePercent = estimatedPhysicalInclinePercent,
+               inclinePercent > 0 {
+                let distanceMetersThisSample = speedKmh * 1000 / 3600 * sampleDuration
+                estimatedElevationGainMeters += distanceMetersThisSample * inclinePercent / 100
+            }
         }
         if let power = metrics.instantaneousPowerWatts {
             workDoneJoules += Double(power) * sampleDuration // that many joules over sampleDuration seconds
@@ -1103,6 +1240,13 @@ final class WorkoutSession: ObservableObject {
                     treadmillSpeedRampToKmh = target.speedKmh
                     treadmillSpeedRampStartSeconds = elapsed
                     treadmillSpeedRampDurationSeconds = inclineDeltaPercent * secondsPerUnit
+                    // Same window as the speed ramp above – see
+                    // `treadmillInclineRampFromPercent`'s own doc comment on
+                    // why this exists purely to model the physical incline
+                    // for `estimatedElevationGainMeters`, never to change
+                    // what's actually sent below.
+                    treadmillInclineRampFromPercent = previousInclinePercent
+                    treadmillInclineRampToPercent = clampedInclinePercent
                 }
                 let speedToSend: Double
                 if let rampFrom = treadmillSpeedRampFromKmh, let rampTo = treadmillSpeedRampToKmh,
@@ -1112,10 +1256,26 @@ final class WorkoutSession: ObservableObject {
                 } else {
                     speedToSend = target.speedKmh
                 }
+                // Same ramp window/fraction as `speedToSend` above, just
+                // applied to the incline instead – deliberately not reused
+                // as one shared "fraction" local, since the two ramps *can*
+                // begin from different starting points if a transition
+                // arrives partway through the previous one's own ramp (see
+                // `treadmillSpeedRampFromKmh`'s own note on why speed's
+                // ramp keeps interpolating from wherever it actually is).
+                let estimatedInclinePercent: Double
+                if let rampFrom = treadmillInclineRampFromPercent, let rampTo = treadmillInclineRampToPercent,
+                   let rampStart = treadmillSpeedRampStartSeconds, treadmillSpeedRampDurationSeconds > 0 {
+                    let fraction = min(max((elapsed - rampStart) / treadmillSpeedRampDurationSeconds, 0), 1)
+                    estimatedInclinePercent = rampFrom + (rampTo - rampFrom) * fraction
+                } else {
+                    estimatedInclinePercent = clampedInclinePercent
+                }
                 connection.setTargetSpeed(kmh: speedToSend)
                 connection.setTargetInclination(percent: clampedInclinePercent)
                 lastSentTreadmillSpeedKmh = speedToSend
                 lastSentTreadmillInclinePercent = clampedInclinePercent
+                estimatedPhysicalInclinePercent = estimatedInclinePercent
                 if let index {
                     if didReachNewEntry {
                         triggerStepVibrationIfEnabled()

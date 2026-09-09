@@ -544,7 +544,15 @@ struct ControlView: View {
         case .distance:
             MetricTile(title: "km", value: String(format: "%.2f", locale: .current, session.distanceMeters / 1000), stat: LiveStat())
         case .elevationGain:
-            MetricTile(title: "m ↑", value: connection.metrics.elevationGainMeters.map { "\($0)" } ?? "–", stat: LiveStat())
+            // The device's own real reading takes priority when it reports
+            // one; `estimatedElevationGainMeters` (see its own doc comment)
+            // only ever fills in for a treadmill that doesn't – no "–"
+            // fallback beyond that anymore, same as `.distance` above never
+            // needed one: both are always at least an estimate integrated
+            // from live speed, never genuinely unknown once a session's
+            // actually tracking.
+            let meters = connection.metrics.elevationGainMeters ?? Int(session.estimatedElevationGainMeters.rounded())
+            MetricTile(title: "m ↑", value: "\(meters)", stat: LiveStat())
         case .power:
             MetricTile(title: "Watt", value: connection.metrics.instantaneousPowerWatts.map { "\($0)" } ?? "–", stat: session.powerStats)
         case .powerAverage:
@@ -1094,12 +1102,21 @@ struct ControlView: View {
     /// to be loaded at that point – covering both this method's own
     /// skipped call and a file that loaded while already connected, before
     /// this trainer's own answer had come back yet.
+    ///
+    /// Also – not just the alert – quietly rewrites the loaded program's
+    /// own out-of-range breakpoints via `session
+    /// .clampActiveProgramPowerTargets(to:)`, so `WorkoutProgramChart`
+    /// shows what will actually happen instead of the file's original
+    /// figures for the rest of the workout. Requested directly, after the
+    /// alert alone left the chart quietly disagreeing with the live number
+    /// once playback actually reached one of the capped targets.
     private func warnIfOutOfRange(_ program: WorkoutProgram) {
         guard program.targetKind == .power, connection.hasReceivedPowerRange else { return }
         let values = program.breakpoints.map { $0.value }
         guard let minValue = values.min(), let maxValue = values.max() else { return }
         let range = connection.powerRange
         guard minValue < range.lowerBound || maxValue > range.upperBound else { return }
+        session.clampActiveProgramPowerTargets(to: range)
         let formattedRange = "\(range.lowerBound)–\(range.upperBound) W"
         rangeWarning = RangeWarningAlert(message: String(localized: "This workout calls for power targets outside what this trainer supports (\(formattedRange)). You can still do the whole workout – power outside that range will simply be capped to it."))
     }
@@ -1117,6 +1134,19 @@ struct ControlView: View {
     /// never answers one of the two characteristics at all (so its
     /// `hasReceived…` flag never becomes `true`) shouldn't also silence a
     /// genuine finding on the other.
+    ///
+    /// Also – not just the alert, see `warnIfOutOfRange(_:)`'s own matching
+    /// note above – quietly rewrites the loaded program's own out-of-range
+    /// segments via `session.clampActiveTreadmillProgram(speedRange:
+    /// inclineRange:)`, so `TreadmillProgramSegmentList`'s table (and its
+    /// own current-segment row, this screen's only "what's it doing right
+    /// now" indicator for a treadmill program – there's no chart for this
+    /// workout kind, see that view's own doc comment) shows what will
+    /// actually happen instead of the file's original figures. Passes
+    /// `nil` for whichever range hasn't actually arrived yet, same
+    /// independence as the two `…OutOfRange` checks below – clamping
+    /// speed shouldn't wait on an incline answer that may never come, or
+    /// vice versa.
     private func warnIfOutOfRange(_ program: TreadmillWorkoutProgram) {
         let speeds = program.segments.map { $0.speedKmh }
         let inclines = program.segments.map { $0.inclinePercent }
@@ -1127,6 +1157,10 @@ struct ControlView: View {
         let speedOutOfRange = connection.hasReceivedSpeedRange && (minSpeed < speedRange.lowerBound || maxSpeed > speedRange.upperBound)
         let inclineOutOfRange = connection.hasReceivedInclinationRange && (minIncline < inclineRange.lowerBound || maxIncline > inclineRange.upperBound)
         guard speedOutOfRange || inclineOutOfRange else { return }
+        session.clampActiveTreadmillProgram(
+            speedRange: speedOutOfRange ? speedRange : nil,
+            inclineRange: inclineOutOfRange ? inclineRange : nil
+        )
 
         let formattedSpeedRange = String(format: "%.1f–%.1f km/h", locale: .current, speedRange.lowerBound, speedRange.upperBound)
         let formattedInclineRange = String(format: "%.1f–%.1f %%", locale: .current, inclineRange.lowerBound, inclineRange.upperBound)

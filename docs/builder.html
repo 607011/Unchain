@@ -1811,7 +1811,15 @@
   // Splits on `separator` outside `(...)` nesting, and – when `separator`
   // is `,` – never at a comma with a digit on both sides (a decimal
   // separator, not a step boundary).
+  // A newline always behaves as `separator` too, regardless of what
+  // `separator` actually is – requested directly, from a real multi-line
+  // workout pasted with one top-level segment per line (only the *inner*
+  // list of a repeat group's own parens used commas) rather than every
+  // step on one comma-joined line. Without this, that whole multi-line
+  // block read as a single, un-splittable top-level segment – no error,
+  // just a wrong, degenerate parse.
   function shorthandSplitTopLevel(text, separator) {
+    text = text.replace(/\r\n|\r|\n/g, separator);
     var parts = [];
     var depth = 0;
     var current = "";

@@ -2869,3 +2869,24 @@ would change, roughly in the order it'd need doing:
       endpoints) and the web-side merge live in the browser
       (`"3x(3min 200W)"` exporting as a single `0.00→8.99 200` block
       instead of three).
+- [x] **Fixed a real, shared parsing bug: a multi-line pasted workout (one
+      top-level segment per line, not comma-joined) silently mis-parsed
+      in every shorthand parser in both codebases** – surfaced by trying
+      to parse a real bike example:
+      ```
+      10' warm-up @ 50% FTP
+      12 x (30 secs @ 200%, 30 secs @ 30%)
+      10' cool-down @ 50% FTP
+      ```
+      whose three lines are newline-separated at the *top* level (only
+      the repeat group's own inner list uses a comma).
+      `ShorthandNotation.splitTopLevel`/`shorthandSplitTopLevel`, shared
+      by every shorthand parser in both codebases (bike and treadmill,
+      app and web), only ever split on the literal `separator` character,
+      never on a newline – so the whole three-line block silently read as
+      a single, malformed top-level segment: no error, just a wrong,
+      degenerate parse (in this case, only the very first `"10'"`
+      warm-up duration ever actually got used). Fixed once, in the shared
+      helper itself (normalizing every newline to `separator` before
+      splitting), so every parser benefits, not just the one the bug was
+      found through.

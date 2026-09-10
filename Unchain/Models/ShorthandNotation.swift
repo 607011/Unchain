@@ -80,11 +80,19 @@ enum ShorthandNotation {
     /// end of the string on at least one side in every real shorthand
     /// program, so this never mistakes an actual step boundary for a
     /// decimal point.
+    ///
+    /// A newline always behaves as `separator` too, regardless of what
+    /// `separator` actually is – requested directly, from a real
+    /// multi-line workout pasted with one top-level segment per line
+    /// (only the *inner* list of a repeat group's own parens used commas)
+    /// rather than every step on one comma-joined line. Without this, that
+    /// whole multi-line block read as a single, un-splittable top-level
+    /// segment – no error, just a wrong, degenerate parse.
     static func splitTopLevel(_ text: String, separator: Character) -> [String] {
         var parts: [String] = []
         var depth = 0
         var current = ""
-        let chars = Array(text)
+        let chars = Array(text).map { $0.isNewline ? separator : $0 }
         var index = 0
         while index < chars.count {
             let char = chars[index]

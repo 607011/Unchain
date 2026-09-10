@@ -29,6 +29,68 @@ struct TreadmillWorkoutSegment: Codable, Equatable {
     let speedKmh: Double
     let inclinePercent: Double
     let kind: TreadmillSegmentKind?
+    /// `<TextEvent>` markers nested in this segment's own `.zwo` block, if
+    /// any – see `TextEventMarker`. `var`, unlike every other field here,
+    /// because `ZWOWorkoutParser` appends to it in place as it encounters
+    /// each `<TextEvent>` child while a segment is already sitting in its
+    /// `segments` array (a `TextEvent` is only ever seen *after* its
+    /// containing block's own opening tag). Defaults to `[]` – both for a
+    /// non-`.zwo` origin (only `ZWOWorkoutParser` ever populates this) and
+    /// so a `TreadmillWorkoutProgram` persisted before this existed still
+    /// decodes, the same reasoning `kind` above already has. That backward-
+    /// compat decode needs a custom `init(from:)` below, though – unlike
+    /// `kind`, a non-`Optional` stored property's own default value isn't
+    /// actually honored by synthesized `Decodable` for a key that's simply
+    /// absent (confirmed directly – it throws `keyNotFound` instead), so
+    /// this can't just rely on the property default the way it looks like
+    /// it could.
+    var textEvents: [TextEventMarker] = []
+
+    init(startSeconds: TimeInterval, duration: TimeInterval, speedKmh: Double, inclinePercent: Double, kind: TreadmillSegmentKind?, textEvents: [TextEventMarker] = []) {
+        self.startSeconds = startSeconds
+        self.duration = duration
+        self.speedKmh = speedKmh
+        self.inclinePercent = inclinePercent
+        self.kind = kind
+        self.textEvents = textEvents
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case startSeconds, duration, speedKmh, inclinePercent, kind, textEvents
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        startSeconds = try container.decode(TimeInterval.self, forKey: .startSeconds)
+        duration = try container.decode(TimeInterval.self, forKey: .duration)
+        speedKmh = try container.decode(Double.self, forKey: .speedKmh)
+        inclinePercent = try container.decode(Double.self, forKey: .inclinePercent)
+        kind = try container.decodeIfPresent(TreadmillSegmentKind.self, forKey: .kind)
+        textEvents = try container.decodeIfPresent([TextEventMarker].self, forKey: .textEvents) ?? []
+    }
+}
+
+/// A `<TextEvent>` marker nested inside a `.zwo` `Warmup`/`SteadyState`/
+/// `Cooldown` block – see
+/// https://github.com/h4l/zwift-workout-file-reference/blob/master/zwift_workout_file_tag_reference.md#element-TextEvent
+/// `timeOffset` is seconds from the *containing segment's own* start, not
+/// the whole workout's – exactly how the file format itself defines it,
+/// and how `docs/builder.html`'s own Mark-mode markers already work.
+struct TextEventMarker: Codable, Equatable {
+    let timeOffset: TimeInterval
+    let message: String
+    /// Seconds the message should stay visible once shown, if the file
+    /// specified one – real files often don't. `nil` falls back to
+    /// `defaultDurationSeconds` at *display* time only (`TextEventOverlayView`)
+    /// rather than being filled in here, keeping this model an honest
+    /// reflection of what the file actually said – the same "don't invent
+    /// data" rule `docs/builder.html`'s own export already follows.
+    let duration: TimeInterval?
+
+    /// Not documented by Zwift for an unspecified `Duration` – picked as a
+    /// deliberate, named app-side default rather than left as a magic
+    /// number at each call site.
+    static let defaultDurationSeconds: TimeInterval = 5
 }
 
 /// A structured treadmill workout loaded from a `.zwo` file (Zwift's XML
@@ -80,6 +142,26 @@ struct TreadmillWorkoutProgram: Codable, Equatable {
         // than reporting "finished" one instant early.
         guard let last = segments.last, elapsed >= last.startSeconds else { return nil }
         return (last.speedKmh, last.inclinePercent)
+    }
+
+    /// The `<TextEvent>` marker that should currently be showing at
+    /// `elapsed` seconds into the workout, if any – the one whose own
+    /// `[start, start + duration)` window (`duration` falling back to
+    /// `TextEventMarker.defaultDurationSeconds` when unset) contains
+    /// `elapsed`. `nil` outside every such window, including whenever no
+    /// segment is active at all. Only ever within the *currently* active
+    /// segment – a marker belonging to an already-finished segment never
+    /// lingers, and one belonging to a not-yet-reached segment never shows
+    /// early, both already implied by only checking `segmentIndex
+    /// (atElapsedSeconds:)`'s own segment rather than all of them.
+    func activeTextEvent(atElapsedSeconds elapsed: TimeInterval) -> TextEventMarker? {
+        guard let index = segmentIndex(atElapsedSeconds: elapsed) else { return nil }
+        let segment = segments[index]
+        return segment.textEvents.first { event in
+            let start = segment.startSeconds + event.timeOffset
+            let end = start + (event.duration ?? TextEventMarker.defaultDurationSeconds)
+            return elapsed >= start && elapsed < end
+        }
     }
 
     /// The write-side counterpart to `ZWOWorkoutParser.parse`, for
@@ -234,6 +316,12 @@ enum ZWOWorkoutParser {
         private var cursorSeconds: TimeInterval = 0
         private var isInsideName = false
         private var nameBuffer = ""
+        /// Index into `segments` of whatever flat block is currently open,
+        /// so a `<TextEvent>` encountered while inside it (the only place
+        /// it's ever meaningful – a `<TextEvent>` outside any of these three
+        /// is simply ignored, same as any other unrecognized element) knows
+        /// which segment to attach itself to. `nil` outside all three.
+        private var currentSegmentIndex: Int?
 
         private static let flatSegmentElements: Set<String> = ["Warmup", "SteadyState", "Cooldown"]
         /// Named explicitly (rather than lumping them into "anything
@@ -263,7 +351,14 @@ enum ZWOWorkoutParser {
                 default: nil
                 }
                 segments.append(TreadmillWorkoutSegment(startSeconds: cursorSeconds, duration: duration, speedKmh: pace, inclinePercent: incline, kind: kind))
+                currentSegmentIndex = segments.count - 1
                 cursorSeconds += duration
+            case "TextEvent":
+                guard let currentSegmentIndex, segments.indices.contains(currentSegmentIndex),
+                      let message = Self.attributeValue(attributeDict, "message"), !message.isEmpty else { return }
+                let timeOffset = Self.attributeValue(attributeDict, "timeoffset").flatMap(Double.init) ?? 0
+                let duration = Self.attributeValue(attributeDict, "duration").flatMap(Double.init)
+                segments[currentSegmentIndex].textEvents.append(TextEventMarker(timeOffset: timeOffset, message: message, duration: duration))
             case let name where Self.knownUnsupportedSegmentElements.contains(name):
                 unsupportedSegmentName = name
             default:
@@ -276,10 +371,25 @@ enum ZWOWorkoutParser {
         }
 
         func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
+            if Self.flatSegmentElements.contains(elementName), let index = currentSegmentIndex {
+                // Sorted once the block closes rather than kept sorted on
+                // every insert – real files list `<TextEvent>`s in order
+                // already, this just doesn't assume that.
+                segments[index].textEvents.sort { $0.timeOffset < $1.timeOffset }
+                currentSegmentIndex = nil
+            }
             guard elementName == "name", isInsideName else { return }
             let trimmed = nameBuffer.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { workoutName = trimmed }
             isInsideName = false
+        }
+
+        /// Case-insensitive attribute lookup – real `.zwo` files use both
+        /// `timeoffset` and `TimeOffset` for the same attribute (lowercase
+        /// dominant by a wide margin, per the file format reference), and
+        /// `XMLParser`'s own `attributeDict` keys are exact-case.
+        private static func attributeValue(_ attributes: [String: String], _ name: String) -> String? {
+            attributes.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
         }
 
         func parser(_ parser: XMLParser, parseErrorOccurred parseError: Error) {

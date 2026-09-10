@@ -314,6 +314,14 @@ final class WorkoutSession: ObservableObject {
     /// `start(usingProgram:)`, not just by this being non-nil.
     @Published private(set) var activeWorkout: ActiveWorkout?
     @Published private(set) var isProgramFinished = false
+    /// The `<TextEvent>` marker currently due to be shown, for a
+    /// `.treadmillProgram` only (`nil` for `.program`/`.route`, which have
+    /// no such concept) – recomputed on every tick from
+    /// `TreadmillWorkoutProgram.activeTextEvent(atElapsedSeconds:)` inside
+    /// `sendCurrentWorkoutTarget(for:)`. `ControlView`'s
+    /// `TextEventOverlayView` observes this directly to show/animate the
+    /// coaching-cue overlay.
+    @Published private(set) var activeTextEvent: TextEventMarker?
 
     private let connection: TrainerConnection
     private let heartRateProvider: () -> HeartRateConnection?
@@ -757,6 +765,11 @@ final class WorkoutSession: ObservableObject {
         // See `pause()`'s own note on why `max(...)`, not a flat overwrite.
         elapsedSeconds = max(currentElapsedSeconds(), elapsedSeconds)
         stopTracking()
+        // Don't leave a coaching-cue overlay showing over the save/discard
+        // dialog – `cancelStop()` resuming afterward re-establishes it
+        // itself on the very next tick if playback is still within a
+        // marker's own window.
+        activeTextEvent = nil
         let end = Date()
         pendingSummary = WorkoutSummary(
             machineKind: connection.machineKind,
@@ -1344,6 +1357,12 @@ final class WorkoutSession: ObservableObject {
     private func sendCurrentWorkoutTarget(for workout: ActiveWorkout) {
         switch workout {
         case .program(let program):
+            // No `<TextEvent>` concept for `.erg`/`.mrc` – cleared
+            // unconditionally rather than just left alone, in case a
+            // `.treadmillProgram` overlay was still showing from an
+            // earlier run this session (`activeWorkout` can change
+            // mid-session between loads, e.g. via `loadProgramIntoSession`).
+            activeTextEvent = nil
             let elapsed = programPositionSeconds
             if let target = program.target(atElapsedSeconds: elapsed) {
                 // Explicit, not just "stays false in the ordinary case" –
@@ -1367,6 +1386,9 @@ final class WorkoutSession: ObservableObject {
                 isProgramFinished = true
             }
         case .route(let route):
+            // Same reasoning as `.program` above – a GPX route has no
+            // `<TextEvent>` concept either.
+            activeTextEvent = nil
             if let grade = route.grade(atDistanceMeters: distanceMeters) {
                 isProgramFinished = false
                 connection.setSimulationGrade(percent: grade)
@@ -1387,6 +1409,7 @@ final class WorkoutSession: ObservableObject {
                 // See the `.program` case's own note above on why this is
                 // explicit – `jump(toElapsedSeconds:)` is exactly why.
                 isProgramFinished = false
+                activeTextEvent = program.activeTextEvent(atElapsedSeconds: elapsed)
                 let index = program.segmentIndex(atElapsedSeconds: elapsed)
                 let didReachNewEntry = index != nil && lastProgramBreakpointIndex != nil && index != lastProgramBreakpointIndex
                 // Reported from real use: jumping straight from e.g. 15 %
@@ -1485,6 +1508,7 @@ final class WorkoutSession: ObservableObject {
                 }
             } else {
                 isProgramFinished = true
+                activeTextEvent = nil
             }
         }
     }

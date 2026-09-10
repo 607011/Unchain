@@ -256,6 +256,13 @@ struct ControlView: View {
             }
             .padding()
         }
+        // Pinned to the ScrollView's own viewport, not the scrolled content
+        // – a `<TextEvent>` cue should stay visible regardless of scroll
+        // position, the same way the status header above it would if it
+        // were a native OS notification instead of in-view content.
+        .overlay(alignment: .top) {
+            TextEventOverlayView(event: session.activeTextEvent)
+        }
         .navigationTitle(connection.deviceName)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
@@ -2573,6 +2580,97 @@ struct HeartRateZonesView: View {
 
 private func formattedZoneDuration(_ seconds: Int) -> String {
     String(format: "%d:%02d", seconds / 60, seconds % 60)
+}
+
+/// Coaching-cue overlay for a `.treadmillProgram`'s `<TextEvent>` markers –
+/// see `TextEventMarker` and `WorkoutSession.activeTextEvent`, which alone
+/// decides *when* `event` is non-nil (elapsed time against the marker's own
+/// window). This view only decides how the transition *looks*: requested
+/// directly, with a short list of animation options presented to (and
+/// picked from by) the rider – "Scale-Pop + Blur-Dissolve" here, a springy
+/// pop on entry paired with a soft blur-and-grow dissolve on exit, rather
+/// than a flat fade either way.
+struct TextEventOverlayView: View {
+    let event: TextEventMarker?
+
+    var body: some View {
+        ZStack {
+            if let event {
+                TextEventCard(message: event.message)
+                    // A stable identity per distinct marker (not just
+                    // "some event or none") – without this, playback
+                    // reaching a *second* marker immediately after the
+                    // first one's own window closes would just update the
+                    // card's text in place instead of running the
+                    // exit/entry transition again.
+                    .id("\(event.timeOffset)-\(event.message)")
+                    .transition(.scalePopBlurDissolve)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private struct TextEventCard: View {
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "quote.bubble.fill")
+                .foregroundStyle(Color.accentColor)
+            Text(message)
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.leading)
+                .lineLimit(3)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+    }
+}
+
+private extension AnyTransition {
+    /// Entry springs in from slightly small and transparent up to natural
+    /// size – a quick, energetic "pop", like a coach calling something
+    /// out. Exit deliberately isn't just the reverse of that: it grows
+    /// slightly *past* natural size while blurring and fading out, so it
+    /// reads as the message dissolving away rather than mechanically
+    /// shrinking back down. Each half carries its own `.animation(_:)` –
+    /// this alone is what makes the transition animate at all (no
+    /// `withAnimation`/`.animation(_:value:)` needed at either call site),
+    /// and lets the two directions use genuinely different curves/timings.
+    static var scalePopBlurDissolve: AnyTransition {
+        .asymmetric(
+            insertion: AnyTransition.modifier(
+                active: TextEventTransitionModifier(scale: 0.8, blurRadius: 8, opacity: 0),
+                identity: TextEventTransitionModifier(scale: 1, blurRadius: 0, opacity: 1)
+            ).animation(.spring(response: 0.38, dampingFraction: 0.62)),
+            removal: AnyTransition.modifier(
+                active: TextEventTransitionModifier(scale: 1.15, blurRadius: 14, opacity: 0),
+                identity: TextEventTransitionModifier(scale: 1, blurRadius: 0, opacity: 1)
+            ).animation(.easeOut(duration: 0.45))
+        )
+    }
+}
+
+private struct TextEventTransitionModifier: ViewModifier {
+    var scale: CGFloat
+    var blurRadius: CGFloat
+    var opacity: Double
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(scale)
+            .blur(radius: blurRadius)
+            .opacity(opacity)
+    }
 }
 
 /// Shown after a successful save – confirms the write and, if there's zone

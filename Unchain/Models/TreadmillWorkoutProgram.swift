@@ -108,18 +108,46 @@ struct TreadmillWorkoutProgram: Codable, Equatable {
             "  <sportType>run</sportType>",
             "  <workout>",
         ]
-        for segment in segments {
+        for run in Self.mergedRuns(segments) {
             // A machine-readable file format, not UI text – always "." and
             // no thousands separator, same reasoning `WorkoutProgram
             // .fileContents()` already uses for its own `MINUTES` column.
-            let duration = String(format: "%.0f", locale: Locale(identifier: "en_US_POSIX"), segment.duration)
-            let pace = String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), segment.speedKmh)
-            let incline = String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), segment.inclinePercent)
+            let duration = String(format: "%.0f", locale: Locale(identifier: "en_US_POSIX"), run.duration)
+            let pace = String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), run.speedKmh)
+            let incline = String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), run.inclinePercent)
             lines.append("    <SteadyState Duration=\"\(duration)\" Pace=\"\(pace)\" Incline=\"\(incline)\"/>")
         }
         lines.append("  </workout>")
         lines.append("</workout_file>")
         return lines.joined(separator: "\n")
+    }
+
+    /// Combines consecutive `segments` sharing the same `speedKmh`/
+    /// `inclinePercent` into a single run spanning their combined
+    /// duration – requested directly, alongside the identical fix for
+    /// `WorkoutProgram.fileContents()`'s own `.erg`/`.mrc` export: a
+    /// rider holding one target for a long stretch of a recorded session
+    /// would otherwise write one `<SteadyState>` line per individual
+    /// recording tick (`WorkoutSession
+    /// .recordTreadmillTarget(speedKmh:inclinePercent:)`) instead of one
+    /// line for the whole held stretch; a shorthand-built program (see
+    /// `TreadmillShorthandParser`, reached via `WorkoutSession
+    /// .fileContents`'s `.treadmillProgram` case too) can just as easily
+    /// repeat the exact same step back-to-back, e.g. `"3x(3min 10km/h
+    /// 6%)"`. Applied only here, at export time – `segments` itself is
+    /// left untouched, so nothing that reads it during a live workout
+    /// (`segmentIndex(atElapsedSeconds:)` and everything built on it) is
+    /// affected.
+    private static func mergedRuns(_ segments: [TreadmillWorkoutSegment]) -> [(duration: TimeInterval, speedKmh: Double, inclinePercent: Double)] {
+        var runs: [(duration: TimeInterval, speedKmh: Double, inclinePercent: Double)] = []
+        for segment in segments {
+            if !runs.isEmpty, runs[runs.count - 1].speedKmh == segment.speedKmh, runs[runs.count - 1].inclinePercent == segment.inclinePercent {
+                runs[runs.count - 1].duration += segment.duration
+            } else {
+                runs.append((segment.duration, segment.speedKmh, segment.inclinePercent))
+            }
+        }
+        return runs
     }
 
     /// Suggested filename for exporting `fileContents()` – mirrors

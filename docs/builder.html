@@ -1305,12 +1305,24 @@
     var lines = [];
     var binMin = state.binSeconds / 60;
     function fmt(v) { return toPercentOfFtp ? Math.round(v / state.ftp * 100) : Math.round(v); }
-    for (var i = 0; i < values.length; i++) {
-      var t0 = i * binMin;
-      var t1 = (i + 1) * binMin - 0.01;
-      lines.push(t0.toFixed(2) + "\t" + fmt(values[i].start));
-      lines.push(t1.toFixed(2) + "\t" + fmt(values[i].end));
-    }
+    // Consecutive flat bins holding the exact same value collapse into one
+    // block spanning their combined duration – requested directly, same
+    // reasoning `buildZwo` already applies to its own `<SteadyState>`
+    // blocks via this same `mergeRuns` helper, just not previously
+    // extended to `.erg`/`.mrc` here. A ramped bin (`start !== end`)
+    // always keeps its own run – its `"ramp" + i` key is unique to that
+    // index, so it never merges with a neighbor and still gets its own
+    // start/end pair exactly as before.
+    var runs = mergeRuns(values.length, function (i) {
+      var bin = values[i];
+      return bin.start === bin.end ? String(bin.start) : "ramp" + i;
+    });
+    runs.forEach(function (r) {
+      var t0 = r.start * binMin;
+      var t1 = (r.start + r.length) * binMin - 0.01;
+      lines.push(t0.toFixed(2) + "\t" + fmt(values[r.start].start));
+      lines.push(t1.toFixed(2) + "\t" + fmt(values[r.start + r.length - 1].end));
+    });
     return lines.join("\n");
   }
 

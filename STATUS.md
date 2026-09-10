@@ -2828,3 +2828,44 @@ would change, roughly in the order it'd need doing:
       5-minute width, then pasting a 5min/90s/5min-shaped workout, shrinks
       it to 30s (the actual GCD) and parses correctly in both the terse
       and spaced forms; the field itself updates to reflect it.
+- [x] **Both `.erg`/`.mrc`/`.zwo` export paths (app and web) now merge
+      consecutive intervals holding identical data** – requested directly,
+      for both. `docs/builder.html`'s own `buildZwo` already did this for
+      its `<SteadyState>` blocks (`mergeRuns`); `ergLikeBody` (the shared
+      body `buildErg`/`buildMrc` both call) didn't, writing one two-line
+      breakpoint pair per bin unconditionally – now reuses that same
+      `mergeRuns` helper, collapsing consecutive flat (`start === end`)
+      bins holding the same value into one merged span; a ramped bin
+      always keeps its own run (its `"ramp" + i` key is unique to that
+      index), unchanged from before.
+      On the app side, `WorkoutProgram.fileContents()` (bike `.erg`/`.mrc`)
+      gained `mergedBreakpoints`, which drops any interior breakpoint that
+      doesn't actually change the resulting piecewise-linear curve – i.e.
+      one that already lies exactly on the straight line its own
+      neighbors describe. One rule covers both the common case (a repeat
+      group like `"5x(3min 200W)"`, which `ShorthandWorkoutParser.flatten`
+      turns into five separate back-to-back 200W breakpoint pairs – all
+      values equal, trivially "collinear") and the narrower case of two
+      differently-built adjacent blocks merely sharing their boundary
+      value, without two special cases. Provably safe – a genuine step
+      change or an actual ramp-slope change always still needs both its
+      own endpoints, so this never changes what
+      `target(atElapsedSeconds:)` reports at any point in time, only
+      shrinks the *file*. `TreadmillWorkoutProgram.fileContents()`
+      (treadmill `.zwo`, both for a recorded free session and for one
+      built via `TreadmillShorthandParser` – both reach this same
+      function, see `WorkoutSession.fileContents`'s `.treadmillProgram`
+      case) gained the simpler `mergedRuns`, combining consecutive
+      segments sharing the same `speedKmh`/`inclinePercent` into one.
+      Both applied only at export time, on a local copy – the stored
+      `breakpoints`/`segments` themselves, and everything that reads them
+      during a live workout, are untouched.
+      Verified the app-side merge logic with a standalone `swiftc` test
+      harness (five cases: a full repeat collapsing to its two endpoints,
+      a genuine step change staying intact, a ramp followed by a flat
+      continuation at the same ending value collapsing its one redundant
+      point, two different-slope ramps meeting at the same value staying
+      intact, and a genuinely collinear three-point ramp collapsing to its
+      endpoints) and the web-side merge live in the browser
+      (`"3x(3min 200W)"` exporting as a single `0.00→8.99 200` block
+      instead of three).

@@ -122,7 +122,7 @@ struct WorkoutProgram: Codable, Equatable {
             "[END COURSE HEADER]",
             "[COURSE DATA]",
         ]
-        for breakpoint in breakpoints {
+        for breakpoint in Self.mergedBreakpoints(breakpoints) {
             let minutes = breakpoint.timeSeconds / 60
             // A machine-readable file format, not UI text – always ".", not
             // the device locale's decimal separator (e.g. German ","),
@@ -134,6 +134,57 @@ struct WorkoutProgram: Codable, Equatable {
         }
         lines.append("[END COURSE DATA]")
         return lines.joined(separator: "\n")
+    }
+
+    /// Drops any interior breakpoint that doesn't actually change the
+    /// resulting piecewise-linear curve – one that already lies exactly on
+    /// the straight line its own neighbors already describe. Requested
+    /// directly: consecutive intervals with identical data should merge on
+    /// export – most commonly a repeat group like `"5x(3min 200W)"`, which
+    /// `ShorthandWorkoutParser.flatten` turns into five separate
+    /// back-to-back 200W breakpoint pairs (`(0,200),(180,200),(180,200),
+    /// (360,200),…`). A single rule covers both that case (every value
+    /// along the run is equal, trivially "collinear") and the narrower one
+    /// of two differently-built adjacent blocks merely *ending*/*starting*
+    /// at the same value (a would-be step at `b.timeSeconds ==
+    /// c.timeSeconds` that isn't actually a step because `b.value ==
+    /// c.value`), without needing two separate special cases. A genuine
+    /// step change or an actual change of ramp slope always still needs
+    /// both its own endpoints, so this never removes anything that would
+    /// change what `target(atElapsedSeconds:)` reports for any point in
+    /// time – purely a smaller *file*, not a different workout. Applied
+    /// only here, at export time – the stored `breakpoints` themselves
+    /// (and everything that reads them during a live workout) are left
+    /// untouched. A left-to-right pass with a result stack, rather than a
+    /// single left-right scan, so a long run collapses down to just its
+    /// two endpoints in one pass instead of merely dropping one redundant
+    /// point per adjacent pair.
+    private static func mergedBreakpoints(_ breakpoints: [WorkoutProgramBreakpoint]) -> [WorkoutProgramBreakpoint] {
+        guard breakpoints.count > 2 else { return breakpoints }
+        var result: [WorkoutProgramBreakpoint] = [breakpoints[0]]
+        for point in breakpoints.dropFirst() {
+            while result.count >= 2, isRedundant(a: result[result.count - 2], b: result[result.count - 1], c: point) {
+                result.removeLast()
+            }
+            result.append(point)
+        }
+        return result
+    }
+
+    /// Whether `b` – assumed to lie between `a` and `c` in time, as any
+    /// three consecutive entries of a time-sorted `breakpoints` array
+    /// always do – can be removed without changing the interpolated value
+    /// at any point in time. True exactly when `b` already sits on the
+    /// straight line from `a` to `c` (including the flat "all three equal"
+    /// case, and the zero-duration `a.timeSeconds == c.timeSeconds` case,
+    /// where that only holds if every value across it already matches).
+    private static func isRedundant(a: WorkoutProgramBreakpoint, b: WorkoutProgramBreakpoint, c: WorkoutProgramBreakpoint) -> Bool {
+        guard c.timeSeconds > a.timeSeconds else {
+            return a.value == b.value && b.value == c.value
+        }
+        let fraction = (b.timeSeconds - a.timeSeconds) / (c.timeSeconds - a.timeSeconds)
+        let interpolated = Double(a.value) + fraction * Double(c.value - a.value)
+        return abs(interpolated - Double(b.value)) < 0.001
     }
 
     /// Suggested filename for exporting `fileContents()` – `.erg` for a

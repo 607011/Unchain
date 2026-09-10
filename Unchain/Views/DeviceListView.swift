@@ -208,6 +208,24 @@ struct DeviceListView: View {
             } footer: {
                 Text("Optional – shows heart rate zones during your workout and is recorded to the Health app when you save it.")
             }
+
+            // Build-stamp footer – see `AppVersionInfo`'s own doc comment
+            // for what it actually shows and where the pieces come from.
+            // A footer-only `Section` (no header, no rows) rather than
+            // some other placement, so it sits at the very bottom of this
+            // screen's own `List` the same unobtrusive way a section
+            // footer already does above, instead of needing its own
+            // separate layout. Omitted entirely (not shown empty/blank)
+            // for the one case `AppVersionInfo.footerText` is `nil` – see
+            // its own doc comment.
+            if let footerText = AppVersionInfo.footerText {
+                Section {
+                } footer: {
+                    Text(footerText)
+                        .font(.caption2)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+            }
         }
         .refreshable { bluetooth.startScan() }
     }

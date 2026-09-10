@@ -67,8 +67,13 @@ WATCH_APP_PATH  := $(BUILD_DIR)/$(CONFIGURATION)-watchos/$(WATCH_TARGET).app
 
 # Regenerates Unchain.xcodeproj/ from project.yml (XcodeGen) – cheap, so this
 # always runs rather than trying to guess whether project.yml changed.
+# Then stamps the current git describe/commit-count/timestamp into the
+# just-(re)written Generated/Info.plist – see the script's own doc comment
+# for why this happens here, as a plain post-generate step, rather than as
+# an Xcode Run Script build phase.
 generate:
 	xcodegen generate
+	Scripts/stamp-build-info.sh Generated/Info.plist
 
 build: generate
 	xcodebuild -target $(TARGET) -configuration $(CONFIGURATION) -allowProvisioningUpdates build

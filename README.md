@@ -31,11 +31,20 @@ The Xcode project itself isn't kept in the repo; it's generated from
 ```bash
 brew install xcodegen
 cd /Users/olau/Workspace/bahoo-kickass
-xcodegen generate
+make generate
 open Unchain.xcodeproj
 ```
 
 Then, in Xcode, select your own team under *Signing & Capabilities*.
+
+`make generate` is `xcodegen generate` plus one more step:
+[`Scripts/stamp-build-info.sh`](Scripts/stamp-build-info.sh) stamps the
+current `git describe` string, an auto-incrementing build number (total
+commit count), and a build timestamp into the freshly (re)generated
+`Generated/Info.plist` — shown at the bottom of the Devices screen (see
+`AppVersionInfo`) so a specific build's origin is always identifiable at a
+glance. Running plain `xcodegen generate` instead still works, it just
+leaves that footer showing whatever it last said.
 
 ## Known Xcode pitfalls on this Mac (already resolved)
 

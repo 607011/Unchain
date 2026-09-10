@@ -2949,3 +2949,73 @@ would change, roughly in the order it'd need doing:
       either), so "warm-up"/"cool-down" stay purely decorative there,
       same as they were for the treadmill app parser before that one
       specifically gained `TreadmillSegmentKind`.
+- [x] **A build-stamp footer at the bottom of the Devices screen, and an
+      automatically incrementing build number to go with it** – requested
+      directly: "einen Versionshinweis mit dem aktuellen Git-Tag (ggf.
+      plus Buildnummer) und einem Zeitstempel im ISO-8601-Format", plus
+      how to auto-increment a build number at all.
+      New `Scripts/stamp-build-info.sh`, run right after `xcodegen
+      generate` (the Makefile's `generate` target – depended on by
+      `build`/`install`/`run`/`archive`, so every one of those gets a
+      fresh stamp) against the just-(re)written `Generated/Info.plist`:
+      writes `git describe --tags --always --dirty` (a real tag once one
+      exists – **none do yet in this repo**, `git tag v0.1.0` or similar
+      is what starts giving this something more meaningful to show than
+      the short commit hash `--always` falls back to; `--dirty` flags a
+      local build made from uncommitted changes) into a new custom
+      `UnchainGitDescribe` key, `git rev-list --count HEAD` (total commit
+      count – strictly increases with every commit on a normal,
+      append-only `main`, no stored/bumped state needed anywhere) into the
+      real `CFBundleVersion`, and the build's own UTC timestamp
+      (`date -u +"%Y-%m-%dT%H:%M:%SZ"`, genuinely ISO-8601) into
+      `UnchainBuildTimestamp`. New `AppVersionInfo` (Swift) reads all
+      three back via `Bundle.main.infoDictionary` into one footer string,
+      e.g. `"9e6ec09-dirty (83) · 2026-09-10T10:48:11Z"`; `DeviceListView`
+      shows it as a footer-only trailing `Section` at the bottom of its
+      own `List`, omitted entirely rather than blank for a build that's
+      never been through the stamp script at all.
+      Deliberately does *not* also overwrite `CFBundleShortVersionString`
+      with the git-describe string – that field has to be a plain
+      dot-separated integer sequence for App Store Connect, which a
+      describe string like `"v1.2.0-3-gabc1234"` (or a bare commit hash,
+      right now) isn't; left alone for whatever marketing version gets
+      deliberately set for a real release, independent of this.
+      Tried this first as an Xcode Run Script build phase patching the
+      *built* Info.plist instead (more conventional, and would refresh on
+      every single Xcode build rather than only on `xcodegen generate`) –
+      abandoned after `ENABLE_USER_SCRIPT_SANDBOXING` (project.yml, a
+      "recommended settings" default) blocked it two separate ways at
+      once: it denies the `git` subprocess reading `.git` at all unless
+      every path it might touch is pre-declared (impractical for `git`,
+      which reads all over `.git` depending on repo state), and separately
+      denies writing back into the built Info.plist unless *that*'s
+      declared as the script phase's own output too – which then collides
+      with Xcode's own Info.plist-processing step already claiming to
+      produce that exact file ("Multiple commands produce …"). Patching
+      the *source* `Generated/Info.plist` as a plain shell step outside
+      Xcode's build system entirely (this script, from the Makefile)
+      sidesteps both problems at once – neither `git` nor `PlistBuddy`
+      runs sandboxed there. The trade-off: a build launched straight from
+      Xcode.app without `make generate`/`xcodegen generate` having run
+      first just shows whatever `Generated/Info.plist` last had – decided
+      this was worth it given this project's own CLI-first workflow
+      (README, Makefile) already runs `generate` before every build
+      anyway.
+      `.github/workflows/ci.yml` switched from a bare `xcodegen generate`
+      to `make generate` (picks up the same stamp step) and gained
+      `fetch-depth: 0` on its checkout – the default shallow clone would
+      otherwise silently under-count `git rev-list --count HEAD` there.
+      README's own "Generating the project" walkthrough updated to lead
+      with `make generate` instead of the bare `xcodegen generate` it had
+      before, with a short note on what the extra step buys.
+      Verified end to end: `make generate` → `PlistBuddy -c "Print
+      :CFBundleVersion/…"` confirms the values land in
+      `Generated/Info.plist`; a full `xcodebuild` confirms they survive
+      into the *built* app's own `Info.plist` unchanged; a standalone
+      `swift` script loading that built bundle directly (`Bundle(path:)`)
+      and running `AppVersionInfo`'s exact read/compose logic against it
+      confirms the footer string comes out correctly formatted. Not
+      verified visually in the Simulator – Bluetooth is unavailable there
+      (see README), so `DeviceListView` never gets past its own
+      "Bluetooth unavailable" state to reach the `List`/footer at all;
+      needs a real device to actually see it rendered.

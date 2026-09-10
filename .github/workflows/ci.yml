@@ -13,8 +13,14 @@ jobs:
     runs-on: macos-15
 
     steps:
+      # `fetch-depth: 0` (full history, not just the latest commit) –
+      # `Scripts/stamp-build-info.sh` (run below, via `make generate`)
+      # derives the build number from `git rev-list --count HEAD`, which a
+      # shallow checkout would silently under-count.
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       # The macos-15 runner image comes with an `aws/tap` Homebrew tap
       # pre-added (unrelated to this project – some other pre-installed
@@ -29,7 +35,7 @@ jobs:
         run: brew install xcodegen
 
       - name: Generate Xcode project
-        run: xcodegen generate
+        run: make generate
 
       # Bluetooth doesn't work in the Simulator (see README), so this only
       # verifies the app (and, now that it's embedded, the UnchainWatch

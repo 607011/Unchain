@@ -3153,3 +3153,38 @@ would change, roughly in the order it'd need doing:
       itself re-verified unaffected afterward – a fresh session (cleared
       storage) still shows the classic bundled sample workout, paints,
       and drags exactly as before.
+- [x] **Fixed a real bug found while testing the segment-view feature
+      above: pasting a `.zwo` file often silently failed to parse as one
+      at all** – reported directly. `handlePreviewEdit` used to decide
+      *which* parser to run a pasted file-shaped text through by reading
+      whichever `.jack button.active-fmt` (the ".erg"/".mrc"/".zwo"
+      *download* tab) happened to be selected – a control for choosing
+      what to export next, with no reason to already be set to ".zwo"
+      before an unrelated paste, and ".erg" by default on every fresh
+      session. Pasting a `.zwo` file straight after opening the page (or
+      after last downloading an `.erg`) tried to parse it as `.erg`
+      instead, which fails outright (no `[COURSE DATA]` in a `.zwo`
+      file).
+      New `detectImportFormat(text)` reads the format straight off the
+      pasted text's own shape instead – `<workout_file>` is unambiguous;
+      `.erg` vs. `.mrc` is exactly the same `WATTS`/`PERCENT` header-line
+      distinction `buildErg`/`buildMrc` themselves already write, read
+      back the same way – the same "detect from the content, don't trust
+      whichever unrelated control happens to be selected" fix already
+      applied to `applyShorthandText`'s own bike/treadmill detection.
+      `handlePreviewEdit` now also calls the new shared `setActiveFmt`
+      helper with the detected format, so the Preview label and
+      highlighted download card visibly follow what was actually just
+      pasted too, not just the internal parse choice.
+      Verified live with the user's own real example (a 16-block "Pyramid
+      Of Hill Climb Intervals" `.zwo`, treadmill, mixed short graduated
+      steps and long holds) pasted while the ".erg" tab was still the
+      default active one: parsed successfully (previously would have
+      failed), auto-switched Profile to Treadmill and the download tab to
+      ".zwo", and round-tripped through the `.zwo` export byte-for-byte
+      identical to the source (every block's own Duration/Pace/Incline
+      unchanged – the segment-view work above meant nothing to reconcile
+      onto a grid at all). Also re-verified `.mrc` detection specifically
+      (a bare `%`-based file, `FTP =` header) still resolves to the
+      correct absolute watts via the file's own declared FTP, now
+      independent of the active tab there too.

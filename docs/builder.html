@@ -2713,6 +2713,27 @@
     return /\[course\s+data\]/i.test(text) || /<workout_file>/i.test(text);
   }
 
+  // Which of the three import parsers `text` (already confirmed by
+  // `looksLikeWorkoutFile` to be *some* kind of workout file) actually
+  // is – reported directly: pasting a `.zwo` file silently failed to
+  // parse as one at all whenever the ".zwo" download tab (`.jack
+  // button.active-fmt`) wasn't already the one selected, since
+  // `handlePreviewEdit` used to read the format to parse *as* off that
+  // same tab – a control for choosing what to *export*, not what was
+  // just pasted, with no reason to already be set correctly for an
+  // unrelated paste. Detected from the text's own shape instead, the
+  // same way `applyShorthandText` already auto-detects bike vs.
+  // treadmill via `looksLikeTreadmillShorthand` rather than trusting
+  // whichever profile happened to be active. `.zwo` is unambiguous
+  // (`<workout_file>`, never any `.erg`/`.mrc` file's own shape); `.erg`
+  // vs. `.mrc` is exactly the same distinction `buildErg`/`buildMrc`
+  // themselves encode in the `MINUTES\tWATTS`/`MINUTES\tPERCENT` header
+  // line they each write, read back here the same way.
+  function detectImportFormat(text) {
+    if (/<workout_file>/i.test(text)) return "zwo";
+    return /PERCENT/i.test(text) ? "mrc" : "erg";
+  }
+
   // Parses `text` as shorthand, then feeds the result through the exact
   // same bin-resampling `applyErgLikeText`/`applyZwoText` already use
   // above, rather than a separate "shorthand → chart" path of its own.
@@ -2788,8 +2809,13 @@
         // for a rare edge case.
         pushUndo();
         if (looksLikeWorkoutFile(text)) {
-          var active = document.querySelector(".jack button.active-fmt");
-          var fmt = active ? active.getAttribute("data-fmt") : "erg";
+          var fmt = detectImportFormat(text);
+          // Keeps the Preview label/highlighted download card in sync
+          // with what was actually just pasted, not whatever was
+          // selected before – e.g. pasting a `.zwo` file now visibly
+          // switches to the ".zwo" card too, matching what
+          // `applyShorthandText` already does for the Profile toggle.
+          setActiveFmt(fmt);
           if (fmt === "erg") applyErgLikeText(text, false);
           else if (fmt === "mrc") applyErgLikeText(text, true);
           else applyZwoText(text);
@@ -2834,11 +2860,20 @@
     setTimeout(function () { el.textContent = original; }, revertAfterMs || 1600);
   }
 
+  // Which download card's own `data-fmt` is "active" – drives both which
+  // one looks selected and which builder `updatePreview()` renders into
+  // the textarea. Shared by the Download click handler below,
+  // `handlePreviewEdit`'s own auto-detected format on a pasted file, and
+  // the initial default at the very bottom of this file, rather than
+  // each repeating the same `classList` dance.
+  function setActiveFmt(fmt) {
+    document.querySelectorAll(".jack button[data-fmt]").forEach(function (b) { b.classList.toggle("active-fmt", b.getAttribute("data-fmt") === fmt); });
+  }
+
   document.querySelectorAll(".jack button[data-fmt]").forEach(function (btn) {
     btn.addEventListener("click", function () {
       var fmt = btn.getAttribute("data-fmt");
-      document.querySelectorAll(".jack button[data-fmt]").forEach(function (b) { b.classList.remove("active-fmt"); });
-      btn.classList.add("active-fmt");
+      setActiveFmt(fmt);
       updatePreview();
       var text = builders[fmt]();
       var blob = new Blob([text], { type: "text/plain" });
@@ -2853,7 +2888,7 @@
       flashStatus(btn, "Downloaded ↓");
     });
   });
-  document.querySelector('.jack button[data-fmt="erg"]').classList.add("active-fmt");
+  setActiveFmt("erg");
 
   document.querySelectorAll(".jack .copy-btn").forEach(function (btn) {
     btn.addEventListener("click", function () {

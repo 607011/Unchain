@@ -97,6 +97,37 @@
     text-wrap: balance;
     line-height: 0.95;
   }
+  /* Same rule set as the bare `h1` selector above (this replaced a plain
+     `<h1>Interval Sketch</h1>` – see #workout-name-input's own comment in
+     the markup for why it's an `<input>` now, not still an `<h1>`), plus
+     what it takes to make an `<input>` disappear into looking like static
+     heading text until it's actually focused: no border/background of its
+     own, `color: inherit` (an `<input>`'s own default UA color would
+     otherwise win over this rule), `width: 100%` so it still claims the
+     same horizontal space a heading would to wrap/balance the same way.
+     The focus/hover affordance is deliberately subtle (a bottom border
+     only) – enough to notice this is editable without it looking like a
+     form field sitting in the middle of the page title. */
+  .workout-name-input {
+    display: block;
+    font-family: "Big Shoulders Display", "Arial Narrow", sans-serif;
+    font-weight: 700;
+    font-size: clamp(30px, 4.6vw, 42px);
+    letter-spacing: 0.01em;
+    margin: 2px 0 0;
+    line-height: 0.95;
+    width: 100%;
+    border: none;
+    border-bottom: 1px solid transparent;
+    background: transparent;
+    padding: 0;
+    color: inherit;
+  }
+  .workout-name-input:hover { border-bottom-color: var(--line); }
+  .workout-name-input:focus {
+    outline: none;
+    border-bottom-color: var(--focus);
+  }
   .masthead-sub {
     max-width: 34ch;
     font-size: 13.5px;
@@ -404,7 +435,17 @@
       <img src="assets/icon.png" alt="Unchain">
       <div>
         <div class="eyebrow">Unchain — Workout Builder</div>
-        <h1>Interval Sketch</h1>
+        <!-- Doubles as the current workout's own name (`state.name`) –
+             requested directly: an editable heading, its value written
+             into a `.zwo` export's `<name>`, an `.erg`/`.mrc` export's
+             `DESCRIPTION` line. An `<input>`, not still an `<h1>` with
+             `contenteditable` – this tool uses a plain styled `<input>`
+             for every other editable field already (`#ftp-input`,
+             `#bin-seconds-input`), and `contenteditable` brings its own
+             cross-browser paste/Enter-key quirks none of those need to
+             deal with. See `.workout-name-input`'s own CSS for how this
+             still reads as a heading until it's actually focused. -->
+        <input id="workout-name-input" class="workout-name-input" type="text" value="Interval Sketch" aria-label="Workout name" autocomplete="off" spellcheck="false">
       </div>
     </div>
     <p class="masthead-sub">Drag across the grid to draw a target profile, then export it as a file your trainer app already reads.</p>
@@ -541,8 +582,6 @@
 (function () {
   "use strict";
 
-  var WORKOUT_NAME = "Interval Sketch workout";
-
   // Genuine pre-existing bug, found while chasing a reload-loses-my-edits
   // report: this used to be declared down in the "persistence" section
   // further below, textually *after* `loadStateFromStorage()` is first
@@ -566,6 +605,13 @@
   var MIN_BIN_SECONDS = 5;
   var MAX_BIN_SECONDS = 1800;
 
+  // Restored on a blank/whitespace-only `#workout-name-input` commit – same
+  // "never let a rider-facing free-text field settle on something unusable"
+  // reasoning `ftp-input`'s own change handler already applies (falls back
+  // to 250 rather than accepting 0 or NaN), here for an empty title
+  // instead of an invalid number.
+  var DEFAULT_WORKOUT_NAME = "Interval Sketch";
+
   var state = {
     mode: "bike",
     binSeconds: 60,
@@ -573,6 +619,11 @@
     warmupBins: 4,
     cooldownBins: 3,
     ftp: 250,
+    // The heading at the top of the page (`#workout-name-input`) doubles
+    // as this – written into a `.zwo` export's `<name>` and an
+    // `.erg`/`.mrc` export's `DESCRIPTION` line (see `buildZwo`/
+    // `buildErg`/`buildMrc` below), requested directly.
+    name: DEFAULT_WORKOUT_NAME,
     // Rounding granularity for the Speed lane only (Incline stays a fixed
     // 0.5, Power a fixed 5 W – see `lanes` below) – dragging vertically
     // with a mouse/trackpad turned out fiddly to land on a precise value
@@ -655,6 +706,7 @@
     state.warmupBins = Math.max(0, restored.warmupBins || 0);
     state.cooldownBins = Math.max(0, restored.cooldownBins || 0);
     state.ftp = restored.ftp > 0 ? restored.ftp : state.ftp;
+    state.name = typeof restored.name === "string" && restored.name.trim() ? restored.name : state.name;
     state.speedStep = (restored.speedStep === 0.1 || restored.speedStep === 0.5) ? restored.speedStep : state.speedStep;
     state.snapEnabled = typeof restored.snapEnabled === "boolean" ? restored.snapEnabled : state.snapEnabled;
     state.power = restored.power.length ? normalizePowerBins(restored.power) : sampleBike(state.bins);
@@ -1331,7 +1383,7 @@
       "[COURSE HEADER]",
       "VERSION = 2",
       "UNITS = ENGLISH",
-      "DESCRIPTION = " + WORKOUT_NAME,
+      "DESCRIPTION = " + state.name,
       "FILE NAME = interval-sketch.erg",
       "MINUTES\tWATTS",
       "[END COURSE HEADER]"
@@ -1344,7 +1396,7 @@
       "[COURSE HEADER]",
       "VERSION = 2",
       "UNITS = ENGLISH",
-      "DESCRIPTION = " + WORKOUT_NAME,
+      "DESCRIPTION = " + state.name,
       "FTP = " + state.ftp,
       "MINUTES\tPERCENT",
       "[END COURSE HEADER]"
@@ -1352,11 +1404,25 @@
     return header + "\n[COURSE DATA]\n" + ergLikeBody(state.power, true) + "\n[END COURSE DATA]\n";
   }
 
+  // The five XML predefined entities – `state.name` is free-form rider
+  // text (see `#workout-name-input`) that could contain any of them, and
+  // `<name>` below is the only place `buildZwo` ever interpolates
+  // unconstrained text into XML rather than a plain number – matches
+  // `TreadmillWorkoutProgram.xmlEscaped`'s own reasoning in the app.
+  function xmlEscape(text) {
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+  }
+
   function buildZwo() {
     var lines = [];
     lines.push('<workout_file>');
     lines.push('  <author>Unchain Workout Builder</author>');
-    lines.push('  <name>' + WORKOUT_NAME + '</name>');
+    lines.push('  <name>' + xmlEscape(state.name) + '</name>');
     lines.push('  <description>Drawn with Unchain\'s Interval Sketch.</description>');
     if (state.mode === "bike") {
       lines.push('  <sportType>bike</sportType>');
@@ -1531,6 +1597,17 @@
   });
 
   function syncControlsFromState() {
+    // Skipped while actually focused – a precaution, not a fix for a
+    // reproduced bug: every *other* field this function syncs only ever
+    // changes via its own already-committed edit, but `undo()`/`redo()`
+    // (clickable buttons, not just the keyboard shortcut the "typing in a
+    // field" guard elsewhere already excludes) also call this, and could
+    // in principle fire while this field still has focus. Overwriting
+    // `.value` while focused would reset the caret/selection either way,
+    // worth avoiding cheaply even without a concrete repro.
+    if (document.activeElement !== document.getElementById("workout-name-input")) {
+      document.getElementById("workout-name-input").value = state.name;
+    }
     document.querySelectorAll("#mode-toggle button").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-mode") === state.mode); });
     document.getElementById("bin-seconds-input").value = String(state.binSeconds);
     document.getElementById("bins-count").value = String(state.bins);
@@ -2505,6 +2582,14 @@
     var v = parseInt(this.value, 10);
     if (!isFinite(v) || v <= 0) v = 250;
     state.ftp = v;
+    updatePreview();
+  });
+
+  document.getElementById("workout-name-input").addEventListener("change", function () {
+    var v = this.value.trim();
+    if (!v) v = DEFAULT_WORKOUT_NAME;
+    state.name = v;
+    this.value = v;
     updatePreview();
   });
 

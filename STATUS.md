@@ -3019,3 +3019,49 @@ would change, roughly in the order it'd need doing:
       (see README), so `DeviceListView` never gets past its own
       "Bluetooth unavailable" state to reach the `List`/footer at all;
       needs a real device to actually see it rendered.
+- [x] **`docs/builder.html`'s "Interval Sketch" `<h1>` is now the editable
+      current-workout name, written into a `.zwo` export's `<name>` and an
+      `.erg`/`.mrc` export's `DESCRIPTION` line** – requested directly.
+      The static `<h1>` became `#workout-name-input`, a plain `<input>`
+      styled to disappear into looking exactly like the heading it
+      replaced (same font/size/weight, no border/background of its own)
+      until actually hovered/focused, matching this tool's own established
+      pattern for every other editable field (`#ftp-input`,
+      `#bin-seconds-input`) rather than `contenteditable` (which brings
+      its own cross-browser paste/Enter-key quirks none of those need to
+      deal with). New `state.name`, defaulting to `"Interval Sketch"`
+      (`DEFAULT_WORKOUT_NAME`, restored on a blank/whitespace-only commit
+      – same reasoning `ftp-input`'s own fallback-to-250 already has),
+      persisted the same way every other field here is, read by
+      `buildErg`/`buildMrc` (`DESCRIPTION = `) and `buildZwo` (`<name>`)
+      in place of the old fixed, non-configurable `WORKOUT_NAME` constant
+      they used before.
+      Since `state.name` is now free-form rider text rather than a fixed
+      constant, `buildZwo`'s own `<name>` interpolation needed real XML
+      escaping for the first time – new `xmlEscape`, the same five
+      predefined entities `TreadmillWorkoutProgram.xmlEscaped` already
+      escapes in the app, applied only there (`.erg`/`.mrc`'s own
+      `DESCRIPTION` is a plain-text format, nothing to escape, and can't
+      contain an embedded newline in the first place since `<input>`
+      itself can't hold one).
+      `syncControlsFromState()` skips writing this field's own `.value`
+      while it's actually focused – not a fix for a reproduced bug, just
+      cheap insurance against `undo()`/`redo()` (clickable buttons, not
+      just the keyboard shortcut a separate existing guard already
+      excludes while typing) resetting the caret/selection mid-edit if
+      they ever did fire while this field still had focus.
+      Verified live in the browser: typing `"Bob & Alice's <Threshold>
+      Test"` into the heading, confirmed the `.erg` export's own
+      `DESCRIPTION` line keeps it verbatim and the `.zwo` export's `<name>`
+      escapes it to `Bob &amp; Alice&apos;s &lt;Threshold&gt; Test` –
+      re-parsed with `DOMParser` to confirm it's valid XML that round-trips
+      back to the exact original text. Also verified the blank-input
+      fallback (reverts to `"Interval Sketch"`) and that the name survives
+      a page reload the same way every other field here already does.
+      One known, accepted trade-off from switching to a plain `<input>`:
+      the old `<h1>` could wrap a long name onto two lines
+      (`text-wrap: balance`); an `<input>` is inherently single-line, so a
+      long name just scrolls/clips within the field instead – not fixed
+      here (would need an auto-growing `<textarea>`, a bigger, more
+      foreign change than this tool's own "every editable field is a
+      plain `<input>`" convention otherwise needs).

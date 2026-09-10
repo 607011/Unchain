@@ -1856,11 +1856,33 @@
   // notation – already in TREADMILL_DURATION_UNITS below regardless, since
   // its usual other meaning (inches) was never a supported distance unit
   // here in the first place, so there was nothing for it to collide with.
+  // "second"/"seconds"/"secs"/"hour"/"hours" – the spelled-out (and, for
+  // seconds, abbreviated-plural) English forms "sec"/"h" etc. didn't
+  // cover, added for the same reason TREADMILL_DURATION_UNITS below
+  // gained "second"/"seconds"/"hour"/"hours".
   var BIKE_DURATION_UNITS = [
     { suffix: "m", multiplier: 60 }, { suffix: "min", multiplier: 60 }, { suffix: "minute", multiplier: 60 }, { suffix: "minuten", multiplier: 60 }, { suffix: "'", multiplier: 60 },
-    { suffix: "s", multiplier: 1 }, { suffix: "sec", multiplier: 1 }, { suffix: "sekunde", multiplier: 1 }, { suffix: "sekunden", multiplier: 1 }, { suffix: "\"", multiplier: 1 },
-    { suffix: "h", multiplier: 3600 }, { suffix: "std", multiplier: 3600 }, { suffix: "stunde", multiplier: 3600 }, { suffix: "stunden", multiplier: 3600 }
+    { suffix: "s", multiplier: 1 }, { suffix: "sec", multiplier: 1 }, { suffix: "secs", multiplier: 1 }, { suffix: "second", multiplier: 1 }, { suffix: "seconds", multiplier: 1 }, { suffix: "sekunde", multiplier: 1 }, { suffix: "sekunden", multiplier: 1 }, { suffix: "\"", multiplier: 1 },
+    { suffix: "h", multiplier: 3600 }, { suffix: "std", multiplier: 3600 }, { suffix: "hour", multiplier: 3600 }, { suffix: "hours", multiplier: 3600 }, { suffix: "stunde", multiplier: 3600 }, { suffix: "stunden", multiplier: 3600 }
   ];
+
+  // Same reasoning as `stripTreadmillFillerWords` below, minus `incline`
+  // (meaningless for a bike step) – requested directly, with a real
+  // example: "10' warm-up @ 50% FTP" parses exactly like "10' 50%FTP"
+  // once stripped. "warm-up"/"cool-down" don't tag the resulting step
+  // anywhere – `WorkoutProgram`/this tool's own bike state has no
+  // per-step `kind` concept the way a treadmill workout does here –
+  // they're accepted purely as the rider's own readable label, same as
+  // any of the others.
+  function stripBikeFillerWords(text) {
+    return text
+      .replace(/@/g, " ")
+      .replace(/\bat\b/gi, " ")
+      .replace(/\bwith\b/gi, " ")
+      .replace(/\band\b/gi, " ")
+      .replace(/warm[- ]?up/gi, " ")
+      .replace(/cool[- ]?down/gi, " ");
+  }
 
   function parseBikeTarget(text) {
     var trimmed = text.trim();
@@ -1877,6 +1899,17 @@
       if (!(state.ftp > 0)) throw new Error("This workout uses %FTP, but no FTP is set above.");
       return Math.round(percent / 100 * state.ftp);
     }
+    // A bare "%" (no "FTP" suffix, e.g. "200%") means the same thing –
+    // this parser is deliberately power-only, so there's no other,
+    // resistance-percent-style meaning a bare "%" could be mistaken for
+    // here. Checked after "%ftp" above, not instead of it, since
+    // "...%ftp" itself also ends in "%".
+    if (lower.slice(-1) === "%") {
+      var barePercent = shorthandParseNumber(compact.slice(0, -1));
+      if (barePercent === null || barePercent < 0) throw new Error('Couldn’t understand the target "' + text + '"');
+      if (!(state.ftp > 0)) throw new Error("This workout uses %FTP, but no FTP is set above.");
+      return Math.round(barePercent / 100 * state.ftp);
+    }
     var suffixes = ["watts", "watt", "w"];
     for (var i = 0; i < suffixes.length; i++) {
       if (lower.slice(-suffixes[i].length) === suffixes[i]) {
@@ -1889,7 +1922,7 @@
   }
 
   function parseBikeStep(text) {
-    var trimmed = text.trim();
+    var trimmed = stripBikeFillerWords(text).trim();
     var match = shorthandConsumePrefixedValue(trimmed, BIKE_DURATION_UNITS);
     if (!match) throw new Error('Couldn’t understand "' + text + '"');
     if (!(match.value > 0)) throw new Error('Couldn’t understand the duration "' + text + '"');

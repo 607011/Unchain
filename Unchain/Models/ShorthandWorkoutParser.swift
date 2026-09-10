@@ -10,8 +10,8 @@ import Foundation
 /// repeatGroup := INT 'x' '(' segment (',' segment)* ')' | INT 'x' step
 /// step        := duration target ('->' target)?
 /// duration    := NUMBER durationUnit
-/// target      := NUMBER ('%FTP'|'W'|'Watt'|'Watts')
-/// durationUnit:= 'min'|'minute'|'minuten'|'m' | 'sec'|'sekunde'|'sekunden'|'s' | 'h'|'std'|'stunde'|'stunden'
+/// target      := NUMBER ('%FTP'|'%'|'W'|'Watt'|'Watts')
+/// durationUnit:= 'min'|'minute'|'minuten'|'m' | 'sec'|'secs'|'second'|'seconds'|'sekunde'|'sekunden'|'s' | 'h'|'std'|'hour'|'hours'|'stunde'|'stunden'
 /// ```
 ///
 /// e.g. `10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP), 10min 55%FTP`, or a
@@ -20,11 +20,15 @@ import Foundation
 /// 60%FTP` – see `ShorthandNotation.consumePrefixedValue(_:units:)`, which
 /// is what actually makes that – and the German-keyboard `,` decimal
 /// separator, and the `minute`/`Minuten`/`Watt` synonyms above – all work
-/// without the rider needing to hit the grammar exactly. Deliberately
-/// power-only (no resistance-percent target) and offline – no network
-/// call, unlike a true free-form AI-generated workout would need (tried on
-/// the `feature/ai-workout-generator` branch and found not worth the
-/// tradeoffs it came with – see STATUS.md).
+/// without the rider needing to hit the grammar exactly. A handful of
+/// natural-language filler words/connectors (`@`/`at`/`with`/`and`/
+/// `warm-up`/`cool-down`, purely decorative – see `stripFillerWords`) are
+/// tolerated too, so `10' warm-up @ 50% FTP, 12x(30secs @ 200%, 30secs @
+/// 30%), 10' cool-down @ 50% FTP` parses the same as the terser form.
+/// Deliberately power-only (no resistance-percent target) and offline –
+/// no network call, unlike a true free-form AI-generated workout would
+/// need (tried on the `feature/ai-workout-generator` branch and found not
+/// worth the tradeoffs it came with – see STATUS.md).
 enum ShorthandWorkoutParser {
     static func parse(_ text: String, name: String, ftpWatts: Int?) -> Result<WorkoutProgram, ShorthandParseError> {
         let parser = Parser(ftpWatts: ftpWatts)
@@ -82,11 +86,39 @@ enum ShorthandWorkoutParser {
     /// since its usual other meaning (inches) was never one of this
     /// app's supported distance units in the first place, so there's
     /// nothing for it to collide with on a treadmill step either.
+    /// `"second"`/`"seconds"`/`"secs"`/`"hour"`/`"hours"` – the spelled-out
+    /// (and, for seconds, abbreviated-plural) English forms `"sec"`/`"h"`
+    /// etc. didn't cover, added for the same reason
+    /// `TreadmillShorthandParser`'s own duration units gained
+    /// `"second"`/`"seconds"`/`"hour"`/`"hours"`: understanding something
+    /// close to how a workout is actually said or typed out, not just the
+    /// terse form.
     fileprivate static let durationUnits: [(suffix: String, multiplier: Double)] = [
         ("m", 60), ("min", 60), ("minute", 60), ("minuten", 60), ("'", 60),
-        ("s", 1), ("sec", 1), ("sekunde", 1), ("sekunden", 1), ("\"", 1),
-        ("h", 3600), ("std", 3600), ("stunde", 3600), ("stunden", 3600),
+        ("s", 1), ("sec", 1), ("secs", 1), ("second", 1), ("seconds", 1), ("sekunde", 1), ("sekunden", 1), ("\"", 1),
+        ("h", 3600), ("std", 3600), ("hour", 3600), ("hours", 3600), ("stunde", 3600), ("stunden", 3600),
     ]
+
+    /// A handful of natural-language filler words/connectors this parser
+    /// tolerates around the actual numbers, all purely decorative – same
+    /// reasoning and (`\bincline\b` aside, meaningless for a bike) same
+    /// set `TreadmillShorthandParser`'s own `stripFillerWords` already
+    /// uses, requested directly with a real example: `"10' warm-up @ 50%
+    /// FTP"` parses exactly like `"10' 50%FTP"` once these are stripped.
+    /// "warm-up"/"cool-down" don't tag anything here – `WorkoutProgram`
+    /// has no `kind` concept for a breakpoint the way
+    /// `TreadmillWorkoutSegment` does, so there'd be nowhere to put it;
+    /// accepted purely as the rider's own readable label, same as any of
+    /// the others.
+    fileprivate static let fillerWordPattern = try! NSRegularExpression(
+        pattern: #"@|\bat\b|\bwith\b|\band\b|warm[- ]?up|cool[- ]?down"#,
+        options: .caseInsensitive
+    )
+
+    fileprivate static func stripFillerWords(_ text: String) -> String {
+        let range = NSRange(text.startIndex..., in: text)
+        return fillerWordPattern.stringByReplacingMatches(in: text, range: range, withTemplate: " ")
+    }
 }
 
 enum ShorthandParseError: LocalizedError, Equatable {
@@ -166,7 +198,7 @@ private struct Parser {
     /// `"<duration><target>-><target>"` for a ramp, e.g. `"10min60%FTP"`,
     /// `"10min 60%FTP"`, or `"20min 100W->300W"`.
     private func parseStep(_ text: String) -> Result<ShorthandSegment, ShorthandParseError> {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        let trimmed = ShorthandWorkoutParser.stripFillerWords(text).trimmingCharacters(in: .whitespaces)
         guard let durationMatch = ShorthandNotation.consumePrefixedValue(trimmed, units: ShorthandWorkoutParser.durationUnits) else {
             // A leading number with no unit this parser recognizes is a
             // duration-specific problem worth its own message; anything
@@ -213,6 +245,17 @@ private struct Parser {
         let lower = compact.lowercased()
         if lower.hasSuffix("%ftp") {
             guard let percent = ShorthandNotation.parseNumber(compact.dropLast(4)), percent >= 0 else { return .failure(.invalidTarget(text)) }
+            guard let ftpWatts, ftpWatts > 0 else { return .failure(.missingFTP) }
+            return .success(Int((percent / 100 * Double(ftpWatts)).rounded()))
+        }
+        // A bare "%" (no "FTP" suffix, e.g. "200%") means the same thing –
+        // this parser is deliberately power-only (see its own doc comment
+        // above), so there's no other, resistance-percent-style meaning a
+        // bare "%" could be mistaken for here the way there might be in a
+        // format that supports both. Checked after "%ftp" above, not
+        // instead of it, since "...%ftp" itself also ends in "%".
+        if lower.hasSuffix("%") {
+            guard let percent = ShorthandNotation.parseNumber(compact.dropLast(1)), percent >= 0 else { return .failure(.invalidTarget(text)) }
             guard let ftpWatts, ftpWatts > 0 else { return .failure(.missingFTP) }
             return .success(Int((percent / 100 * Double(ftpWatts)).rounded()))
         }

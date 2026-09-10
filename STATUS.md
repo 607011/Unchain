@@ -2890,3 +2890,40 @@ would change, roughly in the order it'd need doing:
       helper itself (normalizing every newline to `separator` before
       splitting), so every parser benefits, not just the one the bug was
       found through.
+- [x] **Both bike shorthand parsers (app + web) understand the same kind
+      of natural-language phrasing the treadmill ones already do** –
+      requested directly, with a real example:
+      ```
+      10' warm-up @ 50% FTP
+      12 x (30 secs @ 200%, 30 secs @ 30%)
+      10' cool-down @ 50% FTP
+      ```
+      New in both `ShorthandWorkoutParser.swift` and `docs/builder.html`'s
+      bike parser: a filler-word stripper (`@`/`at`/`with`/`and`/`warm-up`/
+      `cool-down` – the same set `TreadmillShorthandParser`'s own strips,
+      minus `incline`, meaningless for a bike step); a bare `"%"` target
+      (no `"FTP"` suffix, e.g. `"200%"`) as an alias for `"%FTP"` – safe
+      and unambiguous since this parser is deliberately power-only, no
+      other percent-based target it could be confused with; and
+      `"second"`/`"seconds"`/`"secs"`/`"hour"`/`"hours"` added to
+      `durationUnits`/`BIKE_DURATION_UNITS`, matching the same forms
+      `TreadmillShorthandParser`'s own units gained last time, plus `secs`
+      specifically for this example. "warm-up"/"cool-down" stay purely
+      decorative in this commit – see the next entry for the web-only
+      follow-up that gives them real effect on the chart.
+      Separately asked, directly: whether any real smart bike trainer
+      actually supports a target-*speed* control mode, i.e. whether the
+      bike parsers should ever need to understand `km/h` the way the
+      treadmill ones do. No – FTMS does define a Set Target Speed op code
+      (`0x02`) generically enough to apply to a bike too, but in practice
+      no commercial trainer (Wahoo KICKR, Tacx NEO, Elite Direto, …)
+      implements it for cycling: a bike's actual road speed depends on
+      gearing and cadence the trainer doesn't control, so only ERG mode
+      (Set Target Power) and/or Indoor Bike Simulation (grade/wind/Crr/Cw,
+      itself resolving to a power target) are what's actually out there –
+      confirmed by this app's own `TrainerConnection.setTargetSpeed(kmh:)`
+      already being called exclusively behind `machineKind == .treadmill`
+      everywhere in `ControlView`/`WorkoutSession`, never for a bike.
+      Neither bike parser had any `km/h` parsing to begin with, so nothing
+      needed removing – confirms the existing power-only design was
+      already the right call, not a gap.

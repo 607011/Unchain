@@ -1644,6 +1644,27 @@
     if (g > 0 && g < state.binSeconds) state.binSeconds = Math.max(MIN_BIN_SECONDS, g);
   }
 
+  // Scans `binCount` bins (each `binSeconds` long, sampled at its own
+  // midpoint via `kindAt`) from each end for a contiguous run of
+  // "Warmup"/"Cooldown" kind, returning how many bins at the start/end
+  // qualify – the same algorithm `applyZwoText` originally had inline for
+  // its own parsed `.zwo` blocks, factored out once `applyShorthandText`'s
+  // treadmill branch, and now its bike branch too, needed the identical
+  // scan for their own parsed steps' `kind`.
+  function scanWarmupCooldownBins(kindAt, binCount, binSeconds) {
+    var warmupBins = 0, cooldownBins = 0;
+    for (var i = 0; i < binCount; i++) {
+      var kind = kindAt((i + 0.5) * binSeconds);
+      if (kind === "Warmup" && i === warmupBins) warmupBins++;
+    }
+    for (var j = binCount - 1; j >= 0; j--) {
+      var kind2 = kindAt((j + 0.5) * binSeconds);
+      if (kind2 === "Cooldown" && j === binCount - 1 - cooldownBins) cooldownBins++;
+    }
+    if (warmupBins + cooldownBins >= binCount) cooldownBins = Math.max(0, binCount - 1 - warmupBins);
+    return { warmupBins: warmupBins, cooldownBins: cooldownBins };
+  }
+
   function applyErgLikeText(text, isPercent) {
     var rows = parseErgLikeRows(text);
     if (rows.length < 2) throw new Error("No [COURSE DATA] rows found");
@@ -1712,16 +1733,8 @@
       return segments[segments.length - 1];
     }
 
-    var warmupBins = 0, cooldownBins = 0;
-    for (var i = 0; i < newBins; i++) {
-      var kind = segmentAt((i + 0.5) * state.binSeconds).kind;
-      if (kind === "Warmup" && i === warmupBins) warmupBins++;
-    }
-    for (var j = newBins - 1; j >= 0; j--) {
-      var kind2 = segmentAt((j + 0.5) * state.binSeconds).kind;
-      if (kind2 === "Cooldown" && j === newBins - 1 - cooldownBins) cooldownBins++;
-    }
-    if (warmupBins + cooldownBins >= newBins) cooldownBins = Math.max(0, newBins - 1 - warmupBins);
+    var wcBins = scanWarmupCooldownBins(function (t) { return segmentAt(t).kind; }, newBins, state.binSeconds);
+    var warmupBins = wcBins.warmupBins, cooldownBins = wcBins.cooldownBins;
 
     if (isBike) {
       var ftp = state.ftp;
@@ -1866,14 +1879,15 @@
     { suffix: "h", multiplier: 3600 }, { suffix: "std", multiplier: 3600 }, { suffix: "hour", multiplier: 3600 }, { suffix: "hours", multiplier: 3600 }, { suffix: "stunde", multiplier: 3600 }, { suffix: "stunden", multiplier: 3600 }
   ];
 
-  // Same reasoning as `stripTreadmillFillerWords` below, minus `incline`
-  // (meaningless for a bike step) – requested directly, with a real
-  // example: "10' warm-up @ 50% FTP" parses exactly like "10' 50%FTP"
-  // once stripped. "warm-up"/"cool-down" don't tag the resulting step
-  // anywhere – `WorkoutProgram`/this tool's own bike state has no
-  // per-step `kind` concept the way a treadmill workout does here –
-  // they're accepted purely as the rider's own readable label, same as
-  // any of the others.
+  // Same reasoning as `stripTreadmillFillerWords`/`treadmillStepKind`
+  // below, minus `incline` (meaningless for a bike step) – requested
+  // directly, with a real example: "10' warm-up @ 50% FTP" parses
+  // exactly like "10' 50%FTP" once stripped. "warm-up"/"cool-down" are
+  // stripped here purely for the *numeric* parse; `bikeStepKind` reads
+  // the original, unstripped text for the same two words to tag the
+  // step, so `applyShorthandText`'s bike branch can shade
+  // `state.warmupBins`/`state.cooldownBins` the same way the treadmill
+  // branch already does.
   function stripBikeFillerWords(text) {
     return text
       .replace(/@/g, " ")
@@ -1882,6 +1896,12 @@
       .replace(/\band\b/gi, " ")
       .replace(/warm[- ]?up/gi, " ")
       .replace(/cool[- ]?down/gi, " ");
+  }
+
+  function bikeStepKind(text) {
+    if (/warm[- ]?up/i.test(text)) return "Warmup";
+    if (/cool[- ]?down/i.test(text)) return "Cooldown";
+    return "SteadyState";
   }
 
   function parseBikeTarget(text) {
@@ -1922,6 +1942,7 @@
   }
 
   function parseBikeStep(text) {
+    var kind = bikeStepKind(text);
     var trimmed = stripBikeFillerWords(text).trim();
     var match = shorthandConsumePrefixedValue(trimmed, BIKE_DURATION_UNITS);
     if (!match) throw new Error('Couldn’t understand "' + text + '"');
@@ -1931,12 +1952,12 @@
     if (rampParts.length !== 1 && rampParts.length !== 2) throw new Error('Couldn’t understand the target "' + match.remainder + '"');
     var startWatts = parseBikeTarget(rampParts[0]);
     var endWatts = rampParts.length === 2 ? parseBikeTarget(rampParts[1]) : startWatts;
-    return [{ duration: match.value, startWatts: startWatts, endWatts: endWatts }];
+    return [{ duration: match.value, startWatts: startWatts, endWatts: endWatts, kind: kind }];
   }
 
   // Either a repeat group – `Nx(...)` or the parens-free single-step
   // `Nx step` – or a plain step; returns a flat array of
-  // `{duration, startWatts, endWatts}` steps (a repeat group's own
+  // `{duration, startWatts, endWatts, kind}` steps (a repeat group's own
   // contents already expanded `count` times, in order).
   function parseBikeSegment(text) {
     var xIndex = text.search(/x/i);
@@ -1969,22 +1990,6 @@
     var steps = [];
     for (var i = 0; i < parts.length; i++) steps = steps.concat(parseBikeSegment(parts[i]));
     return steps;
-  }
-
-  /// Parses `text` as bike shorthand into `{minutes, value}` rows – the
-  /// same shape `parseErgLikeRows`/`resampleToBins` already work with, so
-  /// the caller can resample this exactly like an imported `.erg`/`.mrc`.
-  function parseBikeShorthandRows(text) {
-    var steps = parseBikeSegments(text);
-    var rows = [];
-    var cursorMin = 0;
-    for (var i = 0; i < steps.length; i++) {
-      var step = steps[i];
-      rows.push({ minutes: cursorMin, value: step.startWatts });
-      cursorMin += step.duration / 60;
-      rows.push({ minutes: cursorMin, value: step.endWatts });
-    }
-    return rows;
   }
 
   // "second"/"seconds"/"hour"/"hours" – the spelled-out English forms
@@ -2192,7 +2197,19 @@
   // than trusting whatever was selected before the paste.
   function applyShorthandText(text) {
     if (!looksLikeTreadmillShorthand(text)) {
-      var rows = parseBikeShorthandRows(text);
+      var steps = parseBikeSegments(text);
+      var rows = [];
+      var cursorMin = 0;
+      var bikeBlocks = [];
+      var bikeCursorSeconds = 0;
+      for (var si = 0; si < steps.length; si++) {
+        var step = steps[si];
+        rows.push({ minutes: cursorMin, value: step.startWatts });
+        cursorMin += step.duration / 60;
+        rows.push({ minutes: cursorMin, value: step.endWatts });
+        bikeBlocks.push({ startSeconds: bikeCursorSeconds, duration: step.duration, kind: step.kind });
+        bikeCursorSeconds += step.duration;
+      }
       var gaps = [];
       for (var gi = 1; gi < rows.length; gi++) {
         var gap = (rows[gi].minutes - rows[gi - 1].minutes) * 60;
@@ -2214,6 +2231,24 @@
       });
       state.bins = newBins;
       state.mode = "bike";
+
+      // Same scan-from-each-end algorithm the treadmill branch below (and
+      // `applyZwoText`) already use to turn a "Warmup"/"Cooldown" `kind`
+      // into bin counts – here reading it off bike shorthand steps
+      // labeled "warm-up"/"cool-down" (see `bikeStepKind`), off a
+      // separate per-step `bikeBlocks` list built alongside `rows` above
+      // purely to keep each step's own `kind`, since `rows`' flattened
+      // `{minutes, value}` breakpoint-pair shape (needed for the ramped
+      // resampling above) has nowhere to carry it.
+      function bikeBlockAt(elapsed) {
+        for (var i = 0; i < bikeBlocks.length; i++) {
+          if (elapsed < bikeBlocks[i].startSeconds + bikeBlocks[i].duration || i === bikeBlocks.length - 1) return bikeBlocks[i];
+        }
+        return bikeBlocks[bikeBlocks.length - 1];
+      }
+      var wcBike = scanWarmupCooldownBins(function (t) { return bikeBlockAt(t).kind; }, newBins, state.binSeconds);
+      state.warmupBins = wcBike.warmupBins;
+      state.cooldownBins = wcBike.cooldownBins;
     } else {
       var blocks = parseTreadmillShorthandBlocks(text);
       autoFitBinSeconds(blocks.map(function (b) { return b.duration; }));
@@ -2238,24 +2273,9 @@
       state.bins = newBinsT;
       state.mode = "treadmill";
 
-      // Same scan-from-each-end algorithm `applyZwoText` already uses to
-      // turn a parsed file's own `<Warmup>`/`<Cooldown>` tags into bin
-      // counts – here reading `kind` off shorthand steps labeled
-      // "warm-up"/"cool-down" instead (see `treadmillStepKind`), so those
-      // words actually shade the corresponding chart region rather than
-      // being purely decorative.
-      var warmupBins = 0, cooldownBins = 0;
-      for (var i = 0; i < newBinsT; i++) {
-        var kind = blockAt((i + 0.5) * state.binSeconds).kind;
-        if (kind === "Warmup" && i === warmupBins) warmupBins++;
-      }
-      for (var j = newBinsT - 1; j >= 0; j--) {
-        var kind2 = blockAt((j + 0.5) * state.binSeconds).kind;
-        if (kind2 === "Cooldown" && j === newBinsT - 1 - cooldownBins) cooldownBins++;
-      }
-      if (warmupBins + cooldownBins >= newBinsT) cooldownBins = Math.max(0, newBinsT - 1 - warmupBins);
-      state.warmupBins = warmupBins;
-      state.cooldownBins = cooldownBins;
+      var wcTreadmill = scanWarmupCooldownBins(function (t) { return blockAt(t).kind; }, newBinsT, state.binSeconds);
+      state.warmupBins = wcTreadmill.warmupBins;
+      state.cooldownBins = wcTreadmill.cooldownBins;
     }
     clampWarmupCooldown();
     syncControlsFromState();

@@ -2927,3 +2927,25 @@ would change, roughly in the order it'd need doing:
       Neither bike parser had any `km/h` parsing to begin with, so nothing
       needed removing – confirms the existing power-only design was
       already the right call, not a gap.
+- [x] **Web builder: bike shorthand now also auto-switches the Profile
+      toggle and shades warm-up/cool-down, mirroring the treadmill-side
+      fix from earlier** – a natural companion to both fixes above,
+      web-only. Threads a `kind` ("Warmup"/"Cooldown"/"SteadyState", from
+      the new `bikeStepKind`) through to `applyShorthandText`'s bike
+      branch, which now shades `state.warmupBins`/`state.cooldownBins`
+      the same way the treadmill branch already does – built via a new
+      `bikeBlocks` list (kept alongside the ramped-resampling `rows`,
+      since `rows`' flattened breakpoint-pair shape has nowhere to carry
+      `kind`). The near-identical scan-from-each-end algorithm
+      `applyZwoText`, the treadmill branch, and now this bike branch all
+      needed was finally factored out into one shared
+      `scanWarmupCooldownBins` helper instead of staying inline three
+      times over. `parseBikeShorthandRows` (now redundant – its own logic
+      is inlined into `applyShorthandText` alongside the new
+      `bikeBlocks` construction) was removed rather than left as dead
+      code. Not ported to the app side – `WorkoutProgram` has no `kind`
+      concept for a breakpoint the way `TreadmillWorkoutSegment` does
+      (and no `.zwo`-style Warmup/SteadyState/Cooldown export to tag
+      either), so "warm-up"/"cool-down" stay purely decorative there,
+      same as they were for the treadmill app parser before that one
+      specifically gained `TreadmillSegmentKind`.

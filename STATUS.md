@@ -2782,3 +2782,49 @@ would change, roughly in the order it'd need doing:
       `.zwo` output tags the first block `<Warmup Duration="300" .../>`
       and the last `<Cooldown Duration="300" .../>` with every block in
       between `<SteadyState>`.
+- [x] **`docs/builder.html`'s configured interval width can no longer
+      collide with a parsed workout's own step granularity** – reported
+      directly: a 5-minute width left selected while pasting a workout
+      built from 1-minute steps needs fixing at the *width*, not just
+      accepted as user error, since every `apply*Text` function only ever
+      samples one value per bin (at its midpoint, or its own start/end for
+      a ramp) – a bin wider than the shortest actual step can land that
+      one sample past the step entirely, silently dropping it from the
+      chart rather than just rendering it coarsely.
+      New `autoFitBinSeconds(durationsSeconds)`, called by all four
+      `apply*Text` functions (`.erg`/`.mrc`, `.zwo`, and both branches of
+      shorthand) right before each computes its own bin count: shrinks
+      `state.binSeconds` down to the greatest common divisor of the
+      parsed data's own step durations whenever the currently configured
+      width is coarser than that – GCD rather than just the shortest
+      individual step, so every bin boundary lands on a real step
+      boundary too and nothing blurs across one. Only ever shrinks, never
+      widens back out on its own – a rider's own, deliberately coarser
+      choice for a workout that doesn't need the extra resolution is left
+      alone.
+      The fixed "Interval length" 30s/60s/5m preset buttons (`#bin-select`)
+      couldn't represent an arbitrary GCD result like this at all, so
+      replaced with a freely typed field (`#bin-seconds-input`) instead –
+      requested directly, alongside the actual bug. Styled and wired the
+      same way `ftp-input` already is (a `.numfield` with a trailing unit
+      `<span>`, `type="text" inputmode="numeric"` rather than the
+      literally-suggested `type="number"`, for visual/behavioral
+      consistency with every other numeric field this tool already has)
+      rather than the native number-spinner control, worth flagging since
+      it's a deliberate departure from the literal suggestion. Bounded to
+      5–1800 s (`MIN_BIN_SECONDS`/`MAX_BIN_SECONDS`).
+      Caught and fixed a real bug in `looksLikeTreadmillShorthand` (from
+      the previous entry above) while building this: its speed-unit regex
+      anchored a `\b` word boundary on *both* sides of the suffix, but
+      this shorthand's own terse form always writes the number directly
+      against the unit with no space ("5km/h", not "5 km/h") – a digit
+      and a letter are both "word" characters, so there's no boundary
+      between them, meaning the terse (and far more common) form was
+      silently *never* detected as treadmill shorthand at all, only the
+      spaced-out form the feature was first requested with. Fixed by
+      anchoring only the trailing boundary. Verified live in the browser
+      (a local `http.server`, not the `file://` snapshot used briefly
+      earlier this session, which doesn't execute JS at all): setting a
+      5-minute width, then pasting a 5min/90s/5min-shaped workout, shrinks
+      it to 30s (the actual GCD) and parses correctly in both the terse
+      and spaced forms; the field itself updates to reflect it.

@@ -419,11 +419,10 @@
       </div>
     </div>
     <div class="field">
-      <label for="bin-select">Interval length</label>
-      <div class="segmented" id="bin-select" role="group" aria-label="Interval length">
-        <button data-bin="30" type="button">30s</button>
-        <button data-bin="60" class="active" type="button">60s</button>
-        <button data-bin="300" type="button">5m</button>
+      <label for="bin-seconds-input">Interval length</label>
+      <div class="numfield">
+        <input id="bin-seconds-input" type="text" inputmode="numeric" value="60">
+        <span>s</span>
       </div>
     </div>
     <div class="field">
@@ -556,6 +555,17 @@
   // before anything can possibly read it too early.
   var STORAGE_KEY = "interval-sketch-state-v1";
 
+  // Bounds for the "Interval length" field (`#bin-seconds-input`) –
+  // replaced the old fixed 30s/60s/5m preset buttons with a freely typed
+  // value (see `autoFitBinSeconds` below for why: a preset coarser than a
+  // parsed workout's own shortest step could silently drop that step from
+  // the chart entirely). 5s floor keeps a fat-fingered "0" from producing
+  // an unusable number-of-bins explosion; 1800s (30min) ceiling is far
+  // beyond any real single-interval width this tool's own 96-bin cap could
+  // still usefully resolve anyway.
+  var MIN_BIN_SECONDS = 5;
+  var MAX_BIN_SECONDS = 1800;
+
   var state = {
     mode: "bike",
     binSeconds: 60,
@@ -639,7 +649,8 @@
   var restored = loadStateFromStorage();
   if (restored) {
     state.mode = restored.mode === "treadmill" ? "treadmill" : "bike";
-    state.binSeconds = [30, 60, 300].indexOf(restored.binSeconds) !== -1 ? restored.binSeconds : state.binSeconds;
+    state.binSeconds = isFinite(restored.binSeconds) && restored.binSeconds >= MIN_BIN_SECONDS && restored.binSeconds <= MAX_BIN_SECONDS
+      ? Math.round(restored.binSeconds) : state.binSeconds;
     state.bins = Math.max(2, Math.min(96, restored.bins || state.bins));
     state.warmupBins = Math.max(0, restored.warmupBins || 0);
     state.cooldownBins = Math.max(0, restored.cooldownBins || 0);
@@ -1509,7 +1520,7 @@
 
   function syncControlsFromState() {
     document.querySelectorAll("#mode-toggle button").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-mode") === state.mode); });
-    document.querySelectorAll("#bin-select button").forEach(function (b) { b.classList.toggle("active", parseInt(b.getAttribute("data-bin"), 10) === state.binSeconds); });
+    document.getElementById("bin-seconds-input").value = String(state.binSeconds);
     document.getElementById("bins-count").value = String(state.bins);
     document.getElementById("warmup-count").value = String(state.warmupBins);
     document.getElementById("cooldown-count").value = String(state.cooldownBins);
@@ -1593,9 +1604,43 @@
     return out;
   }
 
+  function gcdSeconds(a, b) {
+    a = Math.round(Math.abs(a));
+    b = Math.round(Math.abs(b));
+    while (b) { var t = b; b = a % b; a = t; }
+    return a;
+  }
+
+  // Shrinks `state.binSeconds` down to the greatest common divisor of
+  // `durationsSeconds` whenever the currently configured interval length
+  // is coarser than that – reported directly: a 5-minute interval width
+  // left selected while pasting/importing a workout built from 1-minute
+  // steps silently misrepresented it, since every `apply*Text` below only
+  // ever samples *one* value per bin (at its midpoint, or its own start/
+  // end for a ramp) – a bin wider than the shortest actual step can land
+  // that one sample past the step entirely, dropping it from the chart
+  // altogether rather than just rendering it coarsely. The GCD (not just
+  // the shortest individual step) is what actually keeps every bin
+  // boundary aligned with a real step boundary too, so nothing blurs
+  // across one either. Only ever shrinks it, never widens it back out on
+  // its own – a rider's own, deliberately coarser choice for a workout
+  // that doesn't need the extra resolution is left alone. Called with
+  // each `apply*Text` function's own parsed step/segment durations,
+  // before it computes its bin count from `state.binSeconds`.
+  function autoFitBinSeconds(durationsSeconds) {
+    var g = durationsSeconds.reduce(function (acc, d) { return d > 0 ? gcdSeconds(acc, d) : acc; }, 0);
+    if (g > 0 && g < state.binSeconds) state.binSeconds = Math.max(MIN_BIN_SECONDS, g);
+  }
+
   function applyErgLikeText(text, isPercent) {
     var rows = parseErgLikeRows(text);
     if (rows.length < 2) throw new Error("No [COURSE DATA] rows found");
+    var gaps = [];
+    for (var gi = 1; gi < rows.length; gi++) {
+      var gap = (rows[gi].minutes - rows[gi - 1].minutes) * 60;
+      if (gap > 0) gaps.push(gap);
+    }
+    autoFitBinSeconds(gaps);
     var totalMinutes = rows[rows.length - 1].minutes;
     var newBins = Math.max(2, Math.min(96, Math.round(totalMinutes * 60 / state.binSeconds)));
     var ftpMatch = text.match(/FTP\s*=\s*(\d+(?:\.\d+)?)/i);
@@ -1643,6 +1688,7 @@
     });
     var totalSeconds = segments.reduce(function (sum, s) { return sum + s.duration; }, 0);
     if (totalSeconds <= 0) throw new Error("Zero total duration");
+    autoFitBinSeconds(segments.map(function (s) { return s.duration; }));
     var newBins = Math.max(2, Math.min(96, Math.round(totalSeconds / state.binSeconds)));
 
     function segmentAt(elapsedSeconds) {
@@ -2094,6 +2140,12 @@
   function applyShorthandText(text) {
     if (!looksLikeTreadmillShorthand(text)) {
       var rows = parseBikeShorthandRows(text);
+      var gaps = [];
+      for (var gi = 1; gi < rows.length; gi++) {
+        var gap = (rows[gi].minutes - rows[gi - 1].minutes) * 60;
+        if (gap > 0) gaps.push(gap);
+      }
+      autoFitBinSeconds(gaps);
       var totalMinutes = rows[rows.length - 1].minutes;
       var newBins = Math.max(2, Math.min(96, Math.round(totalMinutes * 60 / state.binSeconds)));
       // Ramped, not the plain midpoint-only `resampleToBins` – so a
@@ -2111,6 +2163,7 @@
       state.mode = "bike";
     } else {
       var blocks = parseTreadmillShorthandBlocks(text);
+      autoFitBinSeconds(blocks.map(function (b) { return b.duration; }));
       var totalSeconds = blocks[blocks.length - 1].startSeconds + blocks[blocks.length - 1].duration;
       var newBinsT = Math.max(2, Math.min(96, Math.round(totalSeconds / state.binSeconds)));
       function blockAt(elapsed) {
@@ -2260,12 +2313,13 @@
     updatePreview();
   });
 
-  document.getElementById("bin-select").addEventListener("click", function (evt) {
-    var btn = evt.target.closest("button[data-bin]");
-    if (!btn) return;
+  document.getElementById("bin-seconds-input").addEventListener("change", function () {
+    var v = parseInt(this.value, 10);
+    if (!isFinite(v)) v = state.binSeconds;
+    v = Math.max(MIN_BIN_SECONDS, Math.min(MAX_BIN_SECONDS, v));
     pushUndo();
-    state.binSeconds = parseInt(btn.getAttribute("data-bin"), 10);
-    document.querySelectorAll("#bin-select button").forEach(function (b) { b.classList.toggle("active", b === btn); });
+    state.binSeconds = v;
+    this.value = String(v);
     renderAll();
     updatePreview();
   });

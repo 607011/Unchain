@@ -91,11 +91,23 @@ enum TreadmillShorthandParser {
     /// stays bike-only (would collide with `distanceUnits`' own `"ft"`
     /// below), `"` 's usual other meaning (inches) was never one of this
     /// parser's supported distance units in the first place, so there's
-    /// nothing here for it to collide with.
+    /// nothing here for it to collide with. `'` (a bare prime, e.g. `3'`)
+    /// used to stay excluded here for exactly that reason – requested
+    /// directly, with a real example using it (`3' @ 5,5 km/h`); the
+    /// ambiguity with feet is real in principle, but not in practice: a
+    /// treadmill interval a few feet long is never a plausible *length*
+    /// for a whole step the way a few minutes is, so minutes reading first
+    /// (duration units are tried before distance ones – see `lengthUnits`
+    /// below) is the sensible default here too, same trade-off the bike
+    /// side already accepted. `"second"`/`"seconds"`/`"hour"`/`"hours"` –
+    /// the spelled-out English forms `"sec"`/`"h"` etc. didn't cover –
+    /// added for the same reason: this parser is meant to understand
+    /// something close to how a workout is actually said out loud,
+    /// including dictated, not just typed tersely.
     fileprivate static let durationUnits: [(suffix: String, multiplier: Double)] = [
-        ("min", 60), ("minute", 60), ("minuten", 60),
-        ("s", 1), ("sec", 1), ("sekunde", 1), ("sekunden", 1), ("\"", 1),
-        ("h", 3600), ("std", 3600), ("stunde", 3600), ("stunden", 3600),
+        ("min", 60), ("minute", 60), ("minuten", 60), ("'", 60),
+        ("s", 1), ("sec", 1), ("second", 1), ("seconds", 1), ("sekunde", 1), ("sekunden", 1), ("\"", 1),
+        ("h", 3600), ("std", 3600), ("hour", 3600), ("hours", 3600), ("stunde", 3600), ("stunden", 3600),
     ]
     /// Every recognized suffix from `durationUnits` above, for classifying
     /// a matched `length` token as a duration (this set) vs. a distance
@@ -181,11 +193,15 @@ private struct Parser {
     /// single repeated step only, the parenthesis-free shorthand real
     /// track training is actually written in ("8x400m 12km/h" for eight
     /// 400 m repeats, not the more awkward "8x(400m 12km/h)") – or a plain
-    /// step on its own.
+    /// step on its own. The separator itself is whichever of a bare
+    /// `x`/`X`, the multiplication sign `×` (some keyboards, and dictation,
+    /// both produce it directly), or the spelled-out word `"times"` (closer
+    /// to how a repeat count is actually said out loud) appears first –
+    /// see `firstRepeatSeparatorRange(in:)`.
     private func parseSegment(_ text: String) -> Result<ShorthandTreadmillSegment, TreadmillShorthandParseError> {
-        if let xIndex = text.firstIndex(where: { $0 == "x" || $0 == "X" }) {
-            let countText = text[text.startIndex..<xIndex].trimmingCharacters(in: .whitespaces)
-            let rest = text[text.index(after: xIndex)...].trimmingCharacters(in: .whitespaces)
+        if let separatorRange = Self.firstRepeatSeparatorRange(in: text) {
+            let countText = text[text.startIndex..<separatorRange.lowerBound].trimmingCharacters(in: .whitespaces)
+            let rest = text[separatorRange.upperBound...].trimmingCharacters(in: .whitespaces)
             if let count = Int(countText), count > 0 {
                 if rest.hasPrefix("("), rest.hasSuffix(")") {
                     let inner = String(rest.dropFirst().dropLast())
@@ -199,6 +215,49 @@ private struct Parser {
         return parseStep(text)
     }
 
+    /// The earliest of `×`, a bare `x`/`X`, or the whole word `"times"`
+    /// (case-insensitive) – whichever actually comes first in `text`, not
+    /// a fixed priority order between them, since either could legitimately
+    /// appear first depending on how a segment happens to be phrased.
+    private static func firstRepeatSeparatorRange(in text: String) -> Range<String.Index>? {
+        var best: Range<String.Index>?
+        if let r = text.range(of: "×") { best = r }
+        if let i = text.firstIndex(where: { $0 == "x" || $0 == "X" }) {
+            let r = i..<text.index(after: i)
+            if best == nil || r.lowerBound < best!.lowerBound { best = r }
+        }
+        if let r = text.range(of: "times", options: .caseInsensitive) {
+            if best == nil || r.lowerBound < best!.lowerBound { best = r }
+        }
+        return best
+    }
+
+    /// A handful of natural-language filler words/connectors this parser
+    /// tolerates around the actual numbers, all purely decorative – the
+    /// goal, requested directly: understanding something close to how a
+    /// workout is actually described out loud, dictated or typed, not just
+    /// the terse form. "5 min warm-up at 5 km/h with 5% incline" parses
+    /// exactly like "5min 5km/h 5%" once these are stripped, and works the
+    /// same whether or not any of them are actually present. Word-boundary
+    /// anchored so a legitimate token is never partially eaten – none of
+    /// these appear as a substring inside any recognized unit suffix, so
+    /// there's nothing here for them to collide with. "warm-up"/"cool-down"
+    /// don't actually mark the resulting step as warmup/cooldown anywhere –
+    /// this format has no such concept to begin with (see this file's own
+    /// doc comment on why every parsed segment's `kind` is always `nil`) –
+    /// they're accepted purely as the rider's own readable/spoken label,
+    /// same as any of the others. `@` is accepted directly alongside the
+    /// spelled-out `"at"` – whichever a rider actually typed or dictated.
+    private static let fillerWordPattern = try! NSRegularExpression(
+        pattern: #"@|\bat\b|\bwith\b|\band\b|\bincline\b|warm[- ]?up|cool[- ]?down"#,
+        options: .caseInsensitive
+    )
+
+    private static func stripFillerWords(_ text: String) -> String {
+        let range = NSRange(text.startIndex..., in: text)
+        return fillerWordPattern.stringByReplacingMatches(in: text, range: range, withTemplate: " ")
+    }
+
     /// `"<length><speed>"` or `"<length><speed><incline>"`, each part's
     /// own leading/trailing space optional – e.g. `"5min8km/h"`,
     /// `"5min 8km/h"`, or `"400m 10km/h 2%"`. `length` is read first, and
@@ -207,7 +266,7 @@ private struct Parser {
     /// `speed` (read right after) to convert, so the two can't be parsed
     /// independently of each other the way bike's `duration`/`target` can.
     private func parseStep(_ text: String) -> Result<ShorthandTreadmillSegment, TreadmillShorthandParseError> {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        let trimmed = Self.stripFillerWords(text).trimmingCharacters(in: .whitespaces)
         guard let lengthMatch = ShorthandNotation.consumePrefixedValue(trimmed, units: TreadmillShorthandParser.lengthUnits) else {
             if trimmed.first?.isNumber == true {
                 return .failure(.invalidLength(text))

@@ -1775,15 +1775,21 @@
     return parts;
   }
 
-  // "'" (a bare prime for minutes, e.g. "10'") is a bike-only alias – not
-  // added to TREADMILL_DURATION_UNITS below, where it would be genuinely
-  // ambiguous with feet (the same prime-for-minutes-or-feet overload this
-  // notation always has), which a bike step never needs to worry about
-  // since it has no distance unit at all. '"' (a bare double prime for
-  // seconds, e.g. "90\"") is the other half of the same notation – added
-  // *and* to TREADMILL_DURATION_UNITS below, unlike "'", since its usual
-  // other meaning (inches) was never a supported distance unit here in
-  // the first place, so there's nothing for it to collide with.
+  // "'" (a bare prime for minutes, e.g. "10'") stayed a bike-only alias for
+  // a while – genuinely ambiguous with feet on a treadmill (the same
+  // prime-for-minutes-or-feet overload this notation always has), which a
+  // bike step never needed to worry about, having no distance unit at all.
+  // Now in TREADMILL_DURATION_UNITS below too, requested directly with a
+  // real example using it ("3' @ 5,5 km/h") – the ambiguity is real in
+  // principle, but not in practice: a treadmill interval a few feet long
+  // is never a plausible *length* for a whole step the way a few minutes
+  // is, so minutes reading first (duration units are tried before distance
+  // ones – see TREADMILL_LENGTH_UNITS below) is the sensible default here
+  // too, same trade-off the bike side already accepted. '"' (a bare double
+  // prime for seconds, e.g. "90\"") is the other half of the same
+  // notation – already in TREADMILL_DURATION_UNITS below regardless, since
+  // its usual other meaning (inches) was never a supported distance unit
+  // here in the first place, so there was nothing for it to collide with.
   var BIKE_DURATION_UNITS = [
     { suffix: "m", multiplier: 60 }, { suffix: "min", multiplier: 60 }, { suffix: "minute", multiplier: 60 }, { suffix: "minuten", multiplier: 60 }, { suffix: "'", multiplier: 60 },
     { suffix: "s", multiplier: 1 }, { suffix: "sec", multiplier: 1 }, { suffix: "sekunde", multiplier: 1 }, { suffix: "sekunden", multiplier: 1 }, { suffix: "\"", multiplier: 1 },
@@ -1882,10 +1888,14 @@
     return rows;
   }
 
+  // "second"/"seconds"/"hour"/"hours" – the spelled-out English forms
+  // "sec"/"h" etc. didn't cover – added alongside the rest: this parser is
+  // meant to understand something close to how a workout is actually said
+  // out loud, dictated or typed, not just the terse form.
   var TREADMILL_DURATION_UNITS = [
-    { suffix: "min", multiplier: 60 }, { suffix: "minute", multiplier: 60 }, { suffix: "minuten", multiplier: 60 },
-    { suffix: "s", multiplier: 1 }, { suffix: "sec", multiplier: 1 }, { suffix: "sekunde", multiplier: 1 }, { suffix: "sekunden", multiplier: 1 }, { suffix: "\"", multiplier: 1 },
-    { suffix: "h", multiplier: 3600 }, { suffix: "std", multiplier: 3600 }, { suffix: "stunde", multiplier: 3600 }, { suffix: "stunden", multiplier: 3600 }
+    { suffix: "min", multiplier: 60 }, { suffix: "minute", multiplier: 60 }, { suffix: "minuten", multiplier: 60 }, { suffix: "'", multiplier: 60 },
+    { suffix: "s", multiplier: 1 }, { suffix: "sec", multiplier: 1 }, { suffix: "second", multiplier: 1 }, { suffix: "seconds", multiplier: 1 }, { suffix: "sekunde", multiplier: 1 }, { suffix: "sekunden", multiplier: 1 }, { suffix: "\"", multiplier: 1 },
+    { suffix: "h", multiplier: 3600 }, { suffix: "std", multiplier: 3600 }, { suffix: "hour", multiplier: 3600 }, { suffix: "hours", multiplier: 3600 }, { suffix: "stunde", multiplier: 3600 }, { suffix: "stunden", multiplier: 3600 }
   ];
   // Bare "m" stays meters here (unlike the bike table above, where it's
   // minutes) – see TreadmillShorthandParser.swift's own doc comment on
@@ -1905,8 +1915,33 @@
     { suffix: "mi/h", multiplier: 1.609344 }, { suffix: "mph", multiplier: 1.609344 }
   ];
 
+  // A handful of natural-language filler words/connectors this shorthand
+  // tolerates around the actual numbers, all purely decorative – requested
+  // directly, with a real example: "5 min warm-up @ 5 km/h with 5%
+  // incline" parses exactly like "5min 5km/h 5%" once these are stripped,
+  // and works the same with or without any of them present (e.g. "1' @
+  // 5,0 km/h 6%" needs neither "and" nor "with" before its own incline).
+  // Word-boundary-anchored (`\b`) so a legitimate token is never partially
+  // eaten – none of these appear as a substring inside any recognized unit
+  // suffix, so there's nothing here to collide with. "warm-up"/"cool-down"
+  // don't actually mark the resulting step as warmup/cooldown anywhere –
+  // this shorthand format has no such concept to begin with (only a
+  // parsed `.zwo` file's own `<Warmup>`/`<Cooldown>` tags do, see
+  // `TreadmillSegmentKind`) – they're accepted purely as the rider's own
+  // readable label, same as any of the others.
+  function stripTreadmillFillerWords(text) {
+    return text
+      .replace(/@/g, " ")
+      .replace(/\bat\b/gi, " ")
+      .replace(/\bwith\b/gi, " ")
+      .replace(/\band\b/gi, " ")
+      .replace(/\bincline\b/gi, " ")
+      .replace(/warm[- ]?up/gi, " ")
+      .replace(/cool[- ]?down/gi, " ");
+  }
+
   function parseTreadmillStep(text) {
-    var trimmed = text.trim();
+    var trimmed = stripTreadmillFillerWords(text).trim();
     var lengthMatch = shorthandConsumePrefixedValue(trimmed, TREADMILL_LENGTH_UNITS);
     if (!lengthMatch) throw new Error('Couldn’t understand "' + text + '"');
     if (!(lengthMatch.value > 0)) throw new Error('Couldn’t understand the length "' + text + '"');
@@ -1933,11 +1968,33 @@
     return [{ duration: duration, speedKmh: speedKmh, inclinePercent: inclinePercent }];
   }
 
-  function parseTreadmillSegment(text) {
+  // The earliest of a bare "x"/"X", the multiplication sign "×" (some
+  // keyboards, and dictation, both produce it directly), or the
+  // spelled-out word "times" (closer to how a repeat count is actually
+  // said out loud) – whichever actually comes first in `text`, not a
+  // fixed priority order, since either could legitimately appear first
+  // depending on how a segment happens to be phrased. `null` if none of
+  // the three appear at all.
+  function findTreadmillRepeatSeparator(text) {
+    var best = null;
     var xIndex = text.search(/x/i);
-    if (xIndex !== -1) {
-      var countText = text.slice(0, xIndex).trim();
-      var rest = text.slice(xIndex + 1).trim();
+    if (xIndex !== -1) best = { start: xIndex, end: xIndex + 1 };
+    var timesMatch = /\btimes\b/i.exec(text);
+    if (timesMatch && (!best || timesMatch.index < best.start)) {
+      best = { start: timesMatch.index, end: timesMatch.index + timesMatch[0].length };
+    }
+    var signIndex = text.indexOf("×");
+    if (signIndex !== -1 && (!best || signIndex < best.start)) {
+      best = { start: signIndex, end: signIndex + 1 };
+    }
+    return best;
+  }
+
+  function parseTreadmillSegment(text) {
+    var separator = findTreadmillRepeatSeparator(text);
+    if (separator) {
+      var countText = text.slice(0, separator.start).trim();
+      var rest = text.slice(separator.end).trim();
       var count = parseInt(countText, 10);
       if (String(count) === countText && count > 0) {
         if (rest.charAt(0) === "(" && rest.charAt(rest.length - 1) === ")") {

@@ -2699,3 +2699,42 @@ would change, roughly in the order it'd need doing:
       physics; the tile now colors red whenever it's showing this app's
       own estimate at all, not a real device reading, simpler than singling
       out one specific incline range.
+- [x] **Both treadmill shorthand parsers understand a more natural-language
+      phrasing** – requested directly, with a real example:
+      `5 min warm-up @ 5 km/h with 5% incline, 5 x (3' @ 5,5 km/h and 13%,
+      1' @ 5,0 km/h 6%), 5 min cool-down @ 4,8 km/h 4 %`. Started as a
+      `docs/builder.html`-only ask; broadened directly to the app's own
+      `TreadmillShorthandParser` too, with the actual goal named: "eine
+      möglichst natürlichsprachliche Eingabe auch per Diktat" – dictation,
+      not just quicker typing, so this went further than literally
+      reproducing the one example.
+      New in both: a filler-word stripper (`@`/`at`, `with`, `and`,
+      `incline`, `warm-up`/`warmup`, `cool-down`/`cooldown`, word-boundary-
+      anchored) applied before the existing length/speed/
+      incline parsing runs unchanged, so "5 min warm-up @ 5 km/h with 5%
+      incline" parses exactly like "5min 5km/h 5%" once stripped, with or
+      without any filler word actually present. `'` (bare prime) for
+      treadmill minutes, previously bike-only over a feet-ambiguity concern
+      – revisited directly: the ambiguity is real in principle but not in
+      practice (a treadmill interval a few feet long was never a plausible
+      whole-step length), so it's accepted now for the same trade-off the
+      bike side already made. A repeat count's own separator can now be a
+      bare `x`/`X`, the multiplication sign `×` (dictation and some
+      keyboards both produce it directly), or the spelled-out word
+      `"times"` – whichever actually comes first in the segment, not a
+      fixed priority order. Spelled-out English `"second"`/`"seconds"`/
+      `"hour"`/`"hours"` added alongside the existing `"sec"`/`"h"` etc. –
+      a real gap for dictation specifically, which is far more likely to
+      produce a spelled-out unit than an abbreviation.
+      Verified both parsers agree exactly, run against the same set of
+      inputs (the full reported example, the original terse form for
+      regression, spelled-out units, `times`, `×`, `at`) – a standalone
+      Swift test harness (`swiftc`-compiled) and a Node.js one extracting
+      the relevant functions straight out of `docs/builder.html`, same
+      dual-verification approach this shorthand notation's very first port
+      already established. The live browser click-through this session's
+      own testing methodology otherwise favors hit real friction this
+      time (the preview pane's profile toggle not reliably registering
+      while the pane itself was backgrounded/hidden) – not chased further,
+      since the actual parsing logic was already confirmed correct and
+      identical in both languages without it.

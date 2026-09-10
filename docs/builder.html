@@ -1915,6 +1915,25 @@
     { suffix: "mi/h", multiplier: 1.609344 }, { suffix: "mph", multiplier: 1.609344 }
   ];
 
+  // Whether `text` reads as treadmill shorthand rather than bike shorthand
+  // – used by `applyShorthandText` to auto-switch `state.mode`/the Profile
+  // toggle to match whatever was actually pasted, instead of silently
+  // (mis)parsing it against whichever profile happened to be active
+  // already. A treadmill step always names a speed target in one of
+  // `TREADMILL_SPEED_UNITS` (a bike step never does – its own targets are
+  // always %FTP or watts), so the presence of any one of those suffixes is
+  // a reliable, cheap signal without needing a full parse attempt first.
+  // Only anchored at the *end* (`\b` after the suffix, none before it) –
+  // the number right before a unit is never separated by a space in this
+  // shorthand's own terse form ("5km/h", not "5 km/h"), so a leading `\b`
+  // would never match there at all (a digit and a letter are both "word"
+  // characters, so there's no boundary between them).
+  function looksLikeTreadmillShorthand(text) {
+    return TREADMILL_SPEED_UNITS.some(function (u) {
+      return new RegExp(u.suffix.replace(/\//g, "\\/") + "\\b", "i").test(text);
+    });
+  }
+
   // A handful of natural-language filler words/connectors this shorthand
   // tolerates around the actual numbers, all purely decorative – requested
   // directly, with a real example: "5 min warm-up @ 5 km/h with 5%
@@ -1924,11 +1943,12 @@
   // Word-boundary-anchored (`\b`) so a legitimate token is never partially
   // eaten – none of these appear as a substring inside any recognized unit
   // suffix, so there's nothing here to collide with. "warm-up"/"cool-down"
-  // don't actually mark the resulting step as warmup/cooldown anywhere –
-  // this shorthand format has no such concept to begin with (only a
-  // parsed `.zwo` file's own `<Warmup>`/`<Cooldown>` tags do, see
-  // `TreadmillSegmentKind`) – they're accepted purely as the rider's own
-  // readable label, same as any of the others.
+  // are stripped here purely as far as the *numeric* parse is concerned –
+  // `treadmillStepKind` below inspects the original, unstripped text for
+  // the same two words to actually mark the resulting step, so the label
+  // isn't just decorative (see `applyShorthandText`'s warmup/cooldown bin
+  // computation, mirroring `applyZwoText`'s own for a parsed `.zwo`
+  // file's `<Warmup>`/`<Cooldown>` tags).
   function stripTreadmillFillerWords(text) {
     return text
       .replace(/@/g, " ")
@@ -1940,7 +1960,21 @@
       .replace(/cool[- ]?down/gi, " ");
   }
 
+  // "Warmup"/"Cooldown"/"SteadyState" – the same three kinds
+  // `applyZwoText` already reads off a parsed `.zwo` file's own tags –
+  // read here off the rider's own "warm-up"/"cool-down" wording instead,
+  // so a shorthand-entered step can end up in the same
+  // `state.warmupBins`/`state.cooldownBins` bucket a file import would
+  // produce. Checked against the *original* text, before
+  // `stripTreadmillFillerWords` removes the very words being looked for.
+  function treadmillStepKind(text) {
+    if (/warm[- ]?up/i.test(text)) return "Warmup";
+    if (/cool[- ]?down/i.test(text)) return "Cooldown";
+    return "SteadyState";
+  }
+
   function parseTreadmillStep(text) {
+    var kind = treadmillStepKind(text);
     var trimmed = stripTreadmillFillerWords(text).trim();
     var lengthMatch = shorthandConsumePrefixedValue(trimmed, TREADMILL_LENGTH_UNITS);
     if (!lengthMatch) throw new Error('Couldn’t understand "' + text + '"');
@@ -1965,7 +1999,7 @@
       if (!inclineMatch || inclineMatch.remainder) throw new Error('Couldn’t understand the incline "' + speedMatch.remainder + '"');
       inclinePercent = inclineMatch.value;
     }
-    return [{ duration: duration, speedKmh: speedKmh, inclinePercent: inclinePercent }];
+    return [{ duration: duration, speedKmh: speedKmh, inclinePercent: inclinePercent, kind: kind }];
   }
 
   // The earliest of a bare "x"/"X", the multiplication sign "×" (some
@@ -2024,13 +2058,17 @@
   }
 
   /// Parses `text` as treadmill shorthand into a flat list of
-  /// `{startSeconds, duration, speedKmh, inclinePercent}` blocks.
+  /// `{startSeconds, duration, speedKmh, inclinePercent, kind}` blocks –
+  /// `kind` ("Warmup"/"Cooldown"/"SteadyState", from `treadmillStepKind`)
+  /// carried through so `applyShorthandText` can compute
+  /// `warmupBins`/`cooldownBins` the same way `applyZwoText` does for an
+  /// imported file's own `<Warmup>`/`<Cooldown>` tags.
   function parseTreadmillShorthandBlocks(text) {
     var steps = parseTreadmillSegments(text);
     var blocks = [];
     var cursor = 0;
     for (var i = 0; i < steps.length; i++) {
-      blocks.push({ startSeconds: cursor, duration: steps[i].duration, speedKmh: steps[i].speedKmh, inclinePercent: steps[i].inclinePercent });
+      blocks.push({ startSeconds: cursor, duration: steps[i].duration, speedKmh: steps[i].speedKmh, inclinePercent: steps[i].inclinePercent, kind: steps[i].kind });
       cursor += steps[i].duration;
     }
     return blocks;
@@ -2043,12 +2081,18 @@
     return /\[course\s+data\]/i.test(text) || /<workout_file>/i.test(text);
   }
 
-  // Parses `text` as shorthand for whichever `state.mode` is currently
-  // active, then feeds the result through the exact same bin-resampling
-  // `applyErgLikeText`/`applyZwoText` already use above, rather than a
-  // separate "shorthand → chart" path of its own.
+  // Parses `text` as shorthand, then feeds the result through the exact
+  // same bin-resampling `applyErgLikeText`/`applyZwoText` already use
+  // above, rather than a separate "shorthand → chart" path of its own.
+  // Which grammar to parse it as – and which profile `state.mode` ends up
+  // in – is decided by `looksLikeTreadmillShorthand(text)`, not by
+  // whichever profile happened to be active already: pasting a
+  // treadmill-shaped workout while in Bike mode (or vice versa) now
+  // switches the Profile toggle to match, the same way `applyZwoText`
+  // already sets `state.mode` from a parsed file's own `sportType` rather
+  // than trusting whatever was selected before the paste.
   function applyShorthandText(text) {
-    if (state.mode === "bike") {
+    if (!looksLikeTreadmillShorthand(text)) {
       var rows = parseBikeShorthandRows(text);
       var totalMinutes = rows[rows.length - 1].minutes;
       var newBins = Math.max(2, Math.min(96, Math.round(totalMinutes * 60 / state.binSeconds)));
@@ -2064,6 +2108,7 @@
         return { start: clampRoundBike(pair.start), end: clampRoundBike(pair.end) };
       });
       state.bins = newBins;
+      state.mode = "bike";
     } else {
       var blocks = parseTreadmillShorthandBlocks(text);
       var totalSeconds = blocks[blocks.length - 1].startSeconds + blocks[blocks.length - 1].duration;
@@ -2085,6 +2130,26 @@
         return Math.round(v / lanes.incline.step) * lanes.incline.step;
       });
       state.bins = newBinsT;
+      state.mode = "treadmill";
+
+      // Same scan-from-each-end algorithm `applyZwoText` already uses to
+      // turn a parsed file's own `<Warmup>`/`<Cooldown>` tags into bin
+      // counts – here reading `kind` off shorthand steps labeled
+      // "warm-up"/"cool-down" instead (see `treadmillStepKind`), so those
+      // words actually shade the corresponding chart region rather than
+      // being purely decorative.
+      var warmupBins = 0, cooldownBins = 0;
+      for (var i = 0; i < newBinsT; i++) {
+        var kind = blockAt((i + 0.5) * state.binSeconds).kind;
+        if (kind === "Warmup" && i === warmupBins) warmupBins++;
+      }
+      for (var j = newBinsT - 1; j >= 0; j--) {
+        var kind2 = blockAt((j + 0.5) * state.binSeconds).kind;
+        if (kind2 === "Cooldown" && j === newBinsT - 1 - cooldownBins) cooldownBins++;
+      }
+      if (warmupBins + cooldownBins >= newBinsT) cooldownBins = Math.max(0, newBinsT - 1 - warmupBins);
+      state.warmupBins = warmupBins;
+      state.cooldownBins = cooldownBins;
     }
     clampWarmupCooldown();
     syncControlsFromState();

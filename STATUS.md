@@ -2738,3 +2738,47 @@ would change, roughly in the order it'd need doing:
       while the pane itself was backgrounded/hidden) – not chased further,
       since the actual parsing logic was already confirmed correct and
       identical in both languages without it.
+- [x] **`docs/builder.html`: pasted treadmill shorthand now switches the
+      Profile toggle itself, and "warm-up"/"cool-down" now actually shade
+      the chart (and tag the `.zwo` export)** – both reported directly
+      from an actual paste of the natural-language example above, with a
+      screenshot: the chart stayed in whatever profile (Bike/Treadmill)
+      happened to be active already, silently misreading treadmill-shaped
+      shorthand against the bike grammar; and even once in the right
+      profile, "warm-up"/"cool-down" were confirmed purely decorative,
+      exactly as the (now corrected) entry above used to describe them –
+      stripped for the numeric parse, discarded rather than shading
+      `state.warmupBins`/`state.cooldownBins`, with the user's own
+      suspicion that this skipped the `.zwo` export's own
+      `<Warmup>`/`<Cooldown>` tagging too.
+      New `looksLikeTreadmillShorthand(text)` – a treadmill step always
+      names a speed target (`km/h`/`kmh`/`kph`/`mi/h`/`mph`), a bike step
+      never does (always `%FTP`/watts), so that's a reliable, cheap
+      signal – used by `applyShorthandText` to pick the parse grammar *and*
+      set `state.mode` from the pasted text itself, the same way
+      `applyZwoText` already sets it from a parsed file's own `sportType`,
+      rather than trusting whichever profile happened to be selected
+      before the paste; the symmetric case (pasting bike shorthand while
+      in Treadmill mode) now switches back for the same reason, not
+      explicitly asked for but a natural, low-risk companion to the
+      treadmill case that was.
+      `treadmillStepKind(text)` reads "warm-up"/"cool-down" off each
+      step's own *original* text (before `stripTreadmillFillerWords`
+      removes the words it's looking for) into a `"Warmup"`/`"Cooldown"`/
+      `"SteadyState"` `kind`, threaded through
+      `parseTreadmillShorthandBlocks`; `applyShorthandText`'s treadmill
+      branch then reuses `applyZwoText`'s own scan-from-each-end algorithm
+      to turn that into `state.warmupBins`/`state.cooldownBins` bin
+      counts. Since `.zwo` export (`buildZwo`, via `classify(i)`) already
+      reads those same two bin counts to choose `<Warmup>`/`<Cooldown>`/
+      `<SteadyState>` per bin, the export side needed no separate change
+      at all – the user's own suspicion was correct, and fixing the bin
+      counts fixed the export as a direct consequence.
+      Verified live in the browser this time (a local `http.server`
+      serving `docs/` rather than a `file://` preview, sidestepping this
+      session's earlier click-registration friction): pasting the exact
+      reported example auto-selects Treadmill, shades both the warm-up and
+      cool-down regions on the Speed and Incline charts, and the copied
+      `.zwo` output tags the first block `<Warmup Duration="300" .../>`
+      and the last `<Cooldown Duration="300" .../>` with every block in
+      between `<SteadyState>`.

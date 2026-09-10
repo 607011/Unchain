@@ -3065,3 +3065,91 @@ would change, roughly in the order it'd need doing:
       here (would need an auto-growing `<textarea>`, a bigger, more
       foreign change than this tool's own "every editable field is a
       plain `<input>`" convention otherwise needs).
+- [x] **`docs/builder.html`: an imported/parsed workout now shows "as is"
+      (its own actual, variable-width step durations, no resampling onto
+      any grid at all), with a new Cut tool to split an interval** –
+      requested directly: the uniform bin grid only ever made sense for
+      drawing a workout from scratch, and forcing a parsed one onto any
+      fixed grid – however finely auto-fitted (see the interval-width
+      entry two sessions back) – still bent it into a shape it never had.
+      New `state.layout` (`"grid"` | `"segments"`) and `state.segments`
+      (one entry per actual step, each carrying its own real
+      `startSeconds`/`duration`, `kind`, and the same value fields a bin
+      already had – `startWatts`/`endWatts` for bike, `speedKmh`/
+      `inclinePercent` for treadmill). `applyErgLikeText`/`applyZwoText`/
+      `applyShorthandText` all switched from resampling their parsed rows/
+      blocks/steps onto `state.bins`/`state.binSeconds` to building
+      `state.segments` directly from them instead – genuinely *simpler*
+      code on every one of the three, not just more correct, since
+      there's no resampling math left to do at all (the shorthand
+      parsers' own step lists and a `.zwo` file's own blocks already
+      *are* the exact segment shape needed). `autoFitBinSeconds`/
+      `gcdSeconds`/`scanWarmupCooldownBins`/`resampleToBinsRamped`/
+      `resampleToBins`/`valueAtMinutes` all lost every call site as a
+      direct result and were removed rather than left as dead code – the
+      auto-fit-width feature specifically existed to bound the damage a
+      forced grid could do to a parsed workout, which building segments
+      "as is" now solves at the root instead. The uniform grid stays
+      exactly as it was – `state.layout` only ever becomes `"grid"` again
+      for the bundled from-scratch sample workout a fresh session starts
+      with.
+      New Cut mode, modeled directly on an audio editor's razor/split
+      tool (the user's own reference point): **C** enters it (segment
+      view only; guarded against firing while typing, and against every
+      modifier, so it doesn't shadow Cmd/Ctrl+C), a dashed guide line
+      tracks the pointer rounded to the nearest second, and a click
+      splits whichever segment is under it into two at that exact point –
+      interpolating the value at the cut point for a ramped bike segment,
+      so the ramp's own overall shape survives the split unchanged, the
+      same way a razor splits a fading audio clip without altering the
+      fade itself. **Escape** always exits it, deliberately *not* guarded
+      against a focused text field the way **C** is – it doesn't do
+      anything unwanted there either, and leaving Cut mode should always
+      work regardless of where focus happens to be.
+      Segment view got its own, deliberately narrower parallel rendering/
+      interaction path (`renderSegmentLane`/`ensureSegmentLaneSetup`,
+      `renderLaneForMode` picking between it and the untouched
+      `renderLane`/`ensureLaneSetup` on `state.layout`) rather than
+      folding variable-width geometry into the existing bin-indexed one –
+      same visual language (gradient fill, accent colors, gridlines,
+      warm-up/cool-down bands – now read straight off each segment's own
+      `kind`, no bin-count derivation needed there at all any more) but
+      every position is time-based (`PX_PER_SECOND`) instead of per-bin.
+      Vertical-drag-to-set-a-flat-value works in segment view too (the
+      same "which segment is under the pointer" lookup Cut needs anyway),
+      but ramped edge-dragging and the warm-up/cool-down drag handles –
+      grid view's most intricate gestures – are **not** ported; the
+      "Preview" textarea (already-exported text, live re-parsed on every
+      edit) stays a fully general fallback for anything not covered
+      there directly. Interval Length/Intervals/Warm-up/Cool-down – none
+      of them mean anything for variable-width segments – are hidden in
+      segment view, replaced by a hint naming the **C** shortcut.
+      `mergeRuns` (already used for grid-view export) reused as-is for
+      segment-view export too, just keyed by segment index instead of bin
+      index – `ergLikeBody`/`buildZwo` both gained a segment-mode sibling
+      that still merges consecutive identical-value runs into one block
+      (a `.zwo` run additionally keyed by `kind`, matching grid view's
+      own `classify`-based behavior, so a same-value Warmup segment never
+      silently merges into a following SteadyState one).
+      Verified extensively: a standalone Node harness feeding a ramped
+      `.erg`, a bike shorthand string with a warm-up/12×interval-pair/
+      cool-down, and a treadmill shorthand string through
+      `applyErgLikeText`/`applyShorthandText` confirmed `state.segments`
+      matches the source step-for-step (right down to a step-change pair
+      at the same timestamp correctly producing *no* zero-duration
+      segment); a second harness confirmed `ergLikeBody`'s and
+      `buildZwo`'s segment-mode export merge/preserve exactly as
+      expected. Live in the browser (a local `http.server`, native
+      `DOMParser` needed for the `.zwo` import path Node can't exercise):
+      pasting each of the three shorthand/zwo examples above rendered
+      genuinely variable-width blocks with correct warm-up/cool-down
+      shading; entering Cut mode showed the snapped guide line, and a
+      click split a segment – confirmed by painting the two resulting
+      pieces to different values and seeing both the chart and every
+      export (`.erg`/`.zwo`) reflect two independent pieces where there'd
+      been one, on both the bike Power lane and the treadmill's two
+      synced Speed/Incline lanes together (a single cut on either lane
+      correctly split the one shared segment both read from). Grid view
+      itself re-verified unaffected afterward – a fresh session (cleared
+      storage) still shows the classic bundled sample workout, paints,
+      and drags exactly as before.

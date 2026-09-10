@@ -3188,3 +3188,271 @@ would change, roughly in the order it'd need doing:
       (a bare `%`-based file, `FTP =` header) still resolves to the
       correct absolute watts via the file's own declared FTP, now
       independent of the active tab there too.
+- [x] **`docs/builder.html`: `.zwo` `<TextEvent>` tags now show as
+      markers on the segment-view chart, are editable/creatable with a
+      new Mark mode, and export back out** – requested directly, as a
+      multi-part follow-on to the segment-view work above (its variable-
+      width `state.segments` array is exactly what makes a marker's own
+      `timeoffset` – seconds from its *containing block's* own start –
+      trivial to keep exact through a Cut, since each segment already
+      tracks its own `startSeconds`). Spec confirmed against the
+      reference page's raw source directly (a first pass through the
+      fetch tool inferred an example that wasn't actually there) rather
+      than trusted secondhand: `<TextEvent message="…" timeoffset="…"
+      Duration="…"/>` nested inside `Warmup`/`SteadyState`/`Cooldown` –
+      `timeoffset`/`TimeOffset` both appear in real files (lowercase
+      dominant, ~7500:1), read case-insensitively via a small
+      attribute-lookup helper rather than trusting exact casing.
+      Every segment gained its own `textEvents: []` array (populated
+      only by `applyZwoText`; ERG/shorthand imports have no text-event
+      concept and always default to empty), rendered as a small pin +
+      dashed full-height guide line + truncated label (native `<title>`
+      tooltip for the full text) on every lane of `renderSegmentLane` –
+      both Speed and Incline for treadmill, matching how warm-up/
+      cool-down shading already renders redundantly per-lane.
+      Clicking an existing marker edits (or, on a blank submission,
+      deletes) its text via `window.prompt` – hit-tested against the
+      same single transparent per-lane hit-rect every other segment-view
+      interaction already uses (time-distance plus a small y-band near
+      the top, checked *before* falling through to ordinary painting),
+      rather than giving markers their own clickable elements that would
+      sit under that hit-rect and never actually receive a click.
+      New Mark mode, structurally the twin of Cut mode above: **M**
+      enters it (same typing/modifier guards, mutually exclusive with
+      Cut, sharing its one guide-line element rather than duplicating
+      it), a click sets a marker at that point and immediately prompts
+      for its text; **Escape** exits either mode the same unconditional
+      way. A cut through a marker-bearing segment redistributes its
+      events by *absolute* time rather than moving them: anything before
+      the cut point stays on the first new piece with its offset
+      unchanged (that piece's own start didn't move), anything at/after
+      it moves to the second piece with its offset recomputed relative
+      to *that* piece's new start – "an audio editor's razor doesn't
+      move a marker, only which clip it's now part of." Export
+      (`buildZwo`'s segment-mode branches, via a new shared
+      `pushZwoBlock` helper) always treats an event-bearing segment as
+      its own unique, non-mergeable run – the same trick already used
+      for a ramped bike segment – sidestepping ever having to re-express
+      an event's offset relative to a *merged* block's start.
+      Verified live end-to-end for the bike case: parse → render
+      (screenshot-confirmed pin/label/tooltip) → edit → create via Mark
+      mode → cut a SteadyState with events at offset 0 and 90 at offset
+      60 (correctly became a 60s piece keeping offset 0, and a 120s
+      piece with offset recomputed to 30, both confirmed in the
+      re-exported `.zwo`) → delete via a blank prompt (reverted to a
+      self-closing block tag on export). Treadmill re-verified
+      separately: a Warmup/SteadyState-with-marker/Cooldown run file
+      parsed and synced correctly (total time, mode), and the marker
+      rendered correctly on *both* the Speed and Incline lanes at the
+      same x-position, confirming the per-lane drawing loop isn't
+      bike-only.
+- [x] **The app itself now reads `<TextEvent>` tags during `.zwo` playback
+      and shows them as an animated coaching-cue overlay** – the direct
+      app-side follow-on to the `docs/builder.html` work above, requested
+      alongside it. `ZWOWorkoutParser` gained `<TextEvent>` support: a new
+      `TextEventMarker` (`timeOffset`/`message`/optional `duration`,
+      exactly mirroring `docs/builder.html`'s own marker shape) collected
+      into each `TreadmillWorkoutSegment`'s new `textEvents` array while
+      its containing `Warmup`/`SteadyState`/`Cooldown` block is open (a
+      `<TextEvent>` is only ever seen *after* its parent's own opening
+      tag, so the collector tracks which segment index is currently
+      open), read case-insensitively (`timeoffset`/`TimeOffset`, same
+      real-world casing split as the web tool's own attribute lookup).
+      `textEvents` needed a custom `init(from:)` for `TreadmillWorkoutSegment`
+      to decode – confirmed directly (not just assumed) that a
+      non-`Optional` stored property's default value, unlike an
+      `Optional` one such as `kind`, is *not* actually honored by
+      synthesized `Decodable` for a genuinely missing key, so a
+      `TreadmillWorkoutProgram` persisted before this existed needed that
+      spelled out explicitly rather than relying on the property default
+      alone.
+      New `TreadmillWorkoutProgram.activeTextEvent(atElapsedSeconds:)`
+      finds whichever marker's own `[start, start + duration)` window
+      (falling back to a named `TextEventMarker.defaultDurationSeconds`
+      of 5 s when the file leaves `Duration` unset – Zwift itself doesn't
+      document a default, so this is a deliberate, named app-side choice,
+      not treated as if the file had said something it didn't) contains
+      the current position – called once per tick from
+      `WorkoutSession.sendCurrentWorkoutTarget(for:)`'s `.treadmillProgram`
+      case into a new `@Published private(set) var activeTextEvent`
+      (`nil` for `.program`/`.route`, which have no such concept, and
+      explicitly cleared on `stop()` so it can't linger over the save/
+      discard dialog).
+      `ControlView` observes it through a new `TextEventOverlayView`,
+      pinned to the main `ScrollView`'s own viewport (`.overlay(alignment:
+      .top)`) so it stays visible regardless of scroll position, rather
+      than living inline in the scrolled content. Asked directly for
+      animation ideas before writing any of this – presented four options
+      (slide-and-fade toast, scale-pop + blur-dissolve, a countdown-wipe
+      tied visually to `Duration`, and a typewriter reveal) and the rider
+      picked **Scale-Pop + Blur-Dissolve**: the card springs in from
+      slightly small and transparent up to its natural size on entry (a
+      quick, energetic "pop"), and on exit deliberately *isn't* just that
+      reversed – it grows slightly *past* natural size while blurring and
+      fading out, reading as the message dissolving away rather than
+      mechanically shrinking back down. Built as a small, reusable
+      `AnyTransition.scalePopBlurDissolve` (an asymmetric transition whose
+      two halves each carry their own `.animation(_:)` – a spring for
+      entry, a plain ease-out for exit – which is what makes it animate at
+      all without any `withAnimation`/`.animation(_:value:)` at the call
+      site) over a `TextEventTransitionModifier` combining `.scaleEffect`/
+      `.blur`/`.opacity`. Each card gets a stable `.id()` off its own
+      `timeOffset`/`message` so two markers reached back-to-back (the
+      first's window closing right as the second's opens) still each run
+      their own full entry/exit transition instead of the content just
+      updating in place.
+      Verified the parsing/lookup logic with a standalone harness (mixed
+      `timeoffset`/`TimeOffset` casing, an explicit `Duration=6`, and a
+      `Duration`-less marker) confirming `activeTextEvent(atElapsedSeconds:)`
+      returns the right marker across an explicit window, correctly falls
+      back to the 5 s default for the unset one, and correctly returns
+      `nil` exactly at a window's own end (half-open, as intended) – and
+      confirmed the whole app still builds clean (`xcodebuild build`,
+      Debug, Simulator SDK) with the new code in place. Genuine on-device
+      playback verification (an FTMS treadmill actually running a `.zwo`
+      file with `<TextEvent>` markers) wasn't done in this pass – per this
+      project's own long-standing constraint (see the README), Bluetooth
+      doesn't work in the Simulator at all, so that step still needs a
+      real ride.
+- [x] **`docs/builder.html`: grid view and segment view are now one
+      implementation, not two** – reported as a regression first (Shift+
+      drag ramp-edge editing "stopped working"), traced to its actual
+      cause, and fixed at the root rather than patched twice. The
+      previous session's segments feature left two entirely separate
+      chart representations side by side – a fixed-width bin grid
+      (`renderLane`/`ensureLaneSetup`, only ever used for a from-scratch
+      workout) and variable-width segments (`renderSegmentLane`/
+      `ensureSegmentLaneSetup`, used for anything imported) – and Shift+
+      drag ramp editing only ever existed in the grid one. Since every
+      real workout (anything imported/pasted) uses segment view, that
+      read as "broken" even though it only ever worked on a from-scratch
+      grid workout to begin with. Rather than reimplementing the gesture
+      a second time against segments, treated grid as what it actually
+      is: N equal-duration segments, `kind` already able to carry
+      Warmup/SteadyState/Cooldown per segment. `state.bins`/`power`/
+      `speed`/`incline` are gone entirely – `state.segments` is the only
+      per-workout data now, for both.
+      Two problems surfaced while designing this, both resolved before
+      writing any code: (1) the old `power`/`speed`/`incline` arrays
+      always existed *together*, regardless of which Profile was
+      showing, which is what made toggling Bike ↔ Treadmill on a from-
+      scratch workout lossless – a single flat `segments` array would've
+      broken that. Fixed by mode-namespacing it instead:
+      `state.segments = { bike: [...], treadmill: [...] }`, with a new
+      `activeSegments()` (`state.segments[state.mode]`) the only thing
+      rendering/interaction/export ever reads or writes; the grid-only
+      export path (`.erg`/`.mrc`, Power-only formats with no Treadmill
+      equivalent) reads `state.segments.bike` explicitly rather than
+      `activeSegments()`, so downloading it while Treadmill happens to be
+      the displayed Profile still exports the right data, not whatever's
+      currently on screen. (2) `performCut` splits a segment into two
+      *unequal*-duration pieces – the instant that happens to a grid
+      workout, every grid-only assumption (interval-length rescale,
+      intervals-count resize, the boundary handles, warm-up/cool-down
+      counts) stops holding. Fixed by promoting `state.layout` from
+      `"grid"` to `"segments"` the moment a cut actually splits something,
+      right in `performCut` itself – hides the Interval Length/Intervals/
+      Warm-up/Cool-down fields and boundary handles from then on (the
+      existing toolbar-visibility toggle already does this correctly off
+      `state.layout` alone), the honest framing that a surgically-cut
+      workout isn't a uniform grid anymore. Marking a segment doesn't
+      change its count/width, so Mark alone leaves a grid workout as
+      grid.
+      Ramp-edge Shift+drag, sideways multi-segment paint-drag
+      interpolation, and endpoint snapping – all three previously
+      grid-only – are ported into `ensureSegmentLaneSetup`, addressed by
+      segment index/real seconds (`PX_PER_SECOND`) instead of bin index/
+      pixel-width, and now work for *both* kinds of workout – the actual
+      fix, plus closing a second latent gap (imported workouts never had
+      sideways-paint interpolation or snapping either, only ever a single
+      flat set-this-one-segment paint). Cut and Mark, previously gated to
+      segment view only because grid view had no `state.segments` to
+      operate on, lost that gate too – both now work on a from-scratch
+      workout the same way. Only the warm-up/cool-down drag handles stay
+      grid-workout-only, deliberately – landing one on an arbitrary,
+      unevenly-spaced existing segment boundary in a real imported file
+      is a materially harder problem than this needed to solve; Cut
+      first, then paint, is the way to shape an imported workout's warm-
+      up/cool-down region instead.
+      One more real (if minor) behavior change along the way: the
+      "Interval Length" field used to silently do nothing to the actual
+      data – it only relabeled the time axis, a latent, confusing quirk
+      sitting right next to "Intervals." Now it genuinely rescales every
+      grid segment's own duration (`rescaleGridSegments`), which is what
+      the field's own name always implied it did.
+      `UNDO_FIELDS` and localStorage both got smaller (`bins`/`power`/
+      `speed`/`incline` dropped) as a direct consequence – a saved-before
+      -this blob needed a one-time migration on load, `migrateOrAdopt
+      Segments`, covering: already-current `{bike,treadmill}` shape
+      (pass through), the previous session's own flat `segments` array
+      (attributed to whichever Profile/`layout==="segments"` it recorded),
+      and genuinely old grid-only arrays (`gridArraysToSegments`
+      synthesizes both Bike and Treadmill segment arrays from them,
+      folding in what a since-removed `normalizePowerBins` used to do for
+      even-older plain-number `power` entries) – falling back to a fresh
+      sample for whichever side has nothing usable in a given save.
+      Verified extensively in the browser (a local `http.server`, direct
+      `PointerEvent` dispatch via `javascript_exec` – established this
+      session as more reliable than the `computer` tool's simulated
+      clicks against these SVG hit-rects): on the default grid sample –
+      plain paint, sideways-paint interpolation (confirmed against hand-
+      computed interpolated values), Shift+drag ramp-edge editing with
+      snap-to-neighbor engaging correctly, a warm-up boundary-handle drag
+      correctly re-tagging the crossed segments' own `kind` (confirmed in
+      the exported `.zwo`), Cut correctly promoting to segment view (and
+      Undo correctly reverting it), Mark correctly *not* promoting it,
+      and a Bike ↔ Treadmill toggle correctly leaving both profiles'
+      edits untouched across the switch. On an imported ramped shorthand
+      workout – confirmed Shift+drag ramp-edge editing now works there
+      too (the actual reported bug), reflected correctly in the
+      re-exported `.erg`. Migration verified against two hand-written
+      legacy localStorage blobs (an old grid-shaped one and an old flat-
+      `segments`-shaped one), both loading correctly with both profiles
+      populated, round-tripping cleanly through a second reload without
+      re-triggering migration.
+- [x] **`docs/builder.html`: Treadmill's Speed and Incline lanes can now
+      be ramped too, Shift+drag, the same gesture Bike Power already
+      has** – requested directly as the direct follow-on to the grid/
+      segment unification above. Each treadmill segment's flat
+      `speedKmh`/`inclinePercent` fields became independent `start`/`end`
+      pairs (`startSpeedKmh`/`endSpeedKmh`, `startInclinePercent`/
+      `endInclinePercent`) – Speed and Incline ramp independently within
+      one segment, not tied together. `lanes.speed`/`lanes.incline` both
+      gained `hasRamps: true` plus `segSetStart`/`segSetEnd` accessors
+      alongside their existing `segStart`/`segEnd`/`segSet` – since the
+      interaction layer (`ensureSegmentLaneSetup`) already addressed
+      ramp-edge dragging entirely through those lane-config accessors
+      (built that way for exactly this reason when Bike got it), enabling
+      it for two more lanes needed no changes there at all, only to the
+      data each lane's accessors point at.
+      Every place that built, split, or exported a flat treadmill value
+      needed the shape update: the default sample builder, `.zwo`/
+      shorthand import, `performCut` (now interpolates Speed and Incline
+      independently at the cut point, mirroring Bike's own ramp-split),
+      `resizeSegments`'s "continue from the previous last segment" logic,
+      the Speed-step re-rounding handler, and `buildZwo`'s Treadmill
+      branch – a ramped segment (either field, independently) now keeps
+      its own unique, non-mergeable export block and writes its `Pace`/
+      `Incline` as the start/end average, exactly the same "can't express
+      a ramp in `.zwo`, so average it" rule Bike's own ramped segments
+      already followed there.
+      A genuinely pre-existing localStorage save has treadmill segments
+      in the old flat shape – new `normalizeTreadmillSegment` upgrades
+      one in place (same reasoning `normalizePowerBins` already had for
+      Bike), called from `migrateOrAdoptSegments`. Caught a real bug
+      here during testing: the *already-current-container-shaped* early-
+      return branch of that function (a save from after grid/segments
+      were unified but before this) skipped normalization entirely,
+      producing `NaN` throughout the chart and every export – fixed by
+      normalizing on that branch too, not just the ones that actually
+      synthesize `segments` from scratch.
+      Verified live in the browser: Shift+drag ramp-edge editing on both
+      Speed and Incline independently (confirmed via the readout and the
+      re-exported `.zwo`'s correctly start/end-averaged `Pace`/`Incline`
+      for that one now-unique block); cutting through a doubly-ramped
+      segment (both Speed and Incline ramped at once) split it into two
+      pieces whose values meet exactly at the cut point, confirmed
+      against hand-computed interpolation for both fields independently;
+      the pre-existing-save migration bug above, confirmed broken (NaN
+      everywhere) before the fix and clean (correct chart, correct
+      export, zero console errors from a genuinely fresh tab) after it.

@@ -539,7 +539,7 @@
          (an imported/parsed workout, shown "as is" – see `state.layout`'s
          own doc comment) – toggled in `renderAll`, matching how every
          other mode-dependent bit of chrome here already works. -->
-    <div class="hint" id="segments-hint" style="display:none;">Drag vertically to set a value. Press <kbd>C</kbd> to cut an interval where you click, <kbd>Esc</kbd> to stop cutting.</div>
+    <div class="hint" id="segments-hint" style="display:none;">Drag vertically to set a value. Press <kbd>C</kbd> to cut an interval where you click, <kbd>M</kbd> to add a text marker, <kbd>Esc</kbd> to stop. Click an existing marker to edit or remove it.</div>
   </div>
 
   <div class="export-row">
@@ -617,10 +617,15 @@
   // instead of an invalid number.
   var DEFAULT_WORKOUT_NAME = "Interval Sketch";
 
+  // Starting segment count for a from-scratch workout (both `sampleBike`'s
+  // old `n` default and `resizeSegments`'s own floor/reference) – `state`
+  // no longer tracks a separate `bins` field (see `activeSegments()`'s own
+  // doc comment on why), so this is where that number now lives.
+  var DEFAULT_INTERVAL_COUNT = 20;
+
   var state = {
     mode: "bike",
     binSeconds: 60,
-    bins: 20,
     warmupBins: 4,
     cooldownBins: 3,
     ftp: 250,
@@ -647,80 +652,167 @@
     // one drag when a genuinely close-but-different value is wanted –
     // the Settings popover's own toggle is for turning it off for good.
     snapEnabled: true,
-    power: [],
-    speed: [],
-    incline: [],
-    // "grid" (the classic fixed-width `bins`/`binSeconds` profile above,
-    // the right model for drawing a workout from scratch) or "segments"
-    // (a flat list of variable-width intervals matching a parsed/imported
-    // workout's own actual step durations exactly, "as is" – requested
-    // directly, since forcing an imported workout onto *any* fixed grid,
-    // however finely fitted, still bends it into a shape it never had).
-    // `applyErgLikeText`/`applyZwoText`/`applyShorthandText` always
-    // produce "segments" now; only ever "grid" for the bundled sample
-    // workout a fresh session starts with, or after manually resizing
-    // the grid via `resizeBins` (Interval Length/Intervals), which only
-    // make sense for a from-scratch drawing anyway. `power`/`speed`/
-    // `incline`/`bins`/`warmupBins`/`cooldownBins` above are simply left
-    // alone (not cleared) while `layout === "segments"` – harmless, since
-    // nothing reads them in that state, and it means there's a sane grid
-    // still sitting there already if grid view is ever wanted back.
+    // "grid" (a from-scratch workout, every segment the same
+    // `binSeconds`-wide, kept that way by the Interval Length/Intervals/
+    // Warm-up/Cool-down toolbar fields below) or "segments" (anything
+    // parsed/imported, variable-width, "as is" – requested directly,
+    // since forcing an imported workout onto any fixed grid, however
+    // finely fitted, still bends it into a shape it never had). Both
+    // are the exact same *data* shape now (`state.segments`) – this only
+    // controls whether the grid-only toolbar fields/boundary handles are
+    // shown and live (see `renderAll`), not which representation is
+    // active; a grid workout is simply the special case where every
+    // segment happens to be `binSeconds` wide. `performCut` promotes this
+    // to "segments" the moment a cut actually makes two segments unequal
+    // width – see its own doc comment.
     layout: "grid",
-    // Only meaningful while `layout === "segments"`. One entry per actual
-    // parsed/imported step, in order, each:
-    //   bike:      { startSeconds, duration, startWatts, endWatts, kind }
-    //   treadmill: { startSeconds, duration, speedKmh, inclinePercent, kind }
-    // `kind` is `"Warmup"`/`"SteadyState"`/`"Cooldown"` – already produced
-    // by every parser (a `.zwo` file's own tags, or the shorthand
-    // parsers' `treadmillStepKind`/`bikeStepKind`), so warm-up/cool-down
-    // shading in segment view reads it straight off each segment instead
-    // of needing a separate bin-count the way grid view's
-    // `warmupBins`/`cooldownBins` do.
-    segments: []
+    // One array per Profile (`state.mode`), not a flat list – both always
+    // exist and stay in sync while `layout === "grid"` (mirroring how a
+    // from-scratch workout's Power/Speed/Incline bins always did before
+    // this), so toggling Profile back and forth never loses either
+    // shape's data. Only ever `activeSegments()` (`state.segments[state
+    // .mode]`) is read/written by rendering, interaction, or export.
+    // Each entry:
+    //   bike:      { startSeconds, duration, startWatts, endWatts, kind, textEvents }
+    //   treadmill: { startSeconds, duration, startSpeedKmh, endSpeedKmh,
+    //                startInclinePercent, endInclinePercent, kind, textEvents }
+    // Speed and Incline each ramp independently within a segment (Shift+
+    // drag either edge, same as bike Power) – a flat segment (imported,
+    // or not yet dragged into a ramp) just has `start === end` for both,
+    // same convention bike's own `startWatts`/`endWatts` already uses.
+    // `kind` is `"Warmup"`/`"SteadyState"`/`"Cooldown"` – produced by
+    // every parser directly (a `.zwo` file's own tags, or the shorthand
+    // parsers' `treadmillStepKind`/`bikeStepKind`) for an imported
+    // workout, or kept in sync with `warmupBins`/`cooldownBins` by
+    // `syncGridKinds()` for a grid one – warm-up/cool-down shading always
+    // reads it straight off each segment, the same way either origin.
+    segments: { bike: [], treadmill: [] }
   };
 
-  // Each bin is `{start, end}`, not a plain number – see the "ramped
-  // power bins" note further down for why. `start === end` throughout
-  // here (flat blocks) is just this sample data's own choice, same as a
-  // freshly-painted bin defaults to flat until the rider drags a ramp
-  // handle deliberately.
-  function flatBin(v) { return { start: v, end: v }; }
-  function sampleBike(n) {
+  // `state.segments[state.mode]` – the one array every renderer/
+  // interaction handler/exporter actually reads or writes. See
+  // `state.segments`'s own doc comment for why it's namespaced by mode
+  // rather than a single flat array.
+  function activeSegments() { return state.segments[state.mode]; }
+
+  function buildSampleBikeSegments(n, binSeconds) {
     var out = [];
     for (var i = 0; i < n; i++) {
       var t = i / (n - 1);
-      if (t < 0.2) out.push(flatBin(Math.round(110 + t / 0.2 * 70)));
-      else if (t > 0.85) out.push(flatBin(Math.round(180 - (t - 0.85) / 0.15 * 90)));
-      else {
-        var cyclePos = Math.floor((t - 0.2) / 0.1) % 2;
-        out.push(flatBin(cyclePos === 0 ? 260 : 130));
+      var v;
+      if (t < 0.2) v = Math.round(110 + t / 0.2 * 70);
+      else if (t > 0.85) v = Math.round(180 - (t - 0.85) / 0.15 * 90);
+      else v = (Math.floor((t - 0.2) / 0.1) % 2 === 0) ? 260 : 130;
+      out.push({ startSeconds: i * binSeconds, duration: binSeconds, startWatts: v, endWatts: v, kind: "SteadyState", textEvents: [] });
+    }
+    return out;
+  }
+  function buildSampleTreadmillSegments(n, binSeconds) {
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var t = i / (n - 1);
+      var speedKmh, inclinePercent;
+      if (t < 0.2) speedKmh = +(4 + t / 0.2 * 1.5).toFixed(1);
+      else if (t > 0.85) speedKmh = +(6 - (t - 0.85) / 0.15 * 2.5).toFixed(1);
+      else speedKmh = (Math.floor((t - 0.2) / 0.1) % 2 === 0) ? 6.5 : 4.5;
+      if (t < 0.2 || t > 0.85) inclinePercent = 1;
+      else inclinePercent = (Math.floor((t - 0.2) / 0.1) % 2 === 0) ? 6 : 0;
+      out.push({ startSeconds: i * binSeconds, duration: binSeconds, startSpeedKmh: speedKmh, endSpeedKmh: speedKmh, startInclinePercent: inclinePercent, endInclinePercent: inclinePercent, kind: "SteadyState", textEvents: [] });
+    }
+    return out;
+  }
+
+  // Converts one legacy from-scratch profile (pre-unification `power`/
+  // `speed`+`incline` bin arrays) into a segment array of the current
+  // shape – used only by `migrateOrAdoptSegments` below, for a
+  // localStorage save from before grid/segments were unified. `primary`
+  // is `power` (bike, `{start,end}` per bin – or, from even further back,
+  // a plain number, tolerated the same way the old `normalizePowerBins`
+  // did) or `speed` (treadmill); `secondary` is `incline` (treadmill
+  // only, `null` for bike).
+  function gridArraysToSegments(kindMode, primary, secondary, bins, binSeconds) {
+    var n = Math.max(2, Math.min(96, bins || DEFAULT_INTERVAL_COUNT));
+    var bs = (isFinite(binSeconds) && binSeconds > 0) ? binSeconds : 60;
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var s = { startSeconds: i * bs, duration: bs, kind: "SteadyState", textEvents: [] };
+      if (kindMode === "bike") {
+        var bin = primary[i];
+        var b = (bin && typeof bin === "object") ? bin : { start: bin != null ? bin : 150, end: bin != null ? bin : 150 };
+        s.startWatts = b.start; s.endWatts = b.end;
+      } else {
+        var sp = primary[i] != null ? primary[i] : 6;
+        var inc = (secondary && secondary[i] != null) ? secondary[i] : 1;
+        s.startSpeedKmh = sp; s.endSpeedKmh = sp;
+        s.startInclinePercent = inc; s.endInclinePercent = inc;
       }
+      out.push(s);
     }
     return out;
   }
-  // Old localStorage state (saved before ramped power bins existed) has
-  // `power` as a plain `number[]` – normalized to `{start, end}` here so
-  // a returning rider's saved workout still loads instead of breaking.
-  function normalizePowerBins(power) {
-    return power.map(function (v) { return (v && typeof v === "object") ? v : flatBin(v); });
-  }
-  function sampleTreadmillSpeed(n) {
-    var out = [];
-    for (var i = 0; i < n; i++) {
-      var t = i / (n - 1);
-      if (t < 0.2) out.push(+(4 + t / 0.2 * 1.5).toFixed(1));
-      else if (t > 0.85) out.push(+(6 - (t - 0.85) / 0.15 * 2.5).toFixed(1));
-      else out.push(Math.floor((t - 0.2) / 0.1) % 2 === 0 ? 6.5 : 4.5);
+
+  // Upgrades a treadmill segment still in the pre-ramp-support shape
+  // (flat `speedKmh`/`inclinePercent`, from before Speed/Incline could
+  // ramp independently within a segment) to the current
+  // `start/endSpeedKmh`/`start/endInclinePercent` shape, in place – same
+  // "don't lose a rider's real work to an internal shape change"
+  // reasoning `normalizePowerBins` already had for bike. A no-op for a
+  // segment that's already current-shaped.
+  function normalizeTreadmillSegment(seg) {
+    if (seg.startSpeedKmh === undefined) {
+      var sp = seg.speedKmh != null ? seg.speedKmh : 6;
+      seg.startSpeedKmh = sp; seg.endSpeedKmh = sp;
+      delete seg.speedKmh;
     }
-    return out;
-  }
-  function sampleTreadmillIncline(n) {
-    var out = [];
-    for (var i = 0; i < n; i++) {
-      var t = i / (n - 1);
-      if (t < 0.2 || t > 0.85) out.push(1);
-      else out.push(Math.floor((t - 0.2) / 0.1) % 2 === 0 ? 6 : 0);
+    if (seg.startInclinePercent === undefined) {
+      var inc = seg.inclinePercent != null ? seg.inclinePercent : 1;
+      seg.startInclinePercent = inc; seg.endInclinePercent = inc;
+      delete seg.inclinePercent;
     }
+    return seg;
+  }
+
+  // Adopts a restored localStorage blob's segments into the current
+  // `{bike, treadmill}` shape, migrating whichever legacy shape(s) it
+  // finds one-time on load. Three cases, oldest-to-newest:
+  //   1. Already today's `{bike, treadmill}` object – pass through as is.
+  //   2. A pre-`kind`-unification flat `segments` array (the
+  //      grid/segments-split era) – belonged to whichever `mode`/
+  //      `layout === "segments"` the save recorded.
+  //   3. Grid-only arrays (`power`/`speed`/`incline`/`bins`) – present on
+  //      every save from before segments existed at all, and still
+  //      alongside a flat `segments` array for a while after (see the
+  //      `state.segments` doc comment two sessions ago) – synthesized via
+  //      `gridArraysToSegments` for whichever side (bike/treadmill)
+  //      isn't already filled from case 2.
+  // Falls back to a fresh sample for either side that ends up with
+  // nothing usable at all (e.g. a segments-only old save, which only
+  // ever recorded whichever Profile was active at the time).
+  function migrateOrAdoptSegments(restored, binSeconds) {
+    var seg = restored.segments;
+    if (seg && !Array.isArray(seg) && (Array.isArray(seg.bike) || Array.isArray(seg.treadmill))) {
+      var passedThrough = { bike: Array.isArray(seg.bike) ? seg.bike : [], treadmill: Array.isArray(seg.treadmill) ? seg.treadmill : [] };
+      // Even an already-current-*container*-shaped save can still carry
+      // pre-ramp-support treadmill segments inside it (saved between the
+      // segments-unification and Speed/Incline ramp support landing) –
+      // normalize regardless of which branch produced `treadmill`, not
+      // just the ones actually synthesized below.
+      passedThrough.treadmill.forEach(normalizeTreadmillSegment);
+      return passedThrough;
+    }
+    var out = { bike: [], treadmill: [] };
+    if (Array.isArray(seg) && seg.length && restored.layout === "segments") {
+      out[restored.mode === "treadmill" ? "treadmill" : "bike"] = seg;
+    }
+    if (!out.bike.length && Array.isArray(restored.power) && restored.power.length) {
+      out.bike = gridArraysToSegments("bike", restored.power, null, restored.bins, binSeconds);
+    }
+    if (!out.treadmill.length && Array.isArray(restored.speed) && restored.speed.length) {
+      out.treadmill = gridArraysToSegments("treadmill", restored.speed, restored.incline, restored.bins, binSeconds);
+    }
+    if (!out.bike.length) out.bike = buildSampleBikeSegments(DEFAULT_INTERVAL_COUNT, binSeconds);
+    if (!out.treadmill.length) out.treadmill = buildSampleTreadmillSegments(DEFAULT_INTERVAL_COUNT, binSeconds);
+    out.treadmill.forEach(normalizeTreadmillSegment);
     return out;
   }
 
@@ -734,23 +826,21 @@
     state.mode = restored.mode === "treadmill" ? "treadmill" : "bike";
     state.binSeconds = isFinite(restored.binSeconds) && restored.binSeconds >= MIN_BIN_SECONDS && restored.binSeconds <= MAX_BIN_SECONDS
       ? Math.round(restored.binSeconds) : state.binSeconds;
-    state.bins = Math.max(2, Math.min(96, restored.bins || state.bins));
     state.warmupBins = Math.max(0, restored.warmupBins || 0);
     state.cooldownBins = Math.max(0, restored.cooldownBins || 0);
     state.ftp = restored.ftp > 0 ? restored.ftp : state.ftp;
     state.name = typeof restored.name === "string" && restored.name.trim() ? restored.name : state.name;
     state.layout = restored.layout === "segments" ? "segments" : "grid";
-    state.segments = Array.isArray(restored.segments) ? restored.segments : state.segments;
     state.speedStep = (restored.speedStep === 0.1 || restored.speedStep === 0.5) ? restored.speedStep : state.speedStep;
     state.snapEnabled = typeof restored.snapEnabled === "boolean" ? restored.snapEnabled : state.snapEnabled;
-    state.power = restored.power.length ? normalizePowerBins(restored.power) : sampleBike(state.bins);
-    state.speed = restored.speed.length ? restored.speed : sampleTreadmillSpeed(state.bins);
-    state.incline = restored.incline.length ? restored.incline : sampleTreadmillIncline(state.bins);
+    state.segments = migrateOrAdoptSegments(restored, state.binSeconds);
   } else {
-    state.power = sampleBike(state.bins);
-    state.speed = sampleTreadmillSpeed(state.bins);
-    state.incline = sampleTreadmillIncline(state.bins);
+    state.segments = {
+      bike: buildSampleBikeSegments(DEFAULT_INTERVAL_COUNT, state.binSeconds),
+      treadmill: buildSampleTreadmillSegments(DEFAULT_INTERVAL_COUNT, state.binSeconds)
+    };
   }
+  if (state.layout === "grid") syncGridKinds();
 
   var lanes = {
     // `hasRamps: true` – the only lane whose bins carry a `{start, end}`
@@ -765,32 +855,39 @@
     // grid view's plain `key`, since a segment's own field names differ
     // per lane (`startWatts`/`endWatts` vs. the flat `speedKmh`/
     // `inclinePercent`) in a way a single property name can't cover.
-    power: { key: "power", svg: document.getElementById("svg-power"), min: 0, max: 500, step: 5, unit: "W", accent: "--accent-power", glow: "--accent-power-glow", fmt: function (v) { return Math.round(v) + " W"; }, hasBoundaryHandles: true, hasRamps: true, segStart: function (seg) { return seg.startWatts; }, segEnd: function (seg) { return seg.endWatts; }, segSet: function (seg, v) { seg.startWatts = v; seg.endWatts = v; } },
+    // `segSetStart`/`segSetEnd` – Shift+drag ramp-edge editing sets only
+    // one of a segment's two endpoints independently (`segSet` above sets
+    // both at once, for a plain flat paint) – see `ensureSegmentLaneSetup`'s
+    // `setEdgeValue`. Power-only, same as `hasRamps` itself.
+    power: { key: "power", svg: document.getElementById("svg-power"), min: 0, max: 500, step: 5, unit: "W", accent: "--accent-power", glow: "--accent-power-glow", fmt: function (v) { return Math.round(v) + " W"; }, hasBoundaryHandles: true, hasRamps: true, segStart: function (seg) { return seg.startWatts; }, segEnd: function (seg) { return seg.endWatts; }, segSet: function (seg, v) { seg.startWatts = v; seg.endWatts = v; }, segSetStart: function (seg, v) { seg.startWatts = v; }, segSetEnd: function (seg, v) { seg.endWatts = v; } },
     // `step` starts at `state.speedStep` (0.1 by default, or whatever was
     // restored from storage) rather than a fixed literal here – the
     // speed-step toggle below keeps this in sync whenever the rider
     // switches it, since `eventToBinValue`'s own rounding reads `lane.step`
     // directly, not `state.speedStep`.
-    speed: { key: "speed", svg: document.getElementById("svg-speed"), min: 0, max: 20, step: state.speedStep, unit: "km/h", accent: "--accent-speed", glow: "--accent-speed-glow", fmt: function (v) { return v.toFixed(1) + " km/h"; }, hasBoundaryHandles: true, segStart: function (seg) { return seg.speedKmh; }, segEnd: function (seg) { return seg.speedKmh; }, segSet: function (seg, v) { seg.speedKmh = v; } },
-    incline: { key: "incline", svg: document.getElementById("svg-incline"), min: 0, max: 20, step: 0.5, unit: "%", accent: "--accent-incline", glow: "--accent-incline-glow", fmt: function (v) { return v.toFixed(1) + " %"; }, hasBoundaryHandles: false, segStart: function (seg) { return seg.inclinePercent; }, segEnd: function (seg) { return seg.inclinePercent; }, segSet: function (seg, v) { seg.inclinePercent = v; } }
+    // `hasRamps: true` here too now – Shift+drag ramp-edge editing,
+    // requested directly, same gesture bike Power already has (see its
+    // own doc comment above). `segSetStart`/`segSetEnd` needed the same
+    // reason Power's own do.
+    speed: { key: "speed", svg: document.getElementById("svg-speed"), min: 0, max: 20, step: state.speedStep, unit: "km/h", accent: "--accent-speed", glow: "--accent-speed-glow", fmt: function (v) { return v.toFixed(1) + " km/h"; }, hasBoundaryHandles: true, hasRamps: true, segStart: function (seg) { return seg.startSpeedKmh; }, segEnd: function (seg) { return seg.endSpeedKmh; }, segSet: function (seg, v) { seg.startSpeedKmh = v; seg.endSpeedKmh = v; }, segSetStart: function (seg, v) { seg.startSpeedKmh = v; }, segSetEnd: function (seg, v) { seg.endSpeedKmh = v; } },
+    incline: { key: "incline", svg: document.getElementById("svg-incline"), min: 0, max: 20, step: 0.5, unit: "%", accent: "--accent-incline", glow: "--accent-incline-glow", fmt: function (v) { return v.toFixed(1) + " %"; }, hasBoundaryHandles: false, hasRamps: true, segStart: function (seg) { return seg.startInclinePercent; }, segEnd: function (seg) { return seg.endInclinePercent; }, segSet: function (seg, v) { seg.startInclinePercent = v; seg.endInclinePercent = v; }, segSetStart: function (seg, v) { seg.startInclinePercent = v; }, segSetEnd: function (seg, v) { seg.endInclinePercent = v; } }
   };
 
-  var PX_PER_BIN = 42;
-  var MIN_PX_PER_BIN = 16;
-  // How close (in the same SVG-space pixels as `PX_PER_BIN`) the pointer
-  // has to be to a bin's own left/right edge for Shift+drag to grab that
-  // endpoint instead of painting – see `ensureLaneSetup`'s `edgeAt(evt)`.
+  // How close (in `PX_PER_SECOND`-scaled pixels) the pointer has to be to
+  // a segment's own left/right edge for Shift+drag to grab that endpoint
+  // instead of painting – see `ensureSegmentLaneSetup`'s `segEdgeAt(evt)`.
   var EDGE_HIT_PX = 8;
   // How close (in on-screen pixels along the value axis, not `EDGE_HIT_PX`'s
   // x-axis space) a ramp handle's dragged-to value has to be to the
-  // adjacent bin's own end/start for `state.snapEnabled` to snap onto it
-  // exactly – see `ensureLaneSetup`'s `neighborEdgeValue`/`setEdgeValue`.
+  // adjacent segment's own end/start for `state.snapEnabled` to snap onto
+  // it exactly – see `ensureSegmentLaneSetup`'s `neighborEdgeValue`/
+  // `setEdgeValue`.
   var SNAP_HIT_PX = 6;
-  // Segment view's own horizontal scale (px per second of real time,
-  // rather than grid view's fixed px per bin – see `renderSegmentLane`) –
-  // 0.7 puts a typical 60s interval at ~42px, matching `PX_PER_BIN`'s own
-  // default look, so switching between the two doesn't itself feel like a
-  // sudden zoom change.
+  // The chart's horizontal scale – pixels per second of real time. 0.7
+  // puts a typical 60s interval at ~42px, a comfortable width (this used
+  // to matter for matching a separate, now-deleted bin-indexed grid
+  // renderer's own fixed per-bin pixel width; kept the same value since
+  // it's still a good width, not because anything still needs to match).
   var PX_PER_SECOND = 0.7;
 
   function css(name) {
@@ -802,300 +899,36 @@
     return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
   }
 
-  function classify(i) {
-    if (i < state.warmupBins) return "Warmup";
-    if (i >= state.bins - state.cooldownBins) return "Cooldown";
-    return "SteadyState";
+  // Replaces the old bin-index-only `classify(i)` – now that grid and
+  // segments share one data shape, warm-up/cool-down is always a stored
+  // `seg.kind`, never derived at render/export time. For a grid workout
+  // this keeps that stored `kind` in sync with the `warmupBins`/
+  // `cooldownBins` toolbar counts; called from `setWarmup`/`setCooldown`/
+  // `clampWarmupCooldown`/`resizeSegments` (and once at boot/migration).
+  // Meaningless (and never called) for an imported workout – its `kind`s
+  // come from the parser once and are never touched again, other than by
+  // `performCut` copying one unchanged onto both halves of a split.
+  function applyWarmupCooldownKinds(segs) {
+    var n = segs.length;
+    for (var i = 0; i < n; i++) {
+      segs[i].kind = i < state.warmupBins ? "Warmup"
+        : i >= n - state.cooldownBins ? "Cooldown"
+        : "SteadyState";
+    }
+  }
+  function syncGridKinds() {
+    applyWarmupCooldownKinds(state.segments.bike);
+    applyWarmupCooldownKinds(state.segments.treadmill);
   }
 
   var svgNS = "http://www.w3.org/2000/svg";
 
-  // Sets up the persistent interaction layer for `lane` exactly once – a
-  // transparent hit-rect plus its pointer listeners. This has to survive
-  // `renderLane`'s own repeated redraws untouched: `Element.setPointerCapture`
-  // is released the instant its element is removed from the DOM (per spec),
-  // so a `hit` rect that got destroyed and recreated on every single
-  // painted bin – as an earlier version of this did, by clearing and
-  // rebuilding the *entire* <svg> including the hit-rect on every
-  // `applyPaint` call – silently lost pointer capture after the very first
-  // value change: only the initial click ever painted anything, every
-  // subsequent `pointermove` (i.e. the actual drag) went nowhere. Reads
-  // current geometry from `lane.geom`, which `renderLane` refreshes on
-  // every call, so this stays correct across resizes/bin-count changes
-  // without itself needing to re-run.
-  function ensureLaneSetup(lane) {
-    if (lane.hit) return;
-
-    var visualGroup = document.createElementNS(svgNS, "g");
-    lane.svg.appendChild(visualGroup);
-    lane.visualGroup = visualGroup;
-
-    var hit = document.createElementNS(svgNS, "rect");
-    hit.setAttribute("fill", "transparent");
-    lane.svg.appendChild(hit);
-    lane.hit = hit;
-
-    var painting = false, lastBin = null, lastVal = null;
-    var readout = document.getElementById("readout");
-    var wrap = document.querySelector(".scope-wrap");
-
-    function eventToBinValue(evt) {
-      var g = lane.geom;
-      var rect = lane.svg.getBoundingClientRect();
-      var scaleX = (g.plotW + g.padLeft) / rect.width;
-      var scaleY = g.h / rect.height;
-      var x = (evt.clientX - rect.left) * scaleX;
-      var y = (evt.clientY - rect.top) * scaleY;
-      var bin = Math.floor((x - g.padLeft) / g.pxPerBin);
-      bin = Math.max(0, Math.min(g.n - 1, bin));
-      var v = lane.min + (g.padTop + g.plotH - y) / g.plotH * (lane.max - lane.min);
-      v = Math.max(lane.min, Math.min(lane.max, v));
-      v = Math.round(v / lane.step) * lane.step;
-      return { bin: bin, value: v, clientX: evt.clientX, clientY: evt.clientY };
-    }
-
-    function showReadout(bin, value, clientX, clientY, labelOverride) {
-      var wrect = wrap.getBoundingClientRect();
-      readout.style.left = (clientX - wrect.left) + "px";
-      readout.style.top = (clientY - wrect.top) + "px";
-      readout.textContent = labelOverride
-        ? labelOverride + "  " + lane.fmt(value)
-        : binTimeLabel(bin * state.binSeconds) + "–" + binTimeLabel((bin + 1) * state.binSeconds) + "  " + lane.fmt(value) + "  ·  " + classify(bin);
-      readout.classList.add("visible");
-    }
-    function hideReadout() { readout.classList.remove("visible"); }
-
-    // A flat-painted bin is `{start: v, end: v}` for a ramped lane (Power)
-    // – same shape a ramp's own two ends have, just equal – or plain `v`
-    // for every other lane. Centralized here so `applyPaint` below doesn't
-    // need its own `lane.hasRamps` branch at each of its two call sites.
-    function setFlat(values, index, v) {
-      values[index] = lane.hasRamps ? { start: v, end: v } : v;
-    }
-
-    // Snaps a flat-painted bin's own value onto whichever of its two
-    // immediate neighbors' facing endpoint (the bin to the left's `end`,
-    // the bin to the right's `start`) it's closest to, if that's within
-    // `SNAP_HIT_PX` – the same magnetic snap the ramp handles themselves
-    // use (`setEdgeValue`'s own note), just applied to a whole flat bin
-    // instead of one ramp endpoint. Only ever has candidates at all for a
-    // `hasRamps` lane (Speed/Incline bins are plain numbers, no `.start`/
-    // `.end` to compare against), so this is safe to call unconditionally
-    // from `applyPaint` regardless of which lane it's painting.
-    function snappedFlatValue(bin, rawValue, evt) {
-      if (!lane.hasRamps || !state.snapEnabled || (evt && evt.ctrlKey)) return rawValue;
-      var values = state[lane.key];
-      var candidates = [];
-      if (bin - 1 >= 0) candidates.push(values[bin - 1].end);
-      if (bin + 1 < values.length) candidates.push(values[bin + 1].start);
-      var pxPerValue = lane.geom.plotH / (lane.max - lane.min);
-      var best = null, bestDist = Infinity;
-      candidates.forEach(function (c) {
-        var d = Math.abs(rawValue - c) * pxPerValue;
-        if (d <= SNAP_HIT_PX && d < bestDist) { best = c; bestDist = d; }
-      });
-      return best !== null ? best : rawValue;
-    }
-
-    function applyPaint(bin, value, evt) {
-      var values = state[lane.key];
-      if (lastBin !== null && Math.abs(bin - lastBin) > 1) {
-        var step = bin > lastBin ? 1 : -1;
-        for (var bb = lastBin + step; bb !== bin; bb += step) {
-          var frac = (bb - lastBin) / (bin - lastBin);
-          setFlat(values, bb, Math.round((lastVal + (value - lastVal) * frac) / lane.step) * lane.step);
-        }
-      }
-      // Only the bin actually under the pointer right now snaps – the
-      // bins a fast drag smears across in between (the loop just above)
-      // stay plain linear interpolation, not each independently pulled
-      // toward a neighbor, which would fight the smear rather than help
-      // it.
-      setFlat(values, bin, snappedFlatValue(bin, value, evt));
-      lastBin = bin; lastVal = value;
-      renderLane(lane);
-      updatePreview();
-    }
-
-    // ---- ramped power bins: Shift + drag a bin's own start/end edge ----
-    //
-    // Only wired up for `lane.hasRamps` (Power) – everywhere else, a bin
-    // stays one flat value and this whole block is simply never reached
-    // (`evt.shiftKey` is checked before anything else below). Holding
-    // Shift while hovering near a bin's left or right edge shows a small
-    // handle right where that endpoint's current value sits; grabbing it
-    // and dragging vertically sets *only* that one endpoint – the bin's
-    // other endpoint, and every other bin, are untouched – which is what
-    // actually draws a ramp within that one bin rather than a flat block.
-    // A plain paint (no Shift, or Shift away from an edge) still sets both
-    // ends equal via `setFlat` above, so painting over a ramped bin is
-    // always how to flatten it again – no separate "reset" control needed.
-    var edgeDragging = false, edgeDragBin = null, edgeDragWhich = null;
-    var edgeHandle = null;
-    if (lane.hasRamps) {
-      edgeHandle = document.createElementNS(svgNS, "circle");
-      edgeHandle.setAttribute("r", "5");
-      edgeHandle.setAttribute("fill", "var(--panel)");
-      edgeHandle.setAttribute("stroke", "var(--ink)");
-      edgeHandle.setAttribute("stroke-width", "2");
-      edgeHandle.style.display = "none";
-      edgeHandle.style.pointerEvents = "none";
-      lane.svg.appendChild(edgeHandle);
-    }
-
-    // Which bin-edge (if any) `evt` is within `EDGE_HIT_PX` of – `null`
-    // when not near one at all. Two adjacent bins' own edges sit at the
-    // very same x, but `Math.floor` below already resolves which bin
-    // "owns" a given x, so approaching from the left lands just inside
-    // the *earlier* bin (→ its `end`) and from the right just inside the
-    // *later* one (→ its `start`) – no separate disambiguation needed.
-    function edgeAt(evt) {
-      var g = lane.geom;
-      var rect = lane.svg.getBoundingClientRect();
-      var scaleX = (g.plotW + g.padLeft) / rect.width;
-      var x = (evt.clientX - rect.left) * scaleX;
-      var bin = Math.floor((x - g.padLeft) / g.pxPerBin);
-      if (bin < 0 || bin >= g.n) return null;
-      var xInBin = x - g.padLeft - bin * g.pxPerBin;
-      var threshold = Math.min(EDGE_HIT_PX, g.pxPerBin / 2 - 1);
-      if (xInBin < threshold) return { bin: bin, which: "start" };
-      if (xInBin > g.pxPerBin - threshold) return { bin: bin, which: "end" };
-      return null;
-    }
-
-    function positionEdgeHandle(bin, which, value) {
-      var g = lane.geom;
-      var x = g.padLeft + (which === "start" ? bin : bin + 1) * g.pxPerBin;
-      var y = g.padTop + g.plotH - (value - lane.min) / (lane.max - lane.min) * g.plotH;
-      edgeHandle.setAttribute("cx", x);
-      edgeHandle.setAttribute("cy", y);
-      edgeHandle.style.display = "";
-    }
-    function hideEdgeHandle() {
-      if (edgeHandle) edgeHandle.style.display = "none";
-    }
-
-    // The *other* end sitting right across the seam from `(bin, which)` –
-    // dragging a bin's `end` compares against the next bin's own `start`,
-    // and a bin's `start` against the previous bin's own `end`. `null` at
-    // either end of the workout, where there's nothing on the other side
-    // of the seam to snap onto at all.
-    function neighborEdgeValue(bin, which) {
-      var values = state[lane.key];
-      if (which === "end") return (bin + 1 < values.length) ? values[bin + 1].start : null;
-      return (bin - 1 >= 0) ? values[bin - 1].end : null;
-    }
-
-    function setEdgeValue(bin, which, rawValue, evt) {
-      var v = Math.max(lane.min, Math.min(lane.max, rawValue));
-      v = Math.round(v / lane.step) * lane.step;
-      // Ctrl (⌃ on Mac) held overrides snapping for this one drag – same
-      // convention plenty of other drag-to-place tools use for exactly
-      // this. `state.snapEnabled` (the Settings popover's own toggle) is
-      // the persistent on/off switch; this is the per-drag escape hatch.
-      var ctrlOverride = !!(evt && evt.ctrlKey);
-      if (state.snapEnabled && !ctrlOverride) {
-        var neighbor = neighborEdgeValue(bin, which);
-        if (neighbor !== null) {
-          var pxPerValue = lane.geom.plotH / (lane.max - lane.min);
-          if (Math.abs(v - neighbor) * pxPerValue <= SNAP_HIT_PX) v = neighbor;
-        }
-      }
-      state[lane.key][bin][which] = v;
-      return v;
-    }
-
-    hit.addEventListener("pointerdown", function (evt) {
-      // Capture on `hit` itself – the same element the listeners live on
-      // and that never gets removed/recreated after this point, unlike
-      // capturing on `lane.svg` (an ancestor `hit` doesn't bubble *up*
-      // into, so its own listeners would simply stop receiving events
-      // once capture moved the target away from it). Wrapped in try/catch
-      // like every `release`PointerCapture` call already is elsewhere in
-      // this file – setPointerCapture can throw ("no active pointer with
-      // the given id") for a pointer the browser doesn't consider active
-      // by the time this runs, and the rest of this gesture still works
-      // fine without capture, just without the "drag stays live even past
-      // the element's own bounds" guarantee capture normally adds.
-      try { hit.setPointerCapture(evt.pointerId); } catch (e) { /* proceed uncaptured */ }
-      if (lane.hasRamps && evt.shiftKey) {
-        var edge = edgeAt(evt);
-        if (edge) {
-          edgeDragging = true;
-          edgeDragBin = edge.bin;
-          edgeDragWhich = edge.which;
-          pushUndo();
-          var bv0 = eventToBinValue(evt);
-          var v0 = setEdgeValue(edge.bin, edge.which, bv0.value, evt);
-          renderLane(lane);
-          updatePreview();
-          positionEdgeHandle(edge.bin, edge.which, v0);
-          showReadout(edge.bin, v0, evt.clientX, evt.clientY, edge.which === "start" ? "Start" : "End");
-          evt.preventDefault();
-          return;
-        }
-      }
-      painting = true;
-      pushUndo();
-      var bv = eventToBinValue(evt);
-      lastBin = null; lastVal = null;
-      applyPaint(bv.bin, bv.value, evt);
-      showReadout(bv.bin, bv.value, bv.clientX, bv.clientY);
-      evt.preventDefault();
-    });
-    hit.addEventListener("pointermove", function (evt) {
-      if (edgeDragging) {
-        var bvE = eventToBinValue(evt);
-        var vE = setEdgeValue(edgeDragBin, edgeDragWhich, bvE.value, evt);
-        renderLane(lane);
-        updatePreview();
-        positionEdgeHandle(edgeDragBin, edgeDragWhich, vE);
-        showReadout(edgeDragBin, vE, evt.clientX, evt.clientY, edgeDragWhich === "start" ? "Start" : "End");
-        return;
-      }
-      if (lane.hasRamps && !painting) {
-        var edge = evt.shiftKey ? edgeAt(evt) : null;
-        if (edge) {
-          lane.svg.style.cursor = "ns-resize";
-          positionEdgeHandle(edge.bin, edge.which, state[lane.key][edge.bin][edge.which]);
-        } else {
-          lane.svg.style.cursor = "";
-          hideEdgeHandle();
-        }
-      }
-      var bv = eventToBinValue(evt);
-      if (painting) applyPaint(bv.bin, bv.value, evt);
-      showReadout(bv.bin, bv.value, bv.clientX, bv.clientY);
-    });
-    hit.addEventListener("pointerup", function (evt) {
-      if (edgeDragging) {
-        edgeDragging = false;
-        hideEdgeHandle();
-        try { hit.releasePointerCapture(evt.pointerId); } catch (e) { /* already released */ }
-        return;
-      }
-      painting = false; lastBin = null; lastVal = null;
-      try { hit.releasePointerCapture(evt.pointerId); } catch (e) { /* already released */ }
-    });
-    hit.addEventListener("pointerleave", function () {
-      if (!painting) hideReadout();
-      if (!edgeDragging) hideEdgeHandle();
-    });
-
-    // Warm-up/Cool-down boundary handles – dragged directly on the chart,
-    // the same "point at what you mean" idea as painting a value, rather
-    // than only through the small stepper fields in the toolbar (easy to
-    // miss entirely, and not obviously connected to the shaded bands once
-    // found). Only set up on the "primary" lane per mode (Power for bike,
-    // Speed for treadmill) – both counts are shared across every lane in
-    // a mode, so a second set of handles on the Incline lane would just
-    // be a redundant, confusing second way to move the same boundary.
-    if (lane.hasBoundaryHandles) {
-      setupBoundaryHandle(lane, "warmup");
-      setupBoundaryHandle(lane, "cooldown");
-    }
-  }
-
+  // Grid-workout-only (see `renderSegmentLane`'s own gating on
+  // `state.layout === "grid"` for where these handles get positioned/
+  // shown) – deliberately not generalized to an imported workout's
+  // segments: landing a boundary on an arbitrary, unevenly-spaced
+  // existing segment edge in a real file is a materially harder problem
+  // than this needs to solve; Cut first, then this tool doesn't apply.
   function setupBoundaryHandle(lane, kind) {
     var readout = document.getElementById("readout");
     var wrap = document.querySelector(".scope-wrap");
@@ -1138,13 +971,18 @@
 
     var dragging = false;
 
-    function boundaryBinFromEvent(evt) {
-      var g = lane.geom;
+    // Segment-index equivalent of the old `boundaryBinFromEvent` – rounds
+    // to the nearest `binSeconds`-wide step rather than the nearest
+    // `pxPerBin` bin. Safe to assume uniform width: this handle only ever
+    // renders/positions while `state.layout === "grid"`.
+    function boundaryIndexFromEvent(evt) {
+      var g = lane.segGeom;
       var rect = lane.svg.getBoundingClientRect();
       var scaleX = (g.plotW + g.padLeft) / rect.width;
       var x = (evt.clientX - rect.left) * scaleX;
-      var bin = Math.round((x - g.padLeft) / g.pxPerBin);
-      return Math.max(0, Math.min(g.n, bin));
+      var seconds = (x - g.padLeft) / PX_PER_SECOND;
+      var index = Math.round(seconds / state.binSeconds);
+      return Math.max(0, Math.min(activeSegments().length, index));
     }
 
     function showBoundaryReadout(evt, label, count) {
@@ -1164,12 +1002,12 @@
     });
     grabArea.addEventListener("pointermove", function (evt) {
       if (!dragging) return;
-      var bin = boundaryBinFromEvent(evt);
+      var index = boundaryIndexFromEvent(evt);
       if (kind === "warmup") {
-        setWarmup(bin);
+        setWarmup(index);
         showBoundaryReadout(evt, "Warm-up", state.warmupBins);
       } else {
-        setCooldown(state.bins - bin);
+        setCooldown(activeSegments().length - index);
         showBoundaryReadout(evt, "Cool-down", state.cooldownBins);
       }
     });
@@ -1180,201 +1018,24 @@
     });
   }
 
-  function renderLane(lane) {
-    var n = state.bins;
-    var pxPerBin = Math.max(MIN_PX_PER_BIN, PX_PER_BIN);
-    var w = n * pxPerBin;
-    var h = parseInt(lane.svg.getAttribute("height"), 10);
-    var padLeft = 34, padBottom = 20, padTop = 8;
-    var plotH = h - padBottom - padTop;
-    var plotW = w;
-    lane.svg.setAttribute("width", plotW + padLeft);
-    lane.svg.setAttribute("viewBox", "0 0 " + (plotW + padLeft) + " " + h);
-    lane.svg.style.minWidth = (plotW + padLeft) + "px";
-    lane.geom = { n: n, pxPerBin: pxPerBin, padLeft: padLeft, padTop: padTop, plotW: plotW, plotH: plotH, h: h };
-
-    ensureLaneSetup(lane);
-    lane.hit.setAttribute("x", padLeft);
-    lane.hit.setAttribute("y", padTop);
-    lane.hit.setAttribute("width", plotW);
-    lane.hit.setAttribute("height", plotH);
-
-    var values = state[lane.key];
-    var accent = css(lane.accent);
-    var gridColor = css("--grid");
-    var lineColor = css("--line");
-    var inkMuted = css("--ink-muted");
-    var bandColor = css("--band");
-
-    function xAt(i) { return padLeft + i * pxPerBin; }
-    function yAt(v) { return padTop + plotH - (v - lane.min) / (lane.max - lane.min) * plotH; }
-
-    if (lane.hasBoundaryHandles) {
-      var handleColor = css("--ink");
-      var positionHandle = function (kind, boundaryX) {
-        lane[kind + "HandleGrab"].setAttribute("x", boundaryX - 12);
-        lane[kind + "HandleGrab"].setAttribute("y", padTop);
-        lane[kind + "HandleGrab"].setAttribute("width", 24);
-        lane[kind + "HandleGrab"].setAttribute("height", plotH);
-        lane[kind + "HandleLine"].setAttribute("x1", boundaryX); lane[kind + "HandleLine"].setAttribute("x2", boundaryX);
-        lane[kind + "HandleLine"].setAttribute("y1", padTop); lane[kind + "HandleLine"].setAttribute("y2", padTop + plotH);
-        lane[kind + "HandleLine"].setAttribute("stroke", handleColor);
-        lane[kind + "HandleGrip"].setAttribute("x", boundaryX - 8);
-        lane[kind + "HandleGrip"].setAttribute("y", padTop + plotH / 2 - 6);
-        lane[kind + "HandleGrip"].setAttribute("fill", handleColor);
-        var gripCenterY = padTop + plotH / 2;
-        lane[kind + "HandleNotch1"].setAttribute("x1", boundaryX - 3); lane[kind + "HandleNotch1"].setAttribute("x2", boundaryX - 3);
-        lane[kind + "HandleNotch1"].setAttribute("y1", gripCenterY - 3); lane[kind + "HandleNotch1"].setAttribute("y2", gripCenterY + 3);
-        lane[kind + "HandleNotch2"].setAttribute("x1", boundaryX + 3); lane[kind + "HandleNotch2"].setAttribute("x2", boundaryX + 3);
-        lane[kind + "HandleNotch2"].setAttribute("y1", gripCenterY - 3); lane[kind + "HandleNotch2"].setAttribute("y2", gripCenterY + 3);
-      };
-      positionHandle("warmup", xAt(state.warmupBins));
-      positionHandle("cooldown", xAt(state.bins - state.cooldownBins));
-    }
-
-    var group = lane.visualGroup;
-    while (group.firstChild) group.removeChild(group.firstChild);
-
-    var defs = document.createElementNS(svgNS, "defs");
-    var gradId = "grad-" + lane.key;
-    var grad = document.createElementNS(svgNS, "linearGradient");
-    grad.setAttribute("id", gradId);
-    grad.setAttribute("x1", "0"); grad.setAttribute("y1", "0");
-    grad.setAttribute("x2", "0"); grad.setAttribute("y2", "1");
-    var s0 = document.createElementNS(svgNS, "stop");
-    s0.setAttribute("offset", "0%"); s0.setAttribute("stop-color", accent); s0.setAttribute("stop-opacity", "0.38");
-    var s1 = document.createElementNS(svgNS, "stop");
-    s1.setAttribute("offset", "100%"); s1.setAttribute("stop-color", accent); s1.setAttribute("stop-opacity", "0.02");
-    grad.appendChild(s0); grad.appendChild(s1);
-    defs.appendChild(grad);
-    group.appendChild(defs);
-
-    // warm-up / cool-down bands (behind everything else)
-    if (state.warmupBins > 0) {
-      var wRect = document.createElementNS(svgNS, "rect");
-      wRect.setAttribute("x", xAt(0)); wRect.setAttribute("y", padTop);
-      wRect.setAttribute("width", xAt(state.warmupBins) - xAt(0)); wRect.setAttribute("height", plotH);
-      wRect.setAttribute("fill", bandColor);
-      group.appendChild(wRect);
-      var wLabel = document.createElementNS(svgNS, "text");
-      wLabel.setAttribute("x", xAt(0) + 4); wLabel.setAttribute("y", padTop + 11);
-      wLabel.setAttribute("font-family", "IBM Plex Mono, monospace");
-      wLabel.setAttribute("font-size", "8.5"); wLabel.setAttribute("letter-spacing", "0.06em");
-      wLabel.setAttribute("fill", inkMuted);
-      wLabel.textContent = "WARM-UP";
-      group.appendChild(wLabel);
-    }
-    if (state.cooldownBins > 0) {
-      var cStart = state.bins - state.cooldownBins;
-      var cRect = document.createElementNS(svgNS, "rect");
-      cRect.setAttribute("x", xAt(cStart)); cRect.setAttribute("y", padTop);
-      cRect.setAttribute("width", xAt(state.bins) - xAt(cStart)); cRect.setAttribute("height", plotH);
-      cRect.setAttribute("fill", bandColor);
-      group.appendChild(cRect);
-      var cLabel = document.createElementNS(svgNS, "text");
-      cLabel.setAttribute("x", xAt(state.bins) - 4); cLabel.setAttribute("y", padTop + 11);
-      cLabel.setAttribute("text-anchor", "end");
-      cLabel.setAttribute("font-family", "IBM Plex Mono, monospace");
-      cLabel.setAttribute("font-size", "8.5"); cLabel.setAttribute("letter-spacing", "0.06em");
-      cLabel.setAttribute("fill", inkMuted);
-      cLabel.textContent = "COOL-DOWN";
-      group.appendChild(cLabel);
-    }
-
-    // horizontal gridlines + labels
-    var gridStep = lane.max <= 20 ? 5 : 100;
-    for (var gv = lane.min; gv <= lane.max; gv += gridStep) {
-      var gy = yAt(gv);
-      var gline = document.createElementNS(svgNS, "line");
-      gline.setAttribute("x1", padLeft); gline.setAttribute("x2", plotW + padLeft);
-      gline.setAttribute("y1", gy); gline.setAttribute("y2", gy);
-      gline.setAttribute("stroke", gridColor); gline.setAttribute("stroke-width", "1");
-      group.appendChild(gline);
-      var glabel = document.createElementNS(svgNS, "text");
-      glabel.setAttribute("x", padLeft - 6); glabel.setAttribute("y", gy + 3);
-      glabel.setAttribute("text-anchor", "end");
-      glabel.setAttribute("font-family", "IBM Plex Mono, monospace");
-      glabel.setAttribute("font-size", "9.5");
-      glabel.setAttribute("fill", inkMuted);
-      glabel.textContent = String(gv);
-      group.appendChild(glabel);
-    }
-
-    // vertical bin separators (feint) + time labels every few bins
-    var labelEvery = Math.max(1, Math.ceil(4 * 42 / pxPerBin));
-    for (var i = 0; i <= n; i++) {
-      var vx = xAt(i);
-      var vline = document.createElementNS(svgNS, "line");
-      vline.setAttribute("x1", vx); vline.setAttribute("x2", vx);
-      vline.setAttribute("y1", padTop); vline.setAttribute("y2", padTop + plotH);
-      vline.setAttribute("stroke", gridColor); vline.setAttribute("stroke-width", "1");
-      group.appendChild(vline);
-      if (i < n && i % labelEvery === 0) {
-        var tlabel = document.createElementNS(svgNS, "text");
-        tlabel.setAttribute("x", vx + 2); tlabel.setAttribute("y", h - 5);
-        tlabel.setAttribute("font-family", "IBM Plex Mono, monospace");
-        tlabel.setAttribute("font-size", "9.5");
-        tlabel.setAttribute("fill", inkMuted);
-        tlabel.textContent = binTimeLabel(i * state.binSeconds);
-        group.appendChild(tlabel);
-      }
-    }
-
-    // baseline
-    var baseline = document.createElementNS(svgNS, "line");
-    baseline.setAttribute("x1", padLeft); baseline.setAttribute("x2", plotW + padLeft);
-    baseline.setAttribute("y1", padTop + plotH); baseline.setAttribute("y2", padTop + plotH);
-    baseline.setAttribute("stroke", lineColor); baseline.setAttribute("stroke-width", "1.5");
-    group.appendChild(baseline);
-
-    // step path + fill – for a `hasRamps` lane, `values[b]` is
-    // `{start, end}`: reading them separately here is *all* it takes to
-    // draw a sloped line across a ramped bin instead of a flat one –
-    // `start === end` (an unramped bin) still comes out perfectly flat,
-    // so this same code draws both without needing to branch on which.
-    var stepPts = [];
-    for (var b = 0; b < n; b++) {
-      var startV = lane.hasRamps ? values[b].start : values[b];
-      var endV = lane.hasRamps ? values[b].end : values[b];
-      stepPts.push([xAt(b), yAt(startV)]);
-      stepPts.push([xAt(b + 1), yAt(endV)]);
-    }
-    var d = "M " + xAt(0) + " " + (padTop + plotH);
-    stepPts.forEach(function (p) { d += " L " + p[0] + " " + p[1]; });
-    d += " L " + xAt(n) + " " + (padTop + plotH) + " Z";
-    var fillPath = document.createElementNS(svgNS, "path");
-    fillPath.setAttribute("d", d);
-    fillPath.setAttribute("fill", "url(#" + gradId + ")");
-    fillPath.setAttribute("stroke", "none");
-    group.appendChild(fillPath);
-
-    var strokeD = "M " + stepPts[0][0] + " " + stepPts[0][1];
-    for (var k = 1; k < stepPts.length; k++) strokeD += " L " + stepPts[k][0] + " " + stepPts[k][1];
-    var strokePath = document.createElementNS(svgNS, "path");
-    strokePath.setAttribute("d", strokeD);
-    strokePath.setAttribute("fill", "none");
-    strokePath.setAttribute("stroke", accent);
-    strokePath.setAttribute("stroke-width", "2.5");
-    strokePath.setAttribute("stroke-linejoin", "round");
-    group.appendChild(strokePath);
-  }
-
-  // ---- segment view (state.layout === "segments") ----
+  // ---- segment view – the only chart representation now ----
   //
-  // A deliberately separate rendering/interaction path from
-  // renderLane/ensureLaneSetup above, not a variant folded into them –
-  // requested directly: an imported/parsed workout shown "as is" (its own
-  // actual, variable-width step durations, no resampling onto any grid –
-  // see `state.layout`'s own doc comment), plus a Cut tool modeled on an
-  // audio editor's razor/split. Reuses the visual style (gradient fill,
-  // accent colors, gridlines) but every geometry calculation is
-  // time-based (`PX_PER_SECOND`) rather than grid view's fixed
-  // `PX_PER_BIN`-per-bin-index math, and the interaction is deliberately
-  // narrower than grid view's own (no ramped edge-dragging, no
-  // warm-up/cool-down drag handles – see the plan this was built from);
-  // the "Preview" textarea (already exported text, live re-parsed on
-  // every edit) stays a fully general fallback for anything not covered
-  // here directly.
+  // Used for every workout, "grid" and "segments" `state.layout` alike –
+  // a from-scratch grid workout is simply the special case where every
+  // segment happens to be `state.binSeconds` wide (see `state.layout`'s
+  // own doc comment on what the flag still controls now that both are
+  // the same underlying data). This used to be a deliberately separate,
+  // narrower path alongside a now-deleted bin-indexed `renderLane`/
+  // `ensureLaneSetup` (variable-width segments "as is", no resampling
+  // onto any grid, plus a Cut tool modeled on an audio editor's razor/
+  // split) – ramped Shift+drag edge-editing, sideways paint interpolation,
+  // and snapping were grid-only gestures back then; all three are ported
+  // here now, addressed by segment index/real seconds (`PX_PER_SECOND`)
+  // instead of bin index/`PX_PER_BIN`. Only the warm-up/cool-down drag
+  // handles stay grid-workout-only (see `setupBoundaryHandle`'s own doc
+  // comment on why). The "Preview" textarea (already-exported text, live
+  // re-parsed on every edit) stays a fully general fallback for anything
+  // not covered here directly.
 
   var cutModeActive = false;
 
@@ -1382,7 +1043,7 @@
   // never actually reachable in practice (every `apply*Text` path that
   // sets `state.layout = "segments"` already guarantees at least one).
   function totalSegmentsSeconds() {
-    var segs = state.segments;
+    var segs = activeSegments();
     if (!segs.length) return 0;
     var last = segs[segs.length - 1];
     return last.startSeconds + last.duration;
@@ -1393,7 +1054,7 @@
   // having strayed past either edge of the hit-rect mid-drag, say) rather
   // than returning nothing.
   function segmentIndexAt(seconds) {
-    var segs = state.segments;
+    var segs = activeSegments();
     for (var i = 0; i < segs.length; i++) {
       if (seconds < segs[i].startSeconds + segs[i].duration || i === segs.length - 1) return i;
     }
@@ -1408,22 +1069,44 @@
   // wouldn't produce two real pieces, just one zero-duration one.
   function performCut(seconds) {
     var index = segmentIndexAt(seconds);
-    var seg = state.segments[index];
+    var seg = activeSegments()[index];
     if (seconds <= seg.startSeconds || seconds >= seg.startSeconds + seg.duration) return;
     pushUndo();
+    // A cut always produces two *unequal*-duration pieces – the instant
+    // that happens to a grid workout, every grid-only assumption (every
+    // segment is `binSeconds` wide) stops holding, so this promotes it to
+    // "segments" right here, the same moment the invariant actually
+    // breaks: hides the Interval Length/Intervals/Warm-up/Cool-down
+    // fields and boundary handles (the existing `renderAll` toggle
+    // already does this correctly off `state.layout` alone), the honest
+    // framing that a surgically-cut workout is no longer a uniform grid.
+    // Mark doesn't need this – it never changes segment count/width.
+    if (state.layout === "grid") state.layout = "segments";
     var firstDuration = seconds - seg.startSeconds;
     var secondDuration = seg.duration - firstDuration;
-    var first = { startSeconds: seg.startSeconds, duration: firstDuration, kind: seg.kind };
-    var second = { startSeconds: seconds, duration: secondDuration, kind: seg.kind };
+    var first = { startSeconds: seg.startSeconds, duration: firstDuration, kind: seg.kind, textEvents: [] };
+    var second = { startSeconds: seconds, duration: secondDuration, kind: seg.kind, textEvents: [] };
+    // Each of the original segment's own `<TextEvent>` markers (see
+    // `parseTextEvents`) follows whichever new half it actually falls
+    // in, `timeOffset` re-expressed relative to *that* half's own new
+    // start – exactly the same "the marker itself doesn't move in time,
+    // only which clip it's now considered part of" behavior an audio
+    // editor's razor already has for markers on a clip it splits.
+    (seg.textEvents || []).forEach(function (ev) {
+      var absSeconds = seg.startSeconds + ev.timeOffset;
+      if (absSeconds < seconds) first.textEvents.push({ timeOffset: absSeconds - first.startSeconds, message: ev.message, duration: ev.duration });
+      else second.textEvents.push({ timeOffset: absSeconds - second.startSeconds, message: ev.message, duration: ev.duration });
+    });
     // Interpolates the value at the cut point (for every field this
-    // segment actually carries a value in) so a ramped bike segment's own
-    // overall shape survives the split unchanged – the two new segments'
-    // values meet exactly where the cut was made, the same way an audio
-    // editor's own razor splits a fading clip without altering the fade
-    // itself. A flat segment (every treadmill segment; a bike segment
-    // with `startWatts === endWatts`) ends up with the same value on both
-    // sides regardless – the same formula already produces that on its
-    // own, nothing extra needed for that case.
+    // segment actually carries a value in – both Speed and Incline
+    // independently for a treadmill segment, either of which might be
+    // ramped on its own) so a ramped segment's own overall shape survives
+    // the split unchanged – the two new segments' values meet exactly
+    // where the cut was made, the same way an audio editor's own razor
+    // splits a fading clip without altering the fade itself. A flat
+    // field (`start === end`) ends up with the same value on both sides
+    // regardless – the same formula already produces that on its own,
+    // nothing extra needed for that case.
     var frac = firstDuration / seg.duration;
     if (state.mode === "bike") {
       var mid = seg.startWatts + (seg.endWatts - seg.startWatts) * frac;
@@ -1431,21 +1114,113 @@
       first.startWatts = seg.startWatts; first.endWatts = mid;
       second.startWatts = mid; second.endWatts = seg.endWatts;
     } else {
-      first.speedKmh = seg.speedKmh; second.speedKmh = seg.speedKmh;
-      first.inclinePercent = seg.inclinePercent; second.inclinePercent = seg.inclinePercent;
+      var midSpeed = seg.startSpeedKmh + (seg.endSpeedKmh - seg.startSpeedKmh) * frac;
+      midSpeed = Math.round(midSpeed / lanes.speed.step) * lanes.speed.step;
+      first.startSpeedKmh = seg.startSpeedKmh; first.endSpeedKmh = midSpeed;
+      second.startSpeedKmh = midSpeed; second.endSpeedKmh = seg.endSpeedKmh;
+
+      var midIncline = seg.startInclinePercent + (seg.endInclinePercent - seg.startInclinePercent) * frac;
+      midIncline = Math.round(midIncline / lanes.incline.step) * lanes.incline.step;
+      first.startInclinePercent = seg.startInclinePercent; first.endInclinePercent = midIncline;
+      second.startInclinePercent = midIncline; second.endInclinePercent = seg.endInclinePercent;
     }
-    state.segments.splice(index, 1, first, second);
+    activeSegments().splice(index, 1, first, second);
     renderAll();
     updatePreview();
   }
 
-  // Sets up the persistent interaction layer for `lane`'s segment view
-  // exactly once – mirrors `ensureLaneSetup`'s own reasoning for why this
-  // has to survive repeated `renderSegmentLane` redraws untouched
-  // (`setPointerCapture` is released the instant its element leaves the
-  // DOM). A fully separate hit-rect/group from grid view's own
-  // `lane.hit`/`lane.visualGroup` – both live in the same `<svg>` at
-  // once, `renderLaneForMode` toggles which one is actually visible.
+  var markModeActive = false;
+  // How close (in the same px-per-second space `PX_PER_SECOND` already
+  // uses) a click has to be to an existing marker's own time for it to
+  // count as clicking *that* marker rather than the chart underneath it –
+  // same idea as `EDGE_HIT_PX`'s own hit-testing tolerance for a ramp
+  // handle.
+  var MARKER_HIT_PX = 8;
+  // How far down from the top of the plot a click still counts as
+  // "on the marker row" rather than an ordinary paint click passing
+  // through the same x position lower down where the actual value curve
+  // lives – matched to where `renderSegmentLane` actually draws the
+  // marker glyph (`MARKER_Y`) plus a little slack.
+  var MARKER_Y_HIT_MAX = 20;
+
+  // Sets a new `<TextEvent>` marker (see `parseTextEvents`'s own doc
+  // comment for the shape) on whichever segment contains `seconds`, at
+  // that exact point – Mark mode's own click handler, the direct
+  // counterpart of `performCut` above. Prompts for the marker's text
+  // (Zwift's own `message` attribute); cancelling, or leaving it blank,
+  // creates nothing.
+  function performMark(seconds) {
+    var index = segmentIndexAt(seconds);
+    var seg = activeSegments()[index];
+    var message = window.prompt("Marker text:", "");
+    if (message === null) return;
+    message = message.trim();
+    if (!message) return;
+    pushUndo();
+    var timeOffset = Math.max(0, Math.min(seg.duration, seconds - seg.startSeconds));
+    seg.textEvents = seg.textEvents || [];
+    seg.textEvents.push({ timeOffset: timeOffset, message: message, duration: null });
+    seg.textEvents.sort(function (a, b) { return a.timeOffset - b.timeOffset; });
+    renderAll();
+    updatePreview();
+  }
+
+  // The closest existing marker to `seconds` across every segment (not
+  // just whichever one's own span it falls in – a marker right at a
+  // segment boundary should still be findable from either side), within
+  // `MARKER_HIT_PX`. `null` if nothing is close enough.
+  function findTextEventNear(seconds) {
+    var segs = activeSegments();
+    var best = null, bestDist = Infinity;
+    for (var i = 0; i < segs.length; i++) {
+      var seg = segs[i];
+      (seg.textEvents || []).forEach(function (ev) {
+        var evSeconds = seg.startSeconds + ev.timeOffset;
+        var dist = Math.abs(evSeconds - seconds) * PX_PER_SECOND;
+        if (dist <= MARKER_HIT_PX && dist < bestDist) { bestDist = dist; best = { segment: seg, event: ev }; }
+      });
+    }
+    return best;
+  }
+
+  // Handles a normal-mode (not Cut, not Mark) click that lands on an
+  // existing marker – edits its text, or removes it if left blank.
+  // Returns whether it actually found (and handled) one, so the caller's
+  // own click handler knows whether to fall through to its usual
+  // paint-a-value behavior instead. `evtY` (already converted to this
+  // lane's own SVG-space y, same as `eventToValue` computes internally)
+  // restricts this to roughly where the marker glyph itself is drawn –
+  // otherwise every ordinary paint click at the same x, however far down
+  // the chart, would also risk landing "on" a marker whose own time
+  // happens to match.
+  function editTextEventAt(seconds, evtY) {
+    if (evtY > MARKER_Y_HIT_MAX) return false;
+    var found = findTextEventNear(seconds);
+    if (!found) return false;
+    var message = window.prompt("Marker text (leave empty to delete):", found.event.message);
+    if (message === null) return true;
+    pushUndo();
+    message = message.trim();
+    if (!message) {
+      found.segment.textEvents = found.segment.textEvents.filter(function (e) { return e !== found.event; });
+    } else {
+      found.event.message = message;
+    }
+    renderAll();
+    updatePreview();
+    return true;
+  }
+
+  // Sets up the persistent interaction layer for `lane` exactly once – a
+  // transparent hit-rect plus its pointer listeners, and (for a
+  // `hasBoundaryHandles` lane) the warm-up/cool-down drag handles. Has to
+  // survive repeated `renderSegmentLane` redraws untouched:
+  // `Element.setPointerCapture` is released the instant its element is
+  // removed from the DOM (per spec), so a `hit` rect destroyed and
+  // recreated on every single value change would silently lose pointer
+  // capture after the very first one – only the initial click would ever
+  // paint anything, every subsequent `pointermove` (i.e. the actual drag)
+  // would go nowhere.
   function ensureSegmentLaneSetup(lane) {
     if (lane.segHit) return;
 
@@ -1470,6 +1245,115 @@
     var readout = document.getElementById("readout");
     var wrap = document.querySelector(".scope-wrap");
     var painting = false;
+    var lastIndex = null, lastVal = null;
+
+    // ---- ramped segments: Shift + drag a segment's own start/end edge ----
+    //
+    // Ported from the pre-unification grid-only `ensureLaneSetup` –
+    // addressed by segment index + real seconds (`PX_PER_SECOND`) instead
+    // of bin index/`pxPerBin`, otherwise the exact same gesture: only
+    // wired up for `lane.hasRamps` (Power), holding Shift near a
+    // segment's left/right edge shows a handle at that endpoint's current
+    // value, dragging it sets *only* that one endpoint. A plain paint
+    // (via `lane.segSet`) still flattens a ramped segment back to one
+    // value, same as before.
+    var edgeDragging = false, edgeDragIndex = null, edgeDragWhich = null;
+    var edgeHandle = null;
+    if (lane.hasRamps) {
+      edgeHandle = document.createElementNS(svgNS, "circle");
+      edgeHandle.setAttribute("r", "5");
+      edgeHandle.setAttribute("fill", "var(--panel)");
+      edgeHandle.setAttribute("stroke", "var(--ink)");
+      edgeHandle.setAttribute("stroke-width", "2");
+      edgeHandle.style.display = "none";
+      edgeHandle.style.pointerEvents = "none";
+      lane.svg.appendChild(edgeHandle);
+    }
+    function hideEdgeHandle() { if (edgeHandle) edgeHandle.style.display = "none"; }
+
+    // Which segment-edge (if any) `evt` is within `EDGE_HIT_PX` of –
+    // mirrors grid's own `edgeAt`, just against the segment under the
+    // pointer's own start/end time instead of a bin index; a short
+    // (sub-`EDGE_HIT_PX`-wide) segment shrinks the threshold the same way
+    // grid already did for a narrow bin (`g.pxPerBin/2 - 1`).
+    function segEdgeAt(evt) {
+      var g = lane.segGeom;
+      var rect = lane.svg.getBoundingClientRect();
+      var scaleX = (g.plotW + g.padLeft) / rect.width;
+      var xPx = (evt.clientX - rect.left) * scaleX - g.padLeft;
+      var seconds = xPx / PX_PER_SECOND;
+      if (seconds < 0 || seconds > g.totalSeconds) return null;
+      var segs = activeSegments();
+      if (!segs.length) return null;
+      var index = segmentIndexAt(seconds);
+      var seg = segs[index];
+      var segStartPx = seg.startSeconds * PX_PER_SECOND;
+      var segEndPx = (seg.startSeconds + seg.duration) * PX_PER_SECOND;
+      var threshold = Math.min(EDGE_HIT_PX, (segEndPx - segStartPx) / 2 - 1);
+      if (threshold < 0) return null;
+      if (xPx - segStartPx < threshold) return { index: index, which: "start" };
+      if (segEndPx - xPx < threshold) return { index: index, which: "end" };
+      return null;
+    }
+
+    function positionEdgeHandle(index, which, value) {
+      var g = lane.segGeom;
+      var seg = activeSegments()[index];
+      var seconds = which === "start" ? seg.startSeconds : seg.startSeconds + seg.duration;
+      var x = g.padLeft + seconds * PX_PER_SECOND;
+      var y = g.padTop + g.plotH - (value - lane.min) / (lane.max - lane.min) * g.plotH;
+      edgeHandle.setAttribute("cx", x);
+      edgeHandle.setAttribute("cy", y);
+      edgeHandle.style.display = "";
+    }
+
+    // The *other* end sitting right across the seam from `(index, which)` –
+    // same idea as grid's own `neighborEdgeValue`, addressed by segment
+    // index instead of bin index.
+    function neighborEdgeValue(index, which) {
+      var segs = activeSegments();
+      if (which === "end") return (index + 1 < segs.length) ? lane.segStart(segs[index + 1]) : null;
+      return (index - 1 >= 0) ? lane.segEnd(segs[index - 1]) : null;
+    }
+
+    function setEdgeValue(index, which, rawValue, evt) {
+      var v = Math.max(lane.min, Math.min(lane.max, rawValue));
+      v = Math.round(v / lane.step) * lane.step;
+      // Ctrl (⌃ on Mac) held overrides snapping for this one drag – same
+      // convention grid's own `setEdgeValue` already used.
+      var ctrlOverride = !!(evt && evt.ctrlKey);
+      if (state.snapEnabled && !ctrlOverride) {
+        var neighbor = neighborEdgeValue(index, which);
+        if (neighbor !== null) {
+          var pxPerValue = lane.segGeom.plotH / (lane.max - lane.min);
+          if (Math.abs(v - neighbor) * pxPerValue <= SNAP_HIT_PX) v = neighbor;
+        }
+      }
+      var seg = activeSegments()[index];
+      if (which === "start") lane.segSetStart(seg, v); else lane.segSetEnd(seg, v);
+      return v;
+    }
+
+    // Snaps a flat-painted segment's own value onto whichever of its two
+    // immediate neighbors' facing endpoint it's closest to, if within
+    // `SNAP_HIT_PX` – ported from grid's own `snappedFlatValue`. Simpler
+    // here than grid's version needed to be: `lane.segEnd`/`lane.segStart`
+    // already abstract the ramped-vs-flat field shape, so no separate
+    // `hasRamps` branch is needed to read a candidate's value.
+    function snappedFlatValue(index, rawValue, evt) {
+      if (!lane.hasRamps || !state.snapEnabled || (evt && evt.ctrlKey)) return rawValue;
+      var segs = activeSegments();
+      var candidates = [];
+      if (index - 1 >= 0) candidates.push(lane.segEnd(segs[index - 1]));
+      if (index + 1 < segs.length) candidates.push(lane.segStart(segs[index + 1]));
+      var pxPerValue = lane.segGeom.plotH / (lane.max - lane.min);
+      var best = null, bestDist = Infinity;
+      candidates.forEach(function (c) {
+        var d = Math.abs(rawValue - c) * pxPerValue;
+        if (d <= SNAP_HIT_PX && d < bestDist) { best = c; bestDist = d; }
+      });
+      return best !== null ? best : rawValue;
+    }
 
     function eventToSeconds(evt) {
       var g = lane.segGeom;
@@ -1479,11 +1363,20 @@
       var seconds = (x - g.padLeft) / PX_PER_SECOND;
       return Math.max(0, Math.min(g.totalSeconds, seconds));
     }
-    function eventToValue(evt) {
+    // The raw SVG-space y `evt` lands at, before mapping it onto
+    // `lane.min`/`lane.max` – shared by `eventToValue` below and, as
+    // `editTextEventAt`'s own `evtY` argument, by the "did this click
+    // land on a marker" check, which cares about the *pixel* position
+    // near the top of the plot, not any value-axis meaning of it.
+    function eventToSvgY(evt) {
       var g = lane.segGeom;
       var rect = lane.svg.getBoundingClientRect();
       var scaleY = g.h / rect.height;
-      var y = (evt.clientY - rect.top) * scaleY;
+      return (evt.clientY - rect.top) * scaleY;
+    }
+    function eventToValue(evt) {
+      var g = lane.segGeom;
+      var y = eventToSvgY(evt);
       var v = lane.min + (g.padTop + g.plotH - y) / g.plotH * (lane.max - lane.min);
       v = Math.max(lane.min, Math.min(lane.max, v));
       return Math.round(v / lane.step) * lane.step;
@@ -1493,7 +1386,7 @@
       var wrect = wrap.getBoundingClientRect();
       readout.style.left = (clientX - wrect.left) + "px";
       readout.style.top = (clientY - wrect.top) + "px";
-      var seg = state.segments[index];
+      var seg = activeSegments()[index];
       readout.textContent = binTimeLabel(seg.startSeconds) + "–" + binTimeLabel(seg.startSeconds + seg.duration) + "  " + lane.fmt(value) + "  ·  " + seg.kind;
       readout.classList.add("visible");
     }
@@ -1502,6 +1395,23 @@
       readout.style.left = (clientX - wrect.left) + "px";
       readout.style.top = (clientY - wrect.top) + "px";
       readout.textContent = "Cut at " + binTimeLabel(seconds);
+      readout.classList.add("visible");
+    }
+    function showMarkReadout(seconds, clientX, clientY) {
+      var wrect = wrap.getBoundingClientRect();
+      readout.style.left = (clientX - wrect.left) + "px";
+      readout.style.top = (clientY - wrect.top) + "px";
+      readout.textContent = "Mark at " + binTimeLabel(seconds);
+      readout.classList.add("visible");
+    }
+    // Ported from grid's own `showReadout`'s `labelOverride` branch, split
+    // into its own function here since segment view already has several
+    // differently-shaped readouts rather than one parameterized one.
+    function showEdgeReadout(which, value, clientX, clientY) {
+      var wrect = wrap.getBoundingClientRect();
+      readout.style.left = (clientX - wrect.left) + "px";
+      readout.style.top = (clientY - wrect.top) + "px";
+      readout.textContent = (which === "start" ? "Start" : "End") + "  " + lane.fmt(value);
       readout.classList.add("visible");
     }
     function hideReadout() { readout.classList.remove("visible"); }
@@ -1515,8 +1425,23 @@
     }
     function hideCutLine() { cutLine.style.display = "none"; }
 
-    function applySegPaint(index, value) {
-      lane.segSet(state.segments[index], value);
+    // Sideways multi-segment paint-drag interpolation, ported from grid's
+    // own `applyPaint` – addressed by segment index instead of bin index.
+    // Simpler than grid's version needed to be: `lane.segSet` already
+    // abstracts the ramped-vs-flat field shape, so no separate `setFlat`/
+    // `hasRamps` branch is needed here at all.
+    function applySegPaint(index, value, evt) {
+      var segs = activeSegments();
+      if (lastIndex !== null && Math.abs(index - lastIndex) > 1) {
+        var step = index > lastIndex ? 1 : -1;
+        for (var ii = lastIndex + step; ii !== index; ii += step) {
+          var frac = (ii - lastIndex) / (index - lastIndex);
+          var interp = Math.round((lastVal + (value - lastVal) * frac) / lane.step) * lane.step;
+          lane.segSet(segs[ii], interp);
+        }
+      }
+      lane.segSet(segs[index], snappedFlatValue(index, value, evt));
+      lastIndex = index; lastVal = value;
       renderSegmentLane(lane);
       updatePreview();
     }
@@ -1528,38 +1453,113 @@
         evt.preventDefault();
         return;
       }
+      if (markModeActive) {
+        performMark(Math.round(eventToSeconds(evt)));
+        evt.preventDefault();
+        return;
+      }
+      if (lane.hasRamps && evt.shiftKey) {
+        var edge = segEdgeAt(evt);
+        if (edge) {
+          edgeDragging = true;
+          edgeDragIndex = edge.index;
+          edgeDragWhich = edge.which;
+          pushUndo();
+          var v0 = setEdgeValue(edge.index, edge.which, eventToValue(evt), evt);
+          renderSegmentLane(lane);
+          updatePreview();
+          positionEdgeHandle(edge.index, edge.which, v0);
+          showEdgeReadout(edge.which, v0, evt.clientX, evt.clientY);
+          evt.preventDefault();
+          return;
+        }
+      }
+      // Not a mode-click, not an edge-drag – a click landing on an
+      // existing marker edits it instead of painting a value underneath
+      // it (see `editTextEventAt`'s own doc comment on why only near the
+      // very top of the plot).
+      if (editTextEventAt(eventToSeconds(evt), eventToSvgY(evt) - lane.segGeom.padTop)) {
+        evt.preventDefault();
+        return;
+      }
       painting = true;
       pushUndo();
+      lastIndex = null; lastVal = null;
       var index0 = segmentIndexAt(eventToSeconds(evt));
       var value0 = eventToValue(evt);
-      applySegPaint(index0, value0);
+      applySegPaint(index0, value0, evt);
       showValueReadout(index0, value0, evt.clientX, evt.clientY);
       evt.preventDefault();
     });
     hit.addEventListener("pointermove", function (evt) {
       if (cutModeActive) {
-        var seconds = Math.round(eventToSeconds(evt));
-        positionCutLine(seconds);
-        showCutReadout(seconds, evt.clientX, evt.clientY);
+        var secondsC = Math.round(eventToSeconds(evt));
+        positionCutLine(secondsC);
+        showCutReadout(secondsC, evt.clientX, evt.clientY);
         return;
+      }
+      if (markModeActive) {
+        var secondsM = Math.round(eventToSeconds(evt));
+        positionCutLine(secondsM);
+        showMarkReadout(secondsM, evt.clientX, evt.clientY);
+        return;
+      }
+      if (edgeDragging) {
+        var vE = setEdgeValue(edgeDragIndex, edgeDragWhich, eventToValue(evt), evt);
+        renderSegmentLane(lane);
+        updatePreview();
+        positionEdgeHandle(edgeDragIndex, edgeDragWhich, vE);
+        showEdgeReadout(edgeDragWhich, vE, evt.clientX, evt.clientY);
+        return;
+      }
+      if (lane.hasRamps && !painting) {
+        var edge = evt.shiftKey ? segEdgeAt(evt) : null;
+        if (edge) {
+          lane.svg.style.cursor = "ns-resize";
+          var seg = activeSegments()[edge.index];
+          positionEdgeHandle(edge.index, edge.which, edge.which === "start" ? lane.segStart(seg) : lane.segEnd(seg));
+        } else {
+          lane.svg.style.cursor = "";
+          hideEdgeHandle();
+        }
       }
       var index = segmentIndexAt(eventToSeconds(evt));
       var value = eventToValue(evt);
-      if (painting) applySegPaint(index, value);
+      if (painting) applySegPaint(index, value, evt);
       showValueReadout(index, value, evt.clientX, evt.clientY);
     });
     hit.addEventListener("pointerup", function (evt) {
-      painting = false;
+      if (edgeDragging) {
+        edgeDragging = false;
+        hideEdgeHandle();
+        try { hit.releasePointerCapture(evt.pointerId); } catch (e) { /* already released */ }
+        return;
+      }
+      painting = false; lastIndex = null; lastVal = null;
       try { hit.releasePointerCapture(evt.pointerId); } catch (e) { /* already released */ }
     });
     hit.addEventListener("pointerleave", function () {
       if (!painting) hideReadout();
       hideCutLine();
+      if (!edgeDragging) hideEdgeHandle();
     });
+
+    // Warm-up/Cool-down boundary handles – grid-workout-only (see
+    // `setupBoundaryHandle`'s own doc comment on why this isn't
+    // generalized to imported segments) – dragged directly on the chart.
+    // Only set up on the "primary" lane per mode (Power for bike, Speed
+    // for treadmill), same as before unification: both counts are shared
+    // across every lane in a mode, so a second set of handles on the
+    // Incline lane would just be a redundant, confusing second way to
+    // move the same boundary.
+    if (lane.hasBoundaryHandles) {
+      setupBoundaryHandle(lane, "warmup");
+      setupBoundaryHandle(lane, "cooldown");
+    }
   }
 
   function renderSegmentLane(lane) {
-    var segs = state.segments;
+    var segs = activeSegments();
     var totalSeconds = totalSegmentsSeconds();
     var padLeft = 34, padBottom = 20, padTop = 8;
     var h = parseInt(lane.svg.getAttribute("height"), 10);
@@ -1575,8 +1575,8 @@
     lane.segHit.setAttribute("y", padTop);
     lane.segHit.setAttribute("width", plotW);
     lane.segHit.setAttribute("height", plotH);
-    lane.svg.style.cursor = cutModeActive ? "crosshair" : "";
-    if (!cutModeActive) lane.segCutLine.style.display = "none";
+    lane.svg.style.cursor = cutModeActive ? "crosshair" : (markModeActive ? "text" : "");
+    if (!cutModeActive && !markModeActive) lane.segCutLine.style.display = "none";
 
     var accent = css(lane.accent);
     var gridColor = css("--grid");
@@ -1586,6 +1586,41 @@
 
     function xAt(seconds) { return padLeft + seconds * PX_PER_SECOND; }
     function yAt(v) { return padTop + plotH - (v - lane.min) / (lane.max - lane.min) * plotH; }
+
+    // Warm-up/Cool-down boundary handles – grid-workout-only (see
+    // `setupBoundaryHandle`'s own doc comment). Positioning ported from
+    // the pre-unification `renderLane`, just off segment-time `xAt`
+    // instead of bin-index `xAt`; visibility toggled here too, replacing
+    // what the deleted `renderLaneForMode` used to do when switching
+    // layouts.
+    if (lane.hasBoundaryHandles) {
+      var isGridLayout = state.layout === "grid";
+      if (lane.warmupHandleGroup) lane.warmupHandleGroup.style.display = isGridLayout ? "" : "none";
+      if (lane.cooldownHandleGroup) lane.cooldownHandleGroup.style.display = isGridLayout ? "" : "none";
+      if (isGridLayout) {
+        var handleColor = css("--ink");
+        var positionHandle = function (kind, boundarySeconds) {
+          var boundaryX = xAt(boundarySeconds);
+          lane[kind + "HandleGrab"].setAttribute("x", boundaryX - 12);
+          lane[kind + "HandleGrab"].setAttribute("y", padTop);
+          lane[kind + "HandleGrab"].setAttribute("width", 24);
+          lane[kind + "HandleGrab"].setAttribute("height", plotH);
+          lane[kind + "HandleLine"].setAttribute("x1", boundaryX); lane[kind + "HandleLine"].setAttribute("x2", boundaryX);
+          lane[kind + "HandleLine"].setAttribute("y1", padTop); lane[kind + "HandleLine"].setAttribute("y2", padTop + plotH);
+          lane[kind + "HandleLine"].setAttribute("stroke", handleColor);
+          lane[kind + "HandleGrip"].setAttribute("x", boundaryX - 8);
+          lane[kind + "HandleGrip"].setAttribute("y", padTop + plotH / 2 - 6);
+          lane[kind + "HandleGrip"].setAttribute("fill", handleColor);
+          var gripCenterY = padTop + plotH / 2;
+          lane[kind + "HandleNotch1"].setAttribute("x1", boundaryX - 3); lane[kind + "HandleNotch1"].setAttribute("x2", boundaryX - 3);
+          lane[kind + "HandleNotch1"].setAttribute("y1", gripCenterY - 3); lane[kind + "HandleNotch1"].setAttribute("y2", gripCenterY + 3);
+          lane[kind + "HandleNotch2"].setAttribute("x1", boundaryX + 3); lane[kind + "HandleNotch2"].setAttribute("x2", boundaryX + 3);
+          lane[kind + "HandleNotch2"].setAttribute("y1", gripCenterY - 3); lane[kind + "HandleNotch2"].setAttribute("y2", gripCenterY + 3);
+        };
+        positionHandle("warmup", state.warmupBins * state.binSeconds);
+        positionHandle("cooldown", (segs.length - state.cooldownBins) * state.binSeconds);
+      }
+    }
 
     var group = lane.segVisualGroup;
     while (group.firstChild) group.removeChild(group.firstChild);
@@ -1732,6 +1767,49 @@
       strokePath.setAttribute("stroke-linejoin", "round");
       group.appendChild(strokePath);
     }
+
+    // `<TextEvent>` markers – a small filled "pin" plus a feint full-height
+    // guide line (so it's easy to see exactly where in the value curve
+    // above it falls) at each event's own absolute time, drawn on every
+    // lane a segment view has (both Speed and Incline for treadmill, same
+    // as the warm-up/cool-down bands above already are) rather than only
+    // one "primary" one. `editTextEventAt`'s own `MARKER_Y_HIT_MAX` is
+    // what this geometry has to stay in sync with – see its doc comment.
+    segs.forEach(function (seg) {
+      (seg.textEvents || []).forEach(function (ev) {
+        var mx = xAt(seg.startSeconds + ev.timeOffset);
+        var guide = document.createElementNS(svgNS, "line");
+        guide.setAttribute("x1", mx); guide.setAttribute("x2", mx);
+        guide.setAttribute("y1", padTop); guide.setAttribute("y2", padTop + plotH);
+        guide.setAttribute("stroke", accent);
+        guide.setAttribute("stroke-width", "1");
+        guide.setAttribute("stroke-dasharray", "2,3");
+        guide.setAttribute("opacity", "0.45");
+        group.appendChild(guide);
+
+        var pin = document.createElementNS(svgNS, "circle");
+        pin.setAttribute("cx", mx);
+        pin.setAttribute("cy", padTop + 4);
+        pin.setAttribute("r", "3.5");
+        pin.setAttribute("fill", accent);
+        var pinTitle = document.createElementNS(svgNS, "title");
+        pinTitle.textContent = ev.message;
+        pin.appendChild(pinTitle);
+        group.appendChild(pin);
+
+        var label = document.createElementNS(svgNS, "text");
+        label.setAttribute("x", mx + 6);
+        label.setAttribute("y", padTop + 7);
+        label.setAttribute("font-family", "IBM Plex Mono, monospace");
+        label.setAttribute("font-size", "8.5");
+        label.setAttribute("fill", inkMuted);
+        label.textContent = ev.message.length > 18 ? ev.message.slice(0, 17) + "…" : ev.message;
+        var labelTitle = document.createElementNS(svgNS, "title");
+        labelTitle.textContent = ev.message;
+        label.appendChild(labelTitle);
+        group.appendChild(label);
+      });
+    });
   }
 
   // Picks grid view or segment view for `lane` (`state.layout`) and hides
@@ -1743,46 +1821,35 @@
   // view otherwise repositions or hides them, so without this they'd just
   // sit at wherever they last were in grid view, floating over segment
   // view's own chart.
-  function renderLaneForMode(lane) {
-    if (state.layout === "segments") {
-      if (lane.hit) lane.hit.style.display = "none";
-      if (lane.visualGroup) lane.visualGroup.style.display = "none";
-      if (lane.warmupHandleGroup) lane.warmupHandleGroup.style.display = "none";
-      if (lane.cooldownHandleGroup) lane.cooldownHandleGroup.style.display = "none";
-      renderSegmentLane(lane);
-      lane.segHit.style.display = "";
-      lane.segVisualGroup.style.display = "";
-    } else {
-      if (lane.segHit) lane.segHit.style.display = "none";
-      if (lane.segVisualGroup) lane.segVisualGroup.style.display = "none";
-      if (lane.segCutLine) lane.segCutLine.style.display = "none";
-      renderLane(lane);
-      lane.hit.style.display = "";
-      lane.visualGroup.style.display = "";
-      if (lane.warmupHandleGroup) lane.warmupHandleGroup.style.display = "";
-      if (lane.cooldownHandleGroup) lane.cooldownHandleGroup.style.display = "";
-    }
-  }
-
-  // "C" enters Cut mode (segment view only – see `state.layout`'s own doc
-  // comment), requested directly, modeled on an audio editor's own
-  // razor/split tool. Guarded against firing while typing, same as the
-  // undo/redo listener above, so typing an actual "c" into a text field
-  // works normally; excludes every modifier too, so it doesn't shadow
-  // Cmd/Ctrl+C (copy). "Escape" (to leave) is deliberately *not* guarded
-  // the same way – it doesn't do anything unwanted in a text field
-  // either, and leaving Cut mode is the one action here that should
-  // always work regardless of where focus happens to be.
+  // "C" enters Cut mode, "M" enters Mark mode, requested directly, both
+  // modeled on an audio editor's own razor/split and marker tools –
+  // available regardless of `state.layout` now that grid and segments
+  // share one underlying model (Cut promotes a grid workout to
+  // "segments" itself, see `performCut`'s own doc comment; Mark doesn't
+  // need to). Mutually exclusive – entering one leaves the other, rather
+  // than leaving it ambiguous what a click does with both active at
+  // once. Guarded against firing while typing, same as the undo/redo
+  // listener above, so typing an actual "c"/"m" into a text field works
+  // normally; exclude every modifier too, so "C" doesn't shadow
+  // Cmd/Ctrl+C (copy). "Escape" (to leave either) is deliberately *not*
+  // guarded the same way – it doesn't do anything unwanted in a text
+  // field either, and leaving these modes is the one action here that
+  // should always work regardless of where focus happens to be.
   document.addEventListener("keydown", function (evt) {
     if (evt.key === "Escape") {
-      if (cutModeActive) { cutModeActive = false; renderAll(); }
+      if (cutModeActive || markModeActive) { cutModeActive = false; markModeActive = false; renderAll(); }
       return;
     }
     var tag = document.activeElement ? document.activeElement.tagName : "";
     if (tag === "INPUT" || tag === "TEXTAREA") return;
-    if ((evt.key === "c" || evt.key === "C") && !evt.ctrlKey && !evt.metaKey && !evt.altKey) {
-      if (state.layout !== "segments") return;
+    if (evt.ctrlKey || evt.metaKey || evt.altKey) return;
+    if (evt.key === "c" || evt.key === "C") {
       cutModeActive = true;
+      markModeActive = false;
+      renderAll();
+    } else if (evt.key === "m" || evt.key === "M") {
+      markModeActive = true;
+      cutModeActive = false;
       renderAll();
     }
   });
@@ -1791,15 +1858,15 @@
     if (state.mode === "bike") {
       document.getElementById("lanes-bike").style.display = "";
       document.getElementById("lanes-treadmill").style.display = "none";
-      renderLaneForMode(lanes.power);
+      renderSegmentLane(lanes.power);
     } else {
       document.getElementById("lanes-bike").style.display = "none";
       document.getElementById("lanes-treadmill").style.display = "";
-      renderLaneForMode(lanes.speed);
-      renderLaneForMode(lanes.incline);
+      renderSegmentLane(lanes.speed);
+      renderSegmentLane(lanes.incline);
     }
     var segMode = state.layout === "segments";
-    var totalSec = segMode ? totalSegmentsSeconds() : state.bins * state.binSeconds;
+    var totalSec = totalSegmentsSeconds();
     document.getElementById("total-read").textContent = binTimeLabel(totalSec);
     document.getElementById("ftp-field").style.display = state.mode === "bike" ? "" : "none";
     document.getElementById("speed-step-field").style.display = state.mode === "treadmill" ? "" : "none";
@@ -1829,59 +1896,43 @@
     return runs;
   }
 
-  // `values` is `state.power` – always `{start, end}` bins (see the
-  // "ramped power bins" note in `ensureLaneSetup`). Writing the *actual*
-  // start/end values, one at t0 and the other at (t1 - 0.01min), is what
-  // makes an `.erg`/`.mrc` reader draw a genuine linear ramp across the
-  // bin instead of a flat block – exactly like a flat bin already did
-  // when `start === end`, so this one code path covers both without a
-  // separate branch. The 0.01 min still keeps a *step* between bins a
-  // step (not smeared into the next bin's own start), same reasoning as
-  // before this had ramps at all.
-  function ergLikeBody(values, toPercentOfFtp) {
-    var lines = [];
-    var binMin = state.binSeconds / 60;
-    function fmt(v) { return toPercentOfFtp ? Math.round(v / state.ftp * 100) : Math.round(v); }
-    // Consecutive flat bins holding the exact same value collapse into one
-    // block spanning their combined duration – requested directly, same
-    // reasoning `buildZwo` already applies to its own `<SteadyState>`
-    // blocks via this same `mergeRuns` helper, just not previously
-    // extended to `.erg`/`.mrc` here. A ramped bin (`start !== end`)
-    // always keeps its own run – its `"ramp" + i` key is unique to that
-    // index, so it never merges with a neighbor and still gets its own
-    // start/end pair exactly as before.
-    var runs = mergeRuns(values.length, function (i) {
-      var bin = values[i];
-      return bin.start === bin.end ? String(bin.start) : "ramp" + i;
-    });
-    runs.forEach(function (r) {
-      var t0 = r.start * binMin;
-      var t1 = (r.start + r.length) * binMin - 0.01;
-      lines.push(t0.toFixed(2) + "\t" + fmt(values[r.start].start));
-      lines.push(t1.toFixed(2) + "\t" + fmt(values[r.start + r.length - 1].end));
-    });
-    return lines.join("\n");
-  }
-
-  // The end of a merged run of `state.segments` (inclusive `r.start` to
+  // The end of a merged run of `segs` (inclusive `r.start` to
   // `r.start + r.length - 1`, `mergeRuns`' own shape) – its total span in
   // seconds, spanning however many of the original segments it merged.
-  // Shared between `ergLikeBodyFromSegments` and `buildZwo`'s own
-  // segment-mode branch below.
-  function segmentRunEnd(r) {
-    var last = state.segments[r.start + r.length - 1];
+  // Shared between `ergLikeBodyFromSegments` and `buildZwo`'s own two
+  // mode branches below – takes `segs` explicitly rather than reading
+  // `activeSegments()` itself, since `ergLikeBodyFromSegments` (below)
+  // always means `state.segments.bike` specifically, regardless of
+  // `state.mode`/`activeSegments()` (the .erg/.mrc download is always
+  // available and always Power-based, even while Treadmill is the
+  // currently *displayed* profile) – unlike `buildZwo`'s own two
+  // branches, which are already gated by `state.mode` and so can safely
+  // pass `activeSegments()` itself.
+  function segmentRunEnd(segs, r) {
+    var last = segs[r.start + r.length - 1];
     return last.startSeconds + last.duration;
   }
 
-  // `ergLikeBody`'s own counterpart for `state.layout === "segments"` –
-  // reads `state.segments` directly (already exact, "as is" durations, no
-  // resampling), same merge-consecutive-flat-runs behavior via the same
-  // `mergeRuns` helper, just keyed by segment index instead of bin index
-  // and using each run's own actual real-world duration instead of
-  // `r.length * state.binSeconds`.
+  // `.erg`/`.mrc` body from `state.segments.bike` – always the bike
+  // profile specifically, not `activeSegments()`/whichever Profile is
+  // currently displayed (see `segmentRunEnd`'s own note on why) – .erg/
+  // .mrc are Power-only formats with no Treadmill equivalent, the same
+  // reason `buildZwo`'s two branches below stay mode-specific instead.
+  // Already exact, "as is" durations, no resampling needed. Consecutive
+  // flat segments holding the exact same value collapse into one block
+  // spanning their combined duration via `mergeRuns`, same reasoning
+  // `buildZwo` already applies to its own `<SteadyState>` blocks. A
+  // ramped segment (`startWatts !== endWatts`) always keeps its own run –
+  // its `"ramp" + i` key is unique to that index, so it never merges with
+  // a neighbor, and gets its own start/end pair written at t0 and
+  // (t1 - 0.01min) – what makes an `.erg`/`.mrc` reader draw a genuine
+  // linear ramp instead of a flat block (a flat segment, `start === end`,
+  // comes out the same way trivially, no separate branch needed). The
+  // 0.01 min keeps a *step* between runs a step, not smeared into the
+  // next run's own start.
   function ergLikeBodyFromSegments(toPercentOfFtp) {
     var lines = [];
-    var segs = state.segments;
+    var segs = state.segments.bike;
     function fmt(v) { return toPercentOfFtp ? Math.round(v / state.ftp * 100) : Math.round(v); }
     var runs = mergeRuns(segs.length, function (i) {
       var seg = segs[i];
@@ -1889,7 +1940,7 @@
     });
     runs.forEach(function (r) {
       var t0 = segs[r.start].startSeconds / 60;
-      var t1 = segmentRunEnd(r) / 60 - 0.01;
+      var t1 = segmentRunEnd(segs, r) / 60 - 0.01;
       lines.push(t0.toFixed(2) + "\t" + fmt(segs[r.start].startWatts));
       lines.push(t1.toFixed(2) + "\t" + fmt(segs[r.start + r.length - 1].endWatts));
     });
@@ -1906,7 +1957,7 @@
       "MINUTES\tWATTS",
       "[END COURSE HEADER]"
     ].join("\n");
-    var body = state.layout === "segments" ? ergLikeBodyFromSegments(false) : ergLikeBody(state.power, false);
+    var body = ergLikeBodyFromSegments(false);
     return header + "\n[COURSE DATA]\n" + body + "\n[END COURSE DATA]\n";
   }
 
@@ -1920,7 +1971,7 @@
       "MINUTES\tPERCENT",
       "[END COURSE HEADER]"
     ].join("\n");
-    var body = state.layout === "segments" ? ergLikeBodyFromSegments(true) : ergLikeBody(state.power, true);
+    var body = ergLikeBodyFromSegments(true);
     return header + "\n[COURSE DATA]\n" + body + "\n[END COURSE DATA]\n";
   }
 
@@ -1938,74 +1989,87 @@
       .replace(/'/g, "&apos;");
   }
 
+  // Writes one `<Warmup>`/`<SteadyState>`/`<Cooldown>` line – self-closed
+  // if `textEvents` is empty, or wrapping a nested `<TextEvent>` per
+  // marker (see `parseTextEvents`'s own doc comment for the shape)
+  // otherwise, in the same `timeoffset="…" message="…"` shape a `.zwo`
+  // file itself already uses (`Duration` only included when the marker
+  // actually had one on import – never invented on export). Shared by
+  // both the bike and treadmill segment-mode branches of `buildZwo`
+  // below.
+  function pushZwoBlock(lines, kind, duration, attrsString, textEvents) {
+    if (textEvents && textEvents.length) {
+      lines.push('    <' + kind + ' Duration="' + duration + '" ' + attrsString + '>');
+      textEvents.forEach(function (ev) {
+        var durAttr = ev.duration != null ? ' Duration="' + ev.duration + '"' : '';
+        lines.push('      <TextEvent timeoffset="' + Math.round(ev.timeOffset) + '" message="' + xmlEscape(ev.message) + '"' + durAttr + '/>');
+      });
+      lines.push('    </' + kind + '>');
+    } else {
+      lines.push('    <' + kind + ' Duration="' + duration + '" ' + attrsString + '/>');
+    }
+  }
+
   function buildZwo() {
     var lines = [];
     lines.push('<workout_file>');
     lines.push('  <author>Unchain Workout Builder</author>');
     lines.push('  <name>' + xmlEscape(state.name) + '</name>');
     lines.push('  <description>Drawn with Unchain\'s Interval Sketch.</description>');
-    var segMode = state.layout === "segments";
     if (state.mode === "bike") {
       lines.push('  <sportType>bike</sportType>');
       lines.push('  <workout>');
-      if (segMode) {
-        // Same reasoning as the grid branch just below, just keyed by
-        // segment index (each already its own exact, "as is" duration –
-        // no resampling) instead of bin index.
-        var segRuns = mergeRuns(state.segments.length, function (i) {
-          var seg = state.segments[i];
-          var ramped = seg.startWatts !== seg.endWatts;
-          return (ramped ? "ramp" + i : seg.startWatts) + "|" + seg.kind;
-        });
-        segRuns.forEach(function (r) {
-          var seg0 = state.segments[r.start];
-          var duration = segmentRunEnd(r) - seg0.startSeconds;
-          var avg = (seg0.startWatts + state.segments[r.start + r.length - 1].endWatts) / 2;
-          var fraction = (avg / state.ftp).toFixed(3);
-          lines.push('    <' + seg0.kind + ' Duration="' + duration + '" Power="' + fraction + '"/>');
-        });
-      } else {
-        // `.zwo`'s flat blocks can't express a ramp at all (see
-        // `ZWOWorkoutParser`'s own doc comment in the app) – a ramped bin
-        // (`start !== end`) is exported as its start/end average instead
-        // of being silently flattened by merging it with a same-average
-        // neighbor that might have a completely different actual ramp,
-        // so its own unique `"ramp" + i` key here always keeps it as its
-        // own single-bin block rather than merging with anything.
-        var runs = mergeRuns(state.bins, function (i) {
-          var bin = state.power[i];
-          var ramped = bin.start !== bin.end;
-          return (ramped ? "ramp" + i : bin.start) + "|" + classify(i);
-        });
-        runs.forEach(function (r) {
-          var duration = r.length * state.binSeconds;
-          var bin = state.power[r.start];
-          var avg = (bin.start + bin.end) / 2;
-          var fraction = (avg / state.ftp).toFixed(3);
-          lines.push('    <' + classify(r.start) + ' Duration="' + duration + '" Power="' + fraction + '"/>');
-        });
-      }
+      // Keyed by segment index – each already its own exact, "as is"
+      // duration, no resampling needed, grid or imported alike. A
+      // segment carrying its own `<TextEvent>` marker(s), or a ramped
+      // one (`startWatts !== endWatts` – `.zwo`'s flat blocks can't
+      // express a ramp at all, see `ZWOWorkoutParser`'s own doc comment
+      // in the app), always keeps its own unique key too: a ramped
+      // segment is exported as its start/end average instead of being
+      // silently flattened by merging with a same-average neighbor that
+      // might have a completely different actual ramp; a marked one
+      // would need re-expressing each marker's own `timeoffset` relative
+      // to a different block's start if merged, which `performCut`'s own
+      // splitting logic already keeps correct as long as a segment's
+      // markers never have to survive a *merge*.
+      var segRuns = mergeRuns(activeSegments().length, function (i) {
+        var seg = activeSegments()[i];
+        var ramped = seg.startWatts !== seg.endWatts;
+        var hasEvents = seg.textEvents && seg.textEvents.length > 0;
+        return (ramped || hasEvents ? "unique" + i : seg.startWatts) + "|" + seg.kind;
+      });
+      segRuns.forEach(function (r) {
+        var seg0 = activeSegments()[r.start];
+        var duration = segmentRunEnd(activeSegments(), r) - seg0.startSeconds;
+        var avg = (seg0.startWatts + activeSegments()[r.start + r.length - 1].endWatts) / 2;
+        var fraction = (avg / state.ftp).toFixed(3);
+        pushZwoBlock(lines, seg0.kind, duration, 'Power="' + fraction + '"', seg0.textEvents);
+      });
       lines.push('  </workout>');
     } else {
       lines.push('  <sportType>run</sportType>');
       lines.push('  <workout>');
-      if (segMode) {
-        var segRuns2 = mergeRuns(state.segments.length, function (i) {
-          var seg = state.segments[i];
-          return seg.speedKmh + "|" + seg.inclinePercent + "|" + seg.kind;
-        });
-        segRuns2.forEach(function (r) {
-          var seg0 = state.segments[r.start];
-          var duration = segmentRunEnd(r) - seg0.startSeconds;
-          lines.push('    <' + seg0.kind + ' Duration="' + duration + '" Pace="' + seg0.speedKmh.toFixed(1) + '" Incline="' + seg0.inclinePercent.toFixed(1) + '"/>');
-        });
-      } else {
-        var runs2 = mergeRuns(state.bins, function (i) { return state.speed[i] + "|" + state.incline[i] + "|" + classify(i); });
-        runs2.forEach(function (r) {
-          var duration = r.length * state.binSeconds;
-          lines.push('    <' + classify(r.start) + ' Duration="' + duration + '" Pace="' + state.speed[r.start].toFixed(1) + '" Incline="' + state.incline[r.start].toFixed(1) + '"/>');
-        });
-      }
+      // Same "a ramped or marked segment always keeps its own unique key"
+      // reasoning as the bike branch above – `.zwo`'s flat blocks can't
+      // express a Speed/Incline ramp any more than they can a Power one
+      // (see `ZWOWorkoutParser`'s own doc comment in the app), so a
+      // ramped segment (either field, independently) is exported as its
+      // own start/end average instead of merging with a same-average
+      // neighbor that might have a completely different actual ramp.
+      var segRuns2 = mergeRuns(activeSegments().length, function (i) {
+        var seg = activeSegments()[i];
+        var ramped = seg.startSpeedKmh !== seg.endSpeedKmh || seg.startInclinePercent !== seg.endInclinePercent;
+        var hasEvents = seg.textEvents && seg.textEvents.length > 0;
+        return (ramped || hasEvents ? "unique" + i : seg.startSpeedKmh + "|" + seg.startInclinePercent) + "|" + seg.kind;
+      });
+      segRuns2.forEach(function (r) {
+        var seg0 = activeSegments()[r.start];
+        var lastSeg = activeSegments()[r.start + r.length - 1];
+        var duration = segmentRunEnd(activeSegments(), r) - seg0.startSeconds;
+        var avgSpeed = (seg0.startSpeedKmh + lastSeg.endSpeedKmh) / 2;
+        var avgIncline = (seg0.startInclinePercent + lastSeg.endInclinePercent) / 2;
+        pushZwoBlock(lines, seg0.kind, duration, 'Pace="' + avgSpeed.toFixed(1) + '" Incline="' + avgIncline.toFixed(1) + '"', seg0.textEvents);
+      });
       lines.push('  </workout>');
     }
     lines.push('</workout_file>');
@@ -2064,7 +2128,14 @@
       var raw = storage.getItem(STORAGE_KEY);
       if (!raw) return null;
       var loaded = JSON.parse(raw);
-      if (!loaded || !Array.isArray(loaded.power) || !Array.isArray(loaded.speed) || !Array.isArray(loaded.incline)) return null;
+      // Used to also require `power`/`speed`/`incline` to already be
+      // arrays here – that field no longer exists in a current-shape save
+      // at all, so this would always reject one and silently discard a
+      // rider's real work back to the bundled sample. Whether a given
+      // blob's `segments` (in whichever of the several shapes it might
+      // be – current, or one of the two pre-unification ones) is actually
+      // usable is `migrateOrAdoptSegments`'s job now, not this loader's.
+      if (!loaded || typeof loaded !== "object") return null;
       return loaded;
     } catch (e) {
       return null;
@@ -2078,7 +2149,7 @@
   // itself a drawn value, though %FTP-target math depends on it) stay
   // out, deliberately. Everything else that changes what the chart or an
   // exported file actually contains is fair game.
-  var UNDO_FIELDS = ["mode", "binSeconds", "bins", "warmupBins", "cooldownBins", "power", "speed", "incline", "layout", "segments"];
+  var UNDO_FIELDS = ["mode", "binSeconds", "warmupBins", "cooldownBins", "layout", "segments"];
   var MAX_UNDO = 100;
   var undoStack = [];
   var redoStack = [];
@@ -2161,7 +2232,7 @@
     }
     document.querySelectorAll("#mode-toggle button").forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-mode") === state.mode); });
     document.getElementById("bin-seconds-input").value = String(state.binSeconds);
-    document.getElementById("bins-count").value = String(state.bins);
+    document.getElementById("bins-count").value = String(activeSegments().length);
     document.getElementById("warmup-count").value = String(state.warmupBins);
     document.getElementById("cooldown-count").value = String(state.cooldownBins);
     document.getElementById("ftp-input").value = String(state.ftp);
@@ -2226,15 +2297,58 @@
         duration: duration,
         startWatts: clampRound(rows[ri].value),
         endWatts: clampRound(rows[ri + 1].value),
-        kind: "SteadyState"
+        kind: "SteadyState",
+        textEvents: []
       });
     }
     if (!segments.length) throw new Error("No [COURSE DATA] rows found");
     state.mode = "bike";
     state.ftp = ftp;
     state.layout = "segments";
-    state.segments = segments;
+    state.segments.bike = segments;
     syncControlsFromState();
+  }
+
+  // Case-insensitive attribute lookup – real-world `.zwo` files spell
+  // `<TextEvent>`'s own `timeoffset` attribute both that way and as
+  // `TimeOffset` (see the format reference:
+  // https://github.com/h4l/zwift-workout-file-reference/blob/master/zwift_workout_file_tag_reference.md#element-TextEvent),
+  // and plain `getAttribute` is exact-case only.
+  function attrCI(el, name) {
+    for (var i = 0; i < el.attributes.length; i++) {
+      if (el.attributes[i].name.toLowerCase() === name.toLowerCase()) return el.attributes[i].value;
+    }
+    return null;
+  }
+
+  // `<TextEvent>` children of a `<Warmup>`/`<SteadyState>`/`<Cooldown>`
+  // block – "coaching cue" markers at a given point inside that block,
+  // requested directly, shown on the chart by `renderSegmentLane` and
+  // editable/creatable there too (see `performMark`/`editTextEventAt`).
+  // `timeoffset` is seconds from *this block's own* start, not an
+  // absolute workout time – kept that way here too (`seg.startSeconds`
+  // added only where an absolute time is actually needed, e.g. rendering
+  // or hit-testing), so it survives `performCut` splitting the block
+  // around it unchanged for whichever half it lands in (see there).
+  // `duration` (how long the message stays on screen in Zwift itself) is
+  // kept only if the file actually specified one – `null`, not some
+  // invented default, otherwise, so a re-export doesn't fabricate a value
+  // the original author never chose.
+  function parseTextEvents(el) {
+    return Array.prototype.slice.call(el.children)
+      .filter(function (c) { return c.tagName.toLowerCase() === "textevent"; })
+      .map(function (te) {
+        var timeOffset = parseFloat(attrCI(te, "timeoffset"));
+        if (!isFinite(timeOffset)) timeOffset = 0;
+        var durationRaw = attrCI(te, "duration");
+        var duration = durationRaw !== null ? parseFloat(durationRaw) : null;
+        return {
+          timeOffset: Math.max(0, timeOffset),
+          message: attrCI(te, "message") || "",
+          duration: isFinite(duration) ? duration : null
+        };
+      })
+      .sort(function (a, b) { return a.timeOffset - b.timeOffset; });
   }
 
   // Real XML parsing (`DOMParser`, built into every browser) rather than
@@ -2258,7 +2372,8 @@
         duration: parseFloat(el.getAttribute("Duration")) || 0,
         power: parseFloat(el.getAttribute("Power")),
         pace: parseFloat(el.getAttribute("Pace")),
-        incline: parseFloat(el.getAttribute("Incline"))
+        incline: parseFloat(el.getAttribute("Incline")),
+        textEvents: parseTextEvents(el)
       };
     });
     var totalSeconds = blocks.reduce(function (sum, b) { return sum + b.duration; }, 0);
@@ -2273,7 +2388,7 @@
     // (`startWatts === endWatts`).
     var cursor = 0;
     var segments = blocks.map(function (b) {
-      var seg = { startSeconds: cursor, duration: b.duration, kind: b.kind };
+      var seg = { startSeconds: cursor, duration: b.duration, kind: b.kind, textEvents: b.textEvents };
       if (isBike) {
         var watts = isFinite(b.power) ? b.power * state.ftp : lanes.power.min;
         watts = Math.max(lanes.power.min, Math.min(lanes.power.max, watts));
@@ -2283,10 +2398,14 @@
       } else {
         var speed = isFinite(b.pace) ? b.pace : lanes.speed.min;
         speed = Math.max(lanes.speed.min, Math.min(lanes.speed.max, speed));
-        seg.speedKmh = Math.round(speed / lanes.speed.step) * lanes.speed.step;
+        var roundedSpeed = Math.round(speed / lanes.speed.step) * lanes.speed.step;
+        seg.startSpeedKmh = roundedSpeed;
+        seg.endSpeedKmh = roundedSpeed;
         var incline = isFinite(b.incline) ? b.incline : lanes.incline.min;
         incline = Math.max(lanes.incline.min, Math.min(lanes.incline.max, incline));
-        seg.inclinePercent = Math.round(incline / lanes.incline.step) * lanes.incline.step;
+        var roundedIncline = Math.round(incline / lanes.incline.step) * lanes.incline.step;
+        seg.startInclinePercent = roundedIncline;
+        seg.endInclinePercent = roundedIncline;
       }
       cursor += b.duration;
       return seg;
@@ -2294,7 +2413,7 @@
 
     state.mode = isBike ? "bike" : "treadmill";
     state.layout = "segments";
-    state.segments = segments;
+    state.segments[state.mode] = segments;
     syncControlsFromState();
   }
 
@@ -2766,30 +2885,36 @@
           duration: step.duration,
           startWatts: clampRoundBike(step.startWatts),
           endWatts: clampRoundBike(step.endWatts),
-          kind: step.kind
+          kind: step.kind,
+          textEvents: []
         };
         cursor += step.duration;
         return seg;
       });
       state.mode = "bike";
       state.layout = "segments";
-      state.segments = segments;
+      state.segments.bike = segments;
     } else {
       var blocks = parseTreadmillShorthandBlocks(text);
       var segmentsT = blocks.map(function (b) {
         var speed = Math.max(lanes.speed.min, Math.min(lanes.speed.max, b.speedKmh));
         var incline = Math.max(lanes.incline.min, Math.min(lanes.incline.max, b.inclinePercent));
+        var roundedSpeed = Math.round(speed / lanes.speed.step) * lanes.speed.step;
+        var roundedIncline = Math.round(incline / lanes.incline.step) * lanes.incline.step;
         return {
           startSeconds: b.startSeconds,
           duration: b.duration,
-          speedKmh: Math.round(speed / lanes.speed.step) * lanes.speed.step,
-          inclinePercent: Math.round(incline / lanes.incline.step) * lanes.incline.step,
-          kind: b.kind
+          startSpeedKmh: roundedSpeed,
+          endSpeedKmh: roundedSpeed,
+          startInclinePercent: roundedIncline,
+          endInclinePercent: roundedIncline,
+          kind: b.kind,
+          textEvents: []
         };
       });
       state.mode = "treadmill";
       state.layout = "segments";
-      state.segments = segmentsT;
+      state.segments.treadmill = segmentsT;
     }
     syncControlsFromState();
   }
@@ -2914,11 +3039,30 @@
     updatePreview();
   });
 
+  // Rescales every grid segment's own `duration` to `newBinSeconds`
+  // (recomputing `startSeconds` sequentially), on both `state.segments
+  // .bike` and `.treadmill` together – mirrors `resizeSegments`'s own
+  // reasoning for touching both at once. Actually has an effect now,
+  // unlike the pre-unification handler this replaces, which only ever
+  // relabeled the time axis without touching any segment/bin data at
+  // all – confusing sitting right next to "Intervals", not a behavior
+  // worth preserving.
+  function rescaleGridSegments(newBinSeconds) {
+    ["bike", "treadmill"].forEach(function (modeKey) {
+      var cursor = 0;
+      state.segments[modeKey].forEach(function (seg) {
+        seg.duration = newBinSeconds;
+        seg.startSeconds = cursor;
+        cursor += newBinSeconds;
+      });
+    });
+  }
   document.getElementById("bin-seconds-input").addEventListener("change", function () {
     var v = parseInt(this.value, 10);
     if (!isFinite(v)) v = state.binSeconds;
     v = Math.max(MIN_BIN_SECONDS, Math.min(MAX_BIN_SECONDS, v));
     pushUndo();
+    if (state.layout === "grid") rescaleGridSegments(v);
     state.binSeconds = v;
     this.value = String(v);
     renderAll();
@@ -2926,7 +3070,7 @@
   });
 
   function clampWarmupCooldown() {
-    var maxTotal = state.bins - 1;
+    var maxTotal = activeSegments().length - 1;
     if (state.warmupBins + state.cooldownBins > maxTotal) {
       var overflow = state.warmupBins + state.cooldownBins - maxTotal;
       state.cooldownBins = Math.max(0, state.cooldownBins - overflow);
@@ -2937,44 +3081,59 @@
     document.getElementById("cooldown-count").value = String(state.cooldownBins);
   }
 
-  function resizeBins(newCount) {
+  // Replaces the old `resizeBins` – adds/removes trailing segments on
+  // *both* `state.segments.bike` and `.treadmill` together (mirroring how
+  // the old `power`/`speed`/`incline` arrays were always resized
+  // together too), each new one continuing the previous last segment's
+  // own ending value, `duration` always `state.binSeconds` (grid-only,
+  // so every segment is already that wide). `kind` is fixed up by
+  // `syncGridKinds()` afterward, same as every other grid-count change.
+  function resizeSegments(newCount) {
     pushUndo();
     newCount = Math.max(2, Math.min(96, newCount));
-    ["speed", "incline"].forEach(function (key) {
-      var arr = state[key];
-      while (arr.length < newCount) arr.push(arr.length ? arr[arr.length - 1] : (key === "speed" ? 6 : 1));
-      arr.length = newCount;
+    ["bike", "treadmill"].forEach(function (modeKey) {
+      var segs = state.segments[modeKey];
+      while (segs.length < newCount) {
+        var prev = segs[segs.length - 1];
+        var next = { startSeconds: 0, duration: state.binSeconds, kind: "SteadyState", textEvents: [] };
+        if (modeKey === "bike") {
+          var lastEnd = prev ? prev.endWatts : 150;
+          next.startWatts = lastEnd; next.endWatts = lastEnd;
+        } else {
+          var lastSpeed = prev ? prev.endSpeedKmh : 6;
+          var lastIncline = prev ? prev.endInclinePercent : 1;
+          next.startSpeedKmh = lastSpeed; next.endSpeedKmh = lastSpeed;
+          next.startInclinePercent = lastIncline; next.endInclinePercent = lastIncline;
+        }
+        segs.push(next);
+      }
+      segs.length = newCount;
+      var cursor = 0;
+      segs.forEach(function (s) { s.startSeconds = cursor; cursor += s.duration; });
     });
-    // Power's own bins are `{start, end}` – a newly appended bin
-    // continues flat from the previous last bin's own *end* value
-    // (rather than reusing that whole `{start, end}` pair verbatim,
-    // which would wrongly repeat its ramp too).
-    while (state.power.length < newCount) {
-      var lastEnd = state.power.length ? state.power[state.power.length - 1].end : 150;
-      state.power.push({ start: lastEnd, end: lastEnd });
-    }
-    state.power.length = newCount;
-    state.bins = newCount;
     document.getElementById("bins-count").value = String(newCount);
     clampWarmupCooldown();
+    syncGridKinds();
     renderAll();
     updatePreview();
   }
-  document.getElementById("bins-plus").addEventListener("click", function () { resizeBins(state.bins + 1); });
-  document.getElementById("bins-minus").addEventListener("click", function () { resizeBins(state.bins - 1); });
+  document.getElementById("bins-plus").addEventListener("click", function () { resizeSegments(activeSegments().length + 1); });
+  document.getElementById("bins-minus").addEventListener("click", function () { resizeSegments(activeSegments().length - 1); });
 
   // Deliberately *not* where `pushUndo()` is called for these two below –
   // both are also called on every `pointermove` of a boundary-handle drag
   // (see `setupBoundaryHandle`), where pushing here would flood the
   // history with one entry per pixel dragged instead of one per gesture.
   function setWarmup(v) {
-    state.warmupBins = Math.max(0, Math.min(state.bins - 1 - state.cooldownBins, v));
+    state.warmupBins = Math.max(0, Math.min(activeSegments().length - 1 - state.cooldownBins, v));
     document.getElementById("warmup-count").value = String(state.warmupBins);
+    syncGridKinds();
     renderAll(); updatePreview();
   }
   function setCooldown(v) {
-    state.cooldownBins = Math.max(0, Math.min(state.bins - 1 - state.warmupBins, v));
+    state.cooldownBins = Math.max(0, Math.min(activeSegments().length - 1 - state.warmupBins, v));
     document.getElementById("cooldown-count").value = String(state.cooldownBins);
+    syncGridKinds();
     renderAll(); updatePreview();
   }
   document.getElementById("warmup-plus").addEventListener("click", function () { pushUndo(); setWarmup(state.warmupBins + 1); });
@@ -2985,18 +3144,24 @@
   document.getElementById("speed-step-toggle").addEventListener("click", function (evt) {
     var btn = evt.target.closest("button[data-step]");
     if (!btn) return;
-    // Only `state.speed`'s own re-rounding below is workout content;
-    // `speedStep` itself is a tool preference, out of `UNDO_FIELDS` – but
-    // pushing here anyway is still correct, since `pushUndo()` only ever
-    // *reads* `UNDO_FIELDS` regardless of what else changed alongside them.
+    // Only the re-rounding below is workout content; `speedStep` itself
+    // is a tool preference, out of `UNDO_FIELDS` – but pushing here
+    // anyway is still correct, since `pushUndo()` only ever *reads*
+    // `UNDO_FIELDS` regardless of what else changed alongside them.
     pushUndo();
     state.speedStep = parseFloat(btn.getAttribute("data-step"));
     lanes.speed.step = state.speedStep;
     document.querySelectorAll("#speed-step-toggle button").forEach(function (b) { b.classList.toggle("active", b === btn); });
-    // Re-round the already-drawn speed values onto the new grid right
-    // away, rather than leaving them at whatever the old step happened to
-    // land on until the rider repaints them by hand.
-    state.speed = state.speed.map(function (v) { return Math.round(v / lanes.speed.step) * lanes.speed.step; });
+    // Re-round every already-drawn treadmill segment's own speed onto the
+    // new grid right away, rather than leaving it at whatever the old
+    // step happened to land on until the rider repaints it by hand –
+    // always `state.segments.treadmill` regardless of which Profile is
+    // currently displayed, same reasoning `ergLikeBodyFromSegments`'s own
+    // `state.segments.bike` has for not using `activeSegments()`.
+    state.segments.treadmill.forEach(function (seg) {
+      seg.startSpeedKmh = Math.round(seg.startSpeedKmh / lanes.speed.step) * lanes.speed.step;
+      seg.endSpeedKmh = Math.round(seg.endSpeedKmh / lanes.speed.step) * lanes.speed.step;
+    });
     renderAll();
     updatePreview();
   });

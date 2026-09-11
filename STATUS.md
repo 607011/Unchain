@@ -3796,3 +3796,48 @@ would change, roughly in the order it'd need doing:
       still-being-edited paste" rule); Undo back to Bike correctly
       un-hides the cards, Redo back to Treadmill correctly re-hides them.
       Zero console errors throughout.
+- [x] **Corrected: a ramped Treadmill segment now exports as its own
+      `<Ramp>` block, not as `SpeedLow`/`SpeedHigh`/`InclineLow`/
+      `InclineHigh` attributes bolted onto `Warmup`/`SteadyState`/
+      `Cooldown`** – the previous entry above got this wrong: those four
+      attribute names were invented specifically *for* a `<Ramp>` block,
+      deliberately mirroring how Zwift's own real `<Ramp>` element
+      carries `PowerLow`/`PowerHigh` for cycling, not as a generic
+      "ramping" suffix to sprinkle onto any block. `buildZwo`'s treadmill
+      branch now writes `<Ramp Duration=… SpeedLow=… SpeedHigh=…
+      InclineLow=… InclineHigh=…/>` for an actually-ramped segment (all
+      four attributes always together, `Low === High` for whichever
+      dimension isn't ramping – a `<Ramp>` block has no flat `Pace`/
+      `Incline` fallback of its own the way `Warmup`/`SteadyState`/
+      `Cooldown` do), and keeps writing plain `Warmup`/`SteadyState`/
+      `Cooldown` with flat `Pace`/`Incline` for a genuinely flat segment,
+      exactly as before this correction. A ramped segment's own `kind`
+      is deliberately not preserved in the file any more – same as
+      Zwift's own `<Ramp>`, which isn't tagged Warmup/SteadyState/
+      Cooldown either.
+      `applyZwoText` (this tool's own `.zwo` import, used for re-loading
+      an exported file, drag & drop, and pasting into the Preview) now
+      also accepts `<Ramp>` in its block whitelist and reads `SpeedLow`/
+      `SpeedHigh`/`InclineLow`/`InclineHigh` (new `clampToStep` helper,
+      factored out of the clamp-then-round-to-step dance the flat
+      Pace/Incline/Power reads already did inline) – without this, a
+      self-exported ramped segment would have silently vanished on
+      re-import instead of round-tripping, a real regression this
+      correction would otherwise have introduced. A genuine cycling
+      `<Ramp>` (Power-based, no Speed/Incline attributes) still imports
+      without crashing – falls back to `lanes.speed.min`/`lanes.incline
+      .min`, the same graceful-fallback treatment any block missing
+      `Pace`/`Incline` already got.
+      Verified live in the browser: pasted a hand-written `<Ramp
+      Duration="60" SpeedLow="4.0" SpeedHigh="6.0" InclineLow="2.0"
+      InclineHigh="7.0"/>` between a flat Warmup and Cooldown – chart
+      showed the correct ramp shape immediately; toggling Profile away
+      and back (forces a full re-render from the preserved `state
+      .segments.treadmill`) re-exported byte-for-byte the same `<Ramp>`
+      line, with the flat Warmup/Cooldown blocks carrying plain
+      `Pace`/`Incline` and no stray `SpeedLow`/`InclineLow` at all;
+      pasting a Power-based `<Ramp>` (no Speed/Incline attributes)
+      produced no console error and fell back to flat zeros as expected.
+      Zero console errors throughout. Also updated the app-side
+      `ZWOWorkoutParser` (`main`) to match this corrected design – see
+      its own `STATUS.md` entry there.

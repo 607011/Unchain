@@ -2059,13 +2059,16 @@
       .replace(/'/g, "&apos;");
   }
 
-  // Writes one `<Warmup>`/`<SteadyState>`/`<Cooldown>` line – self-closed
-  // if `textEvents` is empty, or wrapping a nested `<TextEvent>` per
-  // marker (see `parseTextEvents`'s own doc comment for the shape)
-  // otherwise, in the same `timeoffset="…" message="…"` shape a `.zwo`
-  // file itself already uses (`Duration` only included when the marker
-  // actually had one on import – never invented on export). Shared by
-  // both the bike and treadmill segment-mode branches of `buildZwo`
+  // Writes one `<Warmup>`/`<SteadyState>`/`<Cooldown>`/`<Ramp>` line –
+  // self-closed if `textEvents` is empty, or wrapping a nested
+  // `<TextEvent>` per marker (see `parseTextEvents`'s own doc comment for
+  // the shape) otherwise, in the same `timeoffset="…" message="…"` shape
+  // a `.zwo` file itself already uses (`Duration` only included when the
+  // marker actually had one on import – never invented on export).
+  // Shared by the bike branch (always Warmup/SteadyState/Cooldown, a
+  // genuine ramp there stays expressed via `PowerLow`/`PowerHigh` on one
+  // of those same three) and the treadmill branch (`Ramp` for an actually
+  // ramped segment, Warmup/SteadyState/Cooldown otherwise) of `buildZwo`
   // below.
   function pushZwoBlock(lines, kind, duration, attrsString, textEvents) {
     if (textEvents && textEvents.length) {
@@ -2143,23 +2146,22 @@
       // – confirmed directly against the file format reference (every
       // attribute Zwift's own files have ever actually used, on every
       // element): `PowerLow`/`PowerHigh` exist, but no `PaceLow`/
-      // `PaceHigh`/`InclineLow`/`InclineHigh` do, anywhere in the format.
-      // So a ramped Treadmill segment always still writes the flat,
-      // averaged `Pace`/`Incline` pair Zwift itself (or any other reader
-      // – including this app's own `ZWOWorkoutParser`, *today*) expects
-      // and requires – never omitted, exactly as before this entry.
-      // Alongside that, when Speed and/or Incline is actually ramped,
-      // this now *also* writes this app's own extra, Zwift-non-standard
-      // `SpeedLow`/`SpeedHigh`/`InclineLow`/`InclineHigh` attributes –
-      // requested directly, a deliberate Unchain-specific extension
-      // (there's nowhere else to put a real treadmill ramp, the format
-      // simply has no field for it) rather than something Zwift or any
-      // other tool is expected to understand. Purely additive: a reader
-      // that doesn't know these attributes exist (every reader alive
-      // right now, including this app's own `ZWOWorkoutParser` – reading
-      // them back in is a separate, deferred follow-up on `main`) just
-      // ignores them and uses the flat average like always; nothing here
-      // can make an existing file harder to read than it already was.
+      // `PaceHigh`/`InclineLow`/`InclineHigh` do, anywhere in the format
+      // – not even on Zwift's own `<Ramp>` element, which is Power/
+      // cycling-only throughout. A ramped Treadmill segment is therefore
+      // written as its own dedicated `<Ramp>` block – this app's own
+      // Unchain-specific extension, deliberately mirroring how Zwift's
+      // real `<Ramp>` carries `PowerLow`/`PowerHigh`, just with
+      // `SpeedLow`/`SpeedHigh`/`InclineLow`/`InclineHigh` instead. Both
+      // pairs are always written together, even the dimension that isn't
+      // actually ramping (`Low === High` there) – unlike `Warmup`/
+      // `SteadyState`/`Cooldown`, a `<Ramp>` block has no flat `Pace`/
+      // `Incline` attribute of its own to fall back on for the other
+      // dimension. A ramped segment's own `kind` (Warmup/SteadyState/
+      // Cooldown) is deliberately not preserved in the file – same as
+      // Zwift's own `<Ramp>`, which isn't tagged with one either; only a
+      // flat segment still writes `Warmup`/`SteadyState`/`Cooldown` with
+      // plain `Pace`/`Incline`, exactly as before this entry.
       var segRuns2 = mergeRuns(activeSegments().length, function (i) {
         var seg = activeSegments()[i];
         var ramped = seg.startSpeedKmh !== seg.endSpeedKmh || seg.startInclinePercent !== seg.endInclinePercent;
@@ -2170,16 +2172,18 @@
         var seg0 = activeSegments()[r.start];
         var lastSeg = activeSegments()[r.start + r.length - 1];
         var duration = segmentRunEnd(activeSegments(), r) - seg0.startSeconds;
-        var avgSpeed = (seg0.startSpeedKmh + lastSeg.endSpeedKmh) / 2;
-        var avgIncline = (seg0.startInclinePercent + lastSeg.endInclinePercent) / 2;
-        var attrs = 'Pace="' + avgSpeed.toFixed(1) + '" Incline="' + avgIncline.toFixed(1) + '"';
-        if (seg0.startSpeedKmh !== lastSeg.endSpeedKmh) {
-          attrs += ' SpeedLow="' + seg0.startSpeedKmh.toFixed(1) + '" SpeedHigh="' + lastSeg.endSpeedKmh.toFixed(1) + '"';
+        var ramped = seg0.startSpeedKmh !== lastSeg.endSpeedKmh || seg0.startInclinePercent !== lastSeg.endInclinePercent;
+        if (ramped) {
+          var rampAttrs = 'SpeedLow="' + seg0.startSpeedKmh.toFixed(1) + '" SpeedHigh="' + lastSeg.endSpeedKmh.toFixed(1) + '" InclineLow="' + seg0.startInclinePercent.toFixed(1) + '" InclineHigh="' + lastSeg.endInclinePercent.toFixed(1) + '"';
+          pushZwoBlock(lines, "Ramp", duration, rampAttrs, seg0.textEvents);
+        } else {
+          // Not ramped – every segment in this merged run shares the
+          // same start/end value by the merge key above, so `seg0`'s own
+          // start is already the whole run's flat value, no averaging
+          // needed.
+          var flatAttrs = 'Pace="' + seg0.startSpeedKmh.toFixed(1) + '" Incline="' + seg0.startInclinePercent.toFixed(1) + '"';
+          pushZwoBlock(lines, seg0.kind, duration, flatAttrs, seg0.textEvents);
         }
-        if (seg0.startInclinePercent !== lastSeg.endInclinePercent) {
-          attrs += ' InclineLow="' + seg0.startInclinePercent.toFixed(1) + '" InclineHigh="' + lastSeg.endInclinePercent.toFixed(1) + '"';
-        }
-        pushZwoBlock(lines, seg0.kind, duration, attrs, seg0.textEvents);
       });
       lines.push('  </workout>');
     }
@@ -2432,6 +2436,17 @@
     return null;
   }
 
+  // Clamps a raw imported value into `lane`'s own `[min, max]` range and
+  // rounds it onto `lane.step` – the same clamp-then-round-to-step
+  // treatment `applyZwoText` already did inline for a flat Pace/Incline/
+  // Power reading, factored out so `<Ramp>`'s own start *and* end values
+  // (see `applyZwoText`'s treadmill branch) each go through it too,
+  // instead of duplicating the two-line dance per endpoint.
+  function clampToStep(value, lane) {
+    var clamped = Math.max(lane.min, Math.min(lane.max, value));
+    return Math.round(clamped / lane.step) * lane.step;
+  }
+
   // `<TextEvent>` children of a `<Warmup>`/`<SteadyState>`/`<Cooldown>`
   // block – "coaching cue" markers at a given point inside that block,
   // requested directly, shown on the chart by `renderSegmentLane` and
@@ -2470,10 +2485,19 @@
     if (doc.querySelector("parsererror")) throw new Error("Malformed XML");
     var workout = doc.querySelector("workout");
     if (!workout) throw new Error("No <workout> element");
+    // "Ramp" accepted alongside the three real Zwift block types – this
+    // tool's own treadmill export writes a ramped segment as `<Ramp
+    // SpeedLow=… SpeedHigh=… InclineLow=… InclineHigh=…/>` (see
+    // `buildZwo`'s own doc comment), so a self-exported file with a
+    // ramped segment needs to round-trip back in rather than silently
+    // losing that block entirely. A genuine cycling `<Ramp>` (Power-
+    // based) would also match here but simply produces no usable
+    // `speedLow`/`inclineLow` below – same "falls back to `lanes.speed
+    // .min`" treatment as any other block missing `Pace`, not a crash.
     var els = Array.prototype.slice.call(workout.children).filter(function (el) {
-      return ["Warmup", "SteadyState", "Cooldown"].indexOf(el.tagName) !== -1;
+      return ["Warmup", "SteadyState", "Cooldown", "Ramp"].indexOf(el.tagName) !== -1;
     });
-    if (els.length === 0) throw new Error("No Warmup/SteadyState/Cooldown blocks");
+    if (els.length === 0) throw new Error("No Warmup/SteadyState/Cooldown/Ramp blocks");
     var sportType = (doc.querySelector("sportType") || {}).textContent || "";
     var isBike = sportType.trim().toLowerCase() === "bike";
 
@@ -2484,19 +2508,28 @@
         power: parseFloat(el.getAttribute("Power")),
         pace: parseFloat(el.getAttribute("Pace")),
         incline: parseFloat(el.getAttribute("Incline")),
+        // Only ever present on a `<Ramp>` block – see this app's own
+        // Unchain-specific extension, `buildZwo`'s own doc comment.
+        speedLow: parseFloat(attrCI(el, "SpeedLow")),
+        speedHigh: parseFloat(attrCI(el, "SpeedHigh")),
+        inclineLow: parseFloat(attrCI(el, "InclineLow")),
+        inclineHigh: parseFloat(attrCI(el, "InclineHigh")),
         textEvents: parseTextEvents(el)
       };
     });
     var totalSeconds = blocks.reduce(function (sum, b) { return sum + b.duration; }, 0);
     if (totalSeconds <= 0) throw new Error("Zero total duration");
 
-    // Each `<Warmup>`/`<SteadyState>`/`<Cooldown>` block is already
-    // exactly one segment – "as is", the file's own actual block
+    // Each `<Warmup>`/`<SteadyState>`/`<Cooldown>`/`<Ramp>` block is
+    // already exactly one segment – "as is", the file's own actual block
     // durations, no resampling onto any grid at all (see `state.layout`'s
-    // own doc comment). `.zwo` has no ramp concept at all (every block is
-    // a single flat Power fraction/Pace – see `ZWOWorkoutParser`'s own
-    // doc comment in the app), so every segment here comes in flat
-    // (`startWatts === endWatts`).
+    // own doc comment). Bike still comes in flat here (`startWatts ===
+    // endWatts`) – reading a genuine `PowerLow`/`PowerHigh` ramp back in
+    // isn't implemented yet, a separate, pre-existing gap unrelated to
+    // this entry (flagged in `STATUS.md`). Treadmill honors a `<Ramp>`
+    // block's own `SpeedLow`/`SpeedHigh`/`InclineLow`/`InclineHigh`
+    // independently per field when present – see `buildZwo`'s own doc
+    // comment for why they're always written together.
     var cursor = 0;
     var segments = blocks.map(function (b) {
       var seg = { startSeconds: cursor, duration: b.duration, kind: b.kind, textEvents: b.textEvents };
@@ -2507,16 +2540,14 @@
         seg.startWatts = roundedWatts;
         seg.endWatts = roundedWatts;
       } else {
-        var speed = isFinite(b.pace) ? b.pace : lanes.speed.min;
-        speed = Math.max(lanes.speed.min, Math.min(lanes.speed.max, speed));
-        var roundedSpeed = Math.round(speed / lanes.speed.step) * lanes.speed.step;
-        seg.startSpeedKmh = roundedSpeed;
-        seg.endSpeedKmh = roundedSpeed;
-        var incline = isFinite(b.incline) ? b.incline : lanes.incline.min;
-        incline = Math.max(lanes.incline.min, Math.min(lanes.incline.max, incline));
-        var roundedIncline = Math.round(incline / lanes.incline.step) * lanes.incline.step;
-        seg.startInclinePercent = roundedIncline;
-        seg.endInclinePercent = roundedIncline;
+        var speedStart = isFinite(b.speedLow) ? b.speedLow : (isFinite(b.pace) ? b.pace : lanes.speed.min);
+        var speedEnd = isFinite(b.speedHigh) ? b.speedHigh : speedStart;
+        seg.startSpeedKmh = clampToStep(speedStart, lanes.speed);
+        seg.endSpeedKmh = clampToStep(speedEnd, lanes.speed);
+        var inclineStart = isFinite(b.inclineLow) ? b.inclineLow : (isFinite(b.incline) ? b.incline : lanes.incline.min);
+        var inclineEnd = isFinite(b.inclineHigh) ? b.inclineHigh : inclineStart;
+        seg.startInclinePercent = clampToStep(inclineStart, lanes.incline);
+        seg.endInclinePercent = clampToStep(inclineEnd, lanes.incline);
       }
       cursor += b.duration;
       return seg;

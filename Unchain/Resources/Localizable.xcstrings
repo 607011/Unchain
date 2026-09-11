@@ -1691,12 +1691,22 @@
         }
       }
     },
-    "Optional – shows heart rate zones during your workout and is recorded to the Health app when you save it.": {
+    "Optional – shows heart rate zones during your workout and is recorded to the Health app when you save it. Swipe a strap to forget it.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Optional – zeigt Trainingszonen während des Workouts an und wird beim Speichern in die Health-App übernommen."
+            "value": "Optional – zeigt Trainingszonen während des Workouts an und wird beim Speichern in die Health-App übernommen. Zum Vergessen einen Gurt nach links wischen."
+          }
+        }
+      }
+    },
+    "Forget": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vergessen"
           }
         }
       }

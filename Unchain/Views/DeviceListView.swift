@@ -202,11 +202,26 @@ struct DeviceListView: View {
                 }
                 ForEach(bluetooth.heartRateDevices) { device in
                     HeartRateDeviceRow(device: device, bluetooth: bluetooth)
+                        // Only offered for a strap that's actually
+                        // remembered (`isKnownHeartRateStrap`) – requested
+                        // directly, for handing a strap off (given away,
+                        // lent out) without it auto-reconnecting forever.
+                        // A strap just passing through the live scan that
+                        // was never connected to has nothing to forget.
+                        .swipeActions(edge: .trailing) {
+                            if bluetooth.isKnownHeartRateStrap(device.id) {
+                                Button(role: .destructive) {
+                                    bluetooth.forgetHeartRateStrap(device.id)
+                                } label: {
+                                    Label("Forget", systemImage: "trash")
+                                }
+                            }
+                        }
                 }
             } header: {
                 Text("Heart Rate Strap")
             } footer: {
-                Text("Optional – shows heart rate zones during your workout and is recorded to the Health app when you save it.")
+                Text("Optional – shows heart rate zones during your workout and is recorded to the Health app when you save it. Swipe a strap to forget it.")
             }
 
             // Build-stamp footer – see `AppVersionInfo`'s own doc comment

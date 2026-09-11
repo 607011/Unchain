@@ -3996,3 +3996,27 @@ would change, roughly in the order it'd need doing:
       the actual dual-strap-reconnect behavior itself still needs real-
       device QA (pair two straps, relaunch with only one in range, confirm
       it reconnects; repeat with the other).
+- [x] **Swipe a heart rate strap row in the device list to forget it** –
+      requested directly, for handing a strap off (given away, lent out)
+      without it lingering in the newly-multi-strap known set above
+      forever. New `BluetoothManager.forgetHeartRateStrap(_:)` removes the
+      identifier from `knownHeartRateStrapUUIDsKey`, disconnects it right
+      now if it's the current connection, and drops it from any still-
+      pending speculative reconnect attempt too – otherwise a `didConnect`
+      moments later could still promote it even though it was just
+      forgotten. `DeviceListView`'s Heart Rate Strap rows gained a
+      `.swipeActions` "Forget" button, gated on the new
+      `isKnownHeartRateStrap(_:)` (only offered for a strap actually
+      remembered, not one just passing through the live scan that was
+      never connected to). No equivalent exists for trainers
+      (`TrainerDeviceStore` has no removal function either) – deliberately
+      out of scope, not requested; a persistent "known but out of range"
+      list (mirroring the trainer's own `outOfRangeTrainerDevices`) was
+      also considered and left out for the same reason – it would need
+      widening heart-rate-strap storage to remember a name too, and the
+      realistic scenario (handing a strap off) has it still on hand/
+      visible in the live scan at the time.
+      Verified: `xcodegen generate` + `make build` → `BUILD SUCCEEDED`;
+      `Localizable.xcstrings` updated (English + German) for the new
+      "Forget" button and the extended Heart Rate Strap section footer
+      text.

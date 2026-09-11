@@ -53,6 +53,12 @@ final class BluetoothManager: NSObject, ObservableObject {
         UserDefaults.standard.set(Array(known), forKey: knownHeartRateStrapUUIDsKey)
     }
 
+    private static func forgetHeartRateStrapUUID(_ id: UUID) {
+        var known = Set(UserDefaults.standard.stringArray(forKey: knownHeartRateStrapUUIDsKey) ?? [])
+        known.remove(id.uuidString)
+        UserDefaults.standard.set(Array(known), forKey: knownHeartRateStrapUUIDsKey)
+    }
+
     @Published private(set) var discoveredDevices: [DiscoveredDevice] = []
     @Published private(set) var isBluetoothReady = false
     @Published private(set) var isScanning = false
@@ -188,6 +194,35 @@ final class BluetoothManager: NSObject, ObservableObject {
         let connection = HeartRateConnection(peripheral: device.peripheral, central: central)
         currentHeartRateConnection = connection
         central.connect(device.peripheral, options: nil)
+    }
+
+    /// Whether `id` is currently in the known-strap set (see
+    /// `knownHeartRateStrapUUIDsKey`) – lets `DeviceListView` only offer a
+    /// "Forget" action for a strap that's actually remembered, rather than
+    /// showing it for one just passing through the live scan that was never
+    /// connected to.
+    func isKnownHeartRateStrap(_ id: UUID) -> Bool {
+        Self.knownHeartRateStrapUUIDs().contains(id)
+    }
+
+    /// Removes `id` from the known-strap set so it stops auto-reconnecting
+    /// from here on – for handing a strap off (given away, lent out)
+    /// without it lingering in the set forever. Requested directly, for
+    /// exactly that scenario. Also disconnects it right now if it happens
+    /// to be the current connection, and drops it from any still-pending
+    /// speculative reconnect attempt (`attemptAutoReconnectHeartRateStrap()`)
+    /// – otherwise a `didConnect` moments later could still promote it to
+    /// `currentHeartRateConnection` even though it was just forgotten.
+    func forgetHeartRateStrap(_ id: UUID) {
+        Self.forgetHeartRateStrapUUID(id)
+        if currentHeartRateConnection?.peripheral.identifier == id {
+            disconnectHeartRateCurrent()
+            clearHeartRateConnection()
+        }
+        if let index = pendingHeartRateReconnectPeripherals.firstIndex(where: { $0.identifier == id }) {
+            central.cancelPeripheralConnection(pendingHeartRateReconnectPeripherals[index])
+            pendingHeartRateReconnectPeripherals.remove(at: index)
+        }
     }
 
     func disconnectHeartRateCurrent() {

@@ -4020,3 +4020,32 @@ would change, roughly in the order it'd need doing:
       `Localizable.xcstrings` updated (English + German) for the new
       "Forget" button and the extended Heart Rate Strap section footer
       text.
+- [x] **`<TextEvent>` coaching-cue overlay redesigned: much bigger text, no
+      fade on entry, a hard zoom-in "punch" instead** – requested directly
+      after trying the ramp support live ("die Rampen vermitteln ein
+      tolles Gefühl"): the original "Scale-Pop + Blur-Dissolve" (a small
+      subheadline-sized card that faded and popped in softly) was too
+      small to read at a glance mid-run and too soft for what these
+      messages actually are – short shouted phrases like "Go, go, go!"/
+      "Steigung Nr. 1"/"Gleich geschafft …", meant to hit like a coach
+      calling out, not politely fade into view. `TextEventCard`
+      (`ControlView.swift`) is now a 40pt `.black`-weight rounded-design
+      headline on a solid accent-color gradient banner (`.ultraThinMaterial`
+      dropped entirely – it read as calm/ambient, the opposite of what was
+      asked for), centered, up to 2 lines with a `minimumScaleFactor`
+      safety net. The transition (renamed `scalePopBlurDissolve` →
+      `zoomPunchDissolve`) no longer fades on entry at all – opacity is `1`
+      in both the `active` and `identity` modifier states, so only scale
+      animates: starting at 2.6× resting size and snapping down to it on a
+      short, fairly stiff spring, a hard "zoom punch" rather than a gentle
+      pop. Exit keeps the "grows past resting size while fading" shape
+      from before but leans into it further (1.7×, `.easeIn` for an
+      accelerating departure instead of a decelerating settle) – reads as
+      the message getting flung away rather than shrinking back down.
+      Verified: `xcodegen generate` + `make build` → `BUILD SUCCEEDED`; no
+      other reference to the old transition name anywhere in the codebase.
+      Not verified live (needs a `<TextEvent>`-carrying `.zwo` actually
+      playing on a real treadmill connection, which this environment can't
+      drive) – Oliver already has a 5-minute ramp test file with several
+      `<TextEvent>` markers from earlier testing, a good fit for trying
+      this on the next treadmill session.

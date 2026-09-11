@@ -2579,11 +2579,21 @@ private func formattedZoneDuration(_ seconds: Int) -> String {
 /// Coaching-cue overlay for a `.treadmillProgram`'s `<TextEvent>` markers –
 /// see `TextEventMarker` and `WorkoutSession.activeTextEvent`, which alone
 /// decides *when* `event` is non-nil (elapsed time against the marker's own
-/// window). This view only decides how the transition *looks*: requested
-/// directly, with a short list of animation options presented to (and
-/// picked from by) the rider – "Scale-Pop + Blur-Dissolve" here, a springy
-/// pop on entry paired with a soft blur-and-grow dissolve on exit, rather
-/// than a flat fade either way.
+/// window). This view only decides how the transition *looks*.
+///
+/// Redesigned after real-world feedback on the original "Scale-Pop +
+/// Blur-Dissolve" (a small subheadline-sized card, softly fading in): too
+/// small to read at a glance mid-run, and too soft for what these messages
+/// actually are – short, punchy calls like "Go, go, go!"/"Gleich
+/// geschafft …"/"Steigung Nr. 1", meant to hit like a coach shouting, not
+/// politely fade into view. Now: no fade on entry at all – the card snaps
+/// straight to full opacity and *zooms in hard* from well past its own
+/// resting size down to it (`zoomPunchDissolve`'s insertion half), landing
+/// with a short, stiff spring for a bit of impact-snap rather than a soft
+/// settle. Exit is the opposite motion, kept and leaned into further: grows
+/// *past* resting size again while fading and blurring away, reading as the
+/// message getting flung off past the rider rather than shrinking politely
+/// back down.
 struct TextEventOverlayView: View {
     let event: TextEventMarker?
 
@@ -2598,7 +2608,7 @@ struct TextEventOverlayView: View {
                     // card's text in place instead of running the
                     // exit/entry transition again.
                     .id("\(event.timeOffset)-\(event.message)")
-                    .transition(.scalePopBlurDissolve)
+                    .transition(.zoomPunchDissolve)
             }
         }
         .allowsHitTesting(false)
@@ -2609,47 +2619,67 @@ private struct TextEventCard: View {
     let message: String
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "quote.bubble.fill")
-                .foregroundStyle(Color.accentColor)
-            Text(message)
-                .font(.subheadline.weight(.semibold))
-                .multilineTextAlignment(.leading)
-                .lineLimit(3)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.15), radius: 10, y: 4)
-        .padding(.horizontal, 24)
-        .padding(.top, 8)
+        Text(message)
+            // Big and bold enough to read in a half-second glance mid-run
+            // – these are short shouted phrases, not body copy, so there's
+            // no "too big" here the way there would be for a sentence.
+            // `.rounded` for a friendlier, more energetic feel than the
+            // system default; `minimumScaleFactor` is the safety net for
+            // whatever a rider actually types into a marker, not a
+            // license to plan around long text.
+            .font(.system(size: 40, weight: .black, design: .rounded))
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .minimumScaleFactor(0.5)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 22)
+            .frame(maxWidth: .infinity)
+            .background(
+                // A solid, vivid fill – deliberately not the translucent
+                // `.ultraThinMaterial` card this used to be, which read as
+                // calm/ambient rather than a shouted cue.
+                LinearGradient(
+                    colors: [Color.accentColor, Color.accentColor.opacity(0.75)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                in: RoundedRectangle(cornerRadius: 24, style: .continuous)
+            )
+            .shadow(color: .black.opacity(0.35), radius: 20, y: 8)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
     }
 }
 
 private extension AnyTransition {
-    /// Entry springs in from slightly small and transparent up to natural
-    /// size – a quick, energetic "pop", like a coach calling something
-    /// out. Exit deliberately isn't just the reverse of that: it grows
-    /// slightly *past* natural size while blurring and fading out, so it
-    /// reads as the message dissolving away rather than mechanically
-    /// shrinking back down. Each half carries its own `.animation(_:)` –
-    /// this alone is what makes the transition animate at all (no
-    /// `withAnimation`/`.animation(_:value:)` needed at either call site),
-    /// and lets the two directions use genuinely different curves/timings.
-    static var scalePopBlurDissolve: AnyTransition {
+    /// Insertion: opacity is `1` in *both* `active` and `identity` – no
+    /// fade at all, on purpose (see `TextEventOverlayView`'s own doc
+    /// comment). The only thing that animates in is scale, starting well
+    /// past resting size (2.6×) and snapping down to it – a hard "zoom
+    /// punch" rather than a gentle pop. A short, fairly stiff spring
+    /// (`dampingFraction` just above critical) gives it a small landing
+    /// snap without turning into a bouncy wobble.
+    ///
+    /// Removal is the mirror shape, not the mirror motion: it grows
+    /// *past* resting size (1.7×) while blurring and fading out, so it
+    /// reads as the message getting flung away rather than mechanically
+    /// shrinking back down – `.easeIn` (slow start, fast finish) makes
+    /// that read as an accelerating departure, not a decelerating settle.
+    /// Each half carries its own `.animation(_:)` – this alone is what
+    /// makes the transition animate at all (no `withAnimation`/
+    /// `.animation(_:value:)` needed at either call site), and lets the
+    /// two directions use genuinely different curves/timings.
+    static var zoomPunchDissolve: AnyTransition {
         .asymmetric(
             insertion: AnyTransition.modifier(
-                active: TextEventTransitionModifier(scale: 0.8, blurRadius: 8, opacity: 0),
+                active: TextEventTransitionModifier(scale: 2.6, blurRadius: 0, opacity: 1),
                 identity: TextEventTransitionModifier(scale: 1, blurRadius: 0, opacity: 1)
-            ).animation(.spring(response: 0.38, dampingFraction: 0.62)),
+            ).animation(.spring(response: 0.22, dampingFraction: 0.62)),
             removal: AnyTransition.modifier(
-                active: TextEventTransitionModifier(scale: 1.15, blurRadius: 14, opacity: 0),
+                active: TextEventTransitionModifier(scale: 1.7, blurRadius: 14, opacity: 0),
                 identity: TextEventTransitionModifier(scale: 1, blurRadius: 0, opacity: 1)
-            ).animation(.easeOut(duration: 0.45))
+            ).animation(.easeIn(duration: 0.4))
         )
     }
 }

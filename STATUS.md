@@ -3796,3 +3796,28 @@ would change, roughly in the order it'd need doing:
       still-being-edited paste" rule); Undo back to Bike correctly
       un-hides the cards, Redo back to Treadmill correctly re-hides them.
       Zero console errors throughout.
+- [x] **Elevation gain is now saved to Apple Health** – there's no
+      dedicated HealthKit sample type for it, only workout metadata
+      (`HKMetadataKeyElevationAscended`, an `HKQuantity` of length),
+      written by `HealthKitManager.saveWorkout(...)` alongside the
+      existing `HKMetadataKeyWorkoutBrandName`/`HKMetadataKeyIndoorWorkout`
+      when `WorkoutSummary.elevationGainMeters` is present. That new field
+      uses the same "device reading if reported, else this app's own
+      estimate" fallback `ControlView`'s live "m ↑" tile already uses
+      (`connection.metrics.elevationGainMeters` for a bike,
+      `estimatedElevationGainMeters` only ever filling in for a treadmill
+      that doesn't report one) – `nil` (not written at all) only for
+      genuinely zero gain, same "don't write a pointless zero" convention
+      `distanceMeters`/`workDoneKilojoules` already follow.
+      `LogWorkoutView`'s hand-entered-workout form passes `nil` – it has
+      no elevation field of its own, same "never invent a figure" rule
+      its own doc comment already states for every other value there.
+      Apple's own documentation examples for this metadata key are
+      outdoor (GPS/barometer-derived) workouts; whether Fitness's detail
+      view surfaces it the same way for an *indoor* workout type isn't
+      verifiable without a real device and a live Health save – flagged
+      as an open question, not silently assumed either way – but it's
+      still the correct, standard HealthKit place to record the figure
+      regardless of whether Fitness itself renders it, and any other
+      app/Shortcut reading this workout's metadata gets the real number.
+      Verified: `xcodegen generate` + `make build` → `BUILD SUCCEEDED`.

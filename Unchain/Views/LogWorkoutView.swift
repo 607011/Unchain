@@ -154,7 +154,11 @@ struct LogWorkoutView: View {
             workDoneKilojoules: workDoneKilojoules,
             heartRateSamples: [],
             programName: nil,
-            heartRateZoneSeconds: [:]
+            heartRateZoneSeconds: [:],
+            // Nothing to derive this from – this form has no elevation
+            // field of its own (see this view's own doc comment on why
+            // every other hand-entered figure stays honestly absent too).
+            elevationGainMeters: nil
         )
         isSaving = true
         HealthKitManager.shared.save(summary, as: kind.activityType) { result in

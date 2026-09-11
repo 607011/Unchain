@@ -274,6 +274,19 @@ final class HealthKitManager {
             // "description" field in HealthKit that's surfaced anywhere.
             metadata[HKMetadataKeyWorkoutBrandName] = programName
         }
+        if let elevationGainMeters = summary.elevationGainMeters {
+            // There's no dedicated HealthKit sample type for elevation
+            // gain – `HKMetadataKeyElevationAscended` (an `HKQuantity` of
+            // length) on the workout itself is the documented place for
+            // it. Apple's own examples for this key are outdoor workouts
+            // (GPS/barometer-derived); whether Fitness's detail view
+            // actually surfaces it for an *indoor* workout type the way it
+            // does for those isn't verifiable without a real device, but
+            // it's still the correct HealthKit-standard place to record
+            // it – other apps/Shortcuts reading this workout's metadata
+            // get the real figure either way.
+            metadata[HKMetadataKeyElevationAscended] = HKQuantity(unit: .meter(), doubleValue: elevationGainMeters)
+        }
 
         let workout = HKWorkout(
             activityType: activityType,

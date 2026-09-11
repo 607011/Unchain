@@ -131,6 +131,16 @@ struct WorkoutSummary: Identifiable {
     /// not written to Health (there's no HealthKit type for it), but shown
     /// live during the workout and again in the post-save summary.
     let heartRateZoneSeconds: [HeartRateZone: Int]
+    /// Same "device reading if reported, else this app's own estimate"
+    /// fallback `ControlView`'s live "m ↑" tile already uses (`connection
+    /// .metrics.elevationGainMeters` for a bike, `estimatedElevationGainMeters`
+    /// only ever filling in for a treadmill that doesn't report one) –
+    /// `nil` here means genuinely nothing gained (not "unknown"), same
+    /// "don't write a pointless zero" convention `distanceMeters`/
+    /// `workDoneKilojoules` above already follow. Saved to Health as
+    /// `HKMetadataKeyElevationAscended` – there's no dedicated HealthKit
+    /// sample type for this, only workout metadata.
+    let elevationGainMeters: Double?
 }
 
 /// Tracks a workout session on top of an existing FTMS connection: local
@@ -771,6 +781,9 @@ final class WorkoutSession: ObservableObject {
         // marker's own window.
         activeTextEvent = nil
         let end = Date()
+        // Same fallback `ControlView`'s live "m ↑" tile already uses – see
+        // `WorkoutSummary.elevationGainMeters`'s own doc comment.
+        let elevationGainMeters = Double(connection.metrics.elevationGainMeters ?? Int(estimatedElevationGainMeters.rounded()))
         pendingSummary = WorkoutSummary(
             machineKind: connection.machineKind,
             startDate: startDate ?? end,
@@ -780,7 +793,8 @@ final class WorkoutSession: ObservableObject {
             workDoneKilojoules: workDoneJoules > 0 ? workDoneJoules / 1000 : nil,
             heartRateSamples: heartRateSamples,
             programName: isDrivenByProgram ? activeWorkout?.name : nil,
-            heartRateZoneSeconds: heartRateZoneSeconds
+            heartRateZoneSeconds: heartRateZoneSeconds,
+            elevationGainMeters: elevationGainMeters > 0 ? elevationGainMeters : nil
         )
         state = .ended
     }

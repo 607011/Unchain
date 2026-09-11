@@ -3456,3 +3456,56 @@ would change, roughly in the order it'd need doing:
       the pre-existing-save migration bug above, confirmed broken (NaN
       everywhere) before the fix and clean (correct chart, correct
       export, zero console errors from a genuinely fresh tab) after it.
+- [x] **`docs/builder.html`: drag & drop a `.erg`/`.mrc`/`.zwo` file onto
+      the Preview field, or directly onto the chart, to load it** –
+      requested directly, then extended to the chart itself as a direct
+      same-session follow-on, alongside pasting one (already supported)
+      as a more direct way in. Deliberately not its own parse path: a
+      drop just sets the Preview textarea's own `.value` to the dropped
+      file's text and calls `handlePreviewEdit()` directly – the exact
+      same function a paste's own `input` event already triggers, which
+      itself detects erg/mrc/zwo/shorthand from the text's own shape
+      (`detectImportFormat`/`looksLikeWorkoutFile`) and already reports a
+      parse failure via `#sync-status`, regardless of which of the two
+      drop zones the file actually landed on – so nothing here needed its
+      own extension check or error handling beyond a failed *read* of the
+      file object itself.
+      New `attachFileDropZone(dropEl, highlightEl)` wires one drop
+      target, called for both `#preview-text` and the chart's own
+      `.scope-wrap` (the whole card – SVG, lane labels, and hint text
+      together, so a drop anywhere in the chart area counts, not just
+      exactly on the `<svg>`; doesn't conflict with the chart's own
+      pointer-based paint/Cut/Mark interaction at all, since drag events
+      and pointer events are entirely different event types).
+      `highlightEl` (defaulting to `dropEl`) is what actually gets the
+      dashed `.drag-over` outline – kept as a separate, generic CSS class
+      rather than folded into the textarea's own rule, since the
+      textarea additionally tints its background on drag-over, which
+      would look wrong on the chart card (its own children already have
+      their own backgrounds). `dragenter`/`dragover` are only handled
+      (and only show the outline) when the drag actually carries a file
+      (`dataTransfer.types` includes `"Files"`, checkable before `drop`
+      unlike `.files` itself) – an ordinary text/link drag isn't
+      intercepted anywhere, falls through to the browser's own default
+      behavior untouched. `file.text()` (a `Promise`, same pattern the
+      existing Copy button's `navigator.clipboard.writeText(...).then(...)`
+      already uses) reads the dropped file; a read failure (not really
+      reachable for a local file drop in practice, but handled anyway)
+      shows "couldn't read that file" the same way a parse failure shows
+      its own message.
+      Verified live in the browser (synthetic `DragEvent`-shaped `Event`s
+      carrying a real `File`, dispatched directly on the target element –
+      `DataTransfer` itself can't be constructed with real files from
+      script, so a plain object with `types`/`files` stood in, which is
+      all the handlers actually read): dropping a `.zwo` file on the
+      Preview field, and a `.erg` file directly on the chart's `<svg>`
+      (bubbling correctly up to `.scope-wrap`'s own listener), both
+      parsed correctly and switched the active download tab to match;
+      dropping a genuinely unparseable file showed the existing
+      "couldn't parse yet" error without crashing; a plain text-only drag
+      (no `Files` type) correctly left both fields untouched; ordinary
+      chart painting (a plain `pointerdown`/`pointerup` on the same
+      `<svg>`) still worked correctly afterward, confirming the new drag
+      listeners don't interfere with the chart's own interaction layer;
+      the dashed outline correctly wraps the whole chart card, in both
+      Bike and Treadmill mode.

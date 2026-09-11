@@ -407,6 +407,17 @@
     white-space: pre;
   }
   .preview textarea:focus { color: var(--ink); outline: none; }
+  /* Shared by every drop zone (`attachFileDropZone`) – the Preview
+     textarea and the chart's own `.scope-wrap` alike; the textarea also
+     tints its background, which would look wrong on the chart card
+     (its SVG/labels/hint text already have their own backgrounds). */
+  .drag-over {
+    outline: 2px dashed var(--focus);
+    outline-offset: -2px;
+  }
+  .preview textarea.drag-over {
+    background: var(--band);
+  }
 
   footer {
     font-size: 11.5px;
@@ -575,7 +586,7 @@
       <span class="sync-status" id="sync-status"></span>
     </div>
     <textarea id="preview-text" spellcheck="false"></textarea>
-    <div class="hint">Or type shorthand instead of a file, e.g. "10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP)" (bike) or "5min 8km/h, 5x(3min 10km/h 6%, 2min 6km/h)" (treadmill) — durations: min/sec/h; distances: m/km/mi/yd/ft; speed: km/h or mph.</div>
+    <div class="hint">Drag a .erg/.mrc/.zwo file onto this field to load it, paste its contents, or type shorthand instead, e.g. "10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP)" (bike) or "5min 8km/h, 5x(3min 10km/h 6%, 2min 6km/h)" (treadmill) — durations: min/sec/h; distances: m/km/mi/yd/ft; speed: km/h or mph.</div>
   </div>
 
   <footer>
@@ -2969,6 +2980,79 @@
     }, 400);
   }
   document.getElementById("preview-text").addEventListener("input", handlePreviewEdit);
+
+  // Drag & drop a .erg/.mrc/.zwo file straight onto the Preview field, or
+  // directly onto the chart itself – requested directly (the chart one
+  // as a follow-on to the Preview field one), the same "point at what
+  // you mean" convenience the chart's own painting/Cut/Mark gestures
+  // already have, rather than only ever getting a file's content in via
+  // copy-paste. Reuses the exact same parse path a paste already goes
+  // through: dropping a file just sets the Preview textarea's own
+  // `.value` and calls `handlePreviewEdit()` directly (its body reads
+  // `.value` fresh each time and doesn't care who called it, nor does it
+  // care that the *drop* itself may have landed somewhere else entirely)
+  // – `detectImportFormat`/`looksLikeWorkoutFile` inside it already tell
+  // erg/mrc/zwo/shorthand apart from the text's own shape, and already
+  // report a parse failure via `#sync-status`, so nothing here needs its
+  // own extension check or error handling beyond a failed *read* of the
+  // file itself.
+  //
+  // `attachFileDropZone(dropEl, highlightEl)` wires one drop target;
+  // `highlightEl` (defaulting to `dropEl` itself) is what actually gets
+  // the dashed `.drag-over` outline – kept separate so the chart's own
+  // drop zone (`.scope-wrap`, covering both the SVG and its labels/hint
+  // text, so a drop anywhere in the chart card counts, not just exactly
+  // on the `<svg>`) doesn't fight the chart's *own* interaction layer:
+  // `ensureSegmentLaneSetup`'s pointer handlers live on each lane's own
+  // hit-rect, entirely separate event types (`pointerdown` etc. vs. drag
+  // events here), so there's no actual conflict – this is purely about
+  // which element visibly outlines.
+  function attachFileDropZone(dropEl, highlightEl) {
+    highlightEl = highlightEl || dropEl;
+    // `dataTransfer.types` (unlike `.files`, which most browsers only
+    // populate on the actual `drop` event) is reliably readable during
+    // `dragenter`/`dragover` – checking for `"Files"` here is what lets
+    // this tell "a real file is being dragged" apart from an ordinary
+    // text/link drag (e.g. dragging selected text within the page
+    // itself, or across the chart), which should fall through to the
+    // browser's own default drag behavior untouched.
+    function isFileDrag(evt) {
+      return !!(evt.dataTransfer && Array.prototype.indexOf.call(evt.dataTransfer.types, "Files") !== -1);
+    }
+    dropEl.addEventListener("dragenter", function (evt) {
+      if (!isFileDrag(evt)) return;
+      evt.preventDefault();
+      highlightEl.classList.add("drag-over");
+    });
+    dropEl.addEventListener("dragover", function (evt) {
+      if (!isFileDrag(evt)) return;
+      // Without this, the browser's own default (reject the drop,
+      // usually opening the file in the tab instead) wins – `dragover`
+      // has to be prevented on every fired event, not just `dragenter`.
+      evt.preventDefault();
+      evt.dataTransfer.dropEffect = "copy";
+    });
+    dropEl.addEventListener("dragleave", function () {
+      highlightEl.classList.remove("drag-over");
+    });
+    dropEl.addEventListener("drop", function (evt) {
+      if (!isFileDrag(evt)) return;
+      evt.preventDefault();
+      highlightEl.classList.remove("drag-over");
+      var file = evt.dataTransfer.files[0];
+      if (!file) return;
+      file.text().then(function (text) {
+        document.getElementById("preview-text").value = text;
+        handlePreviewEdit();
+      }, function () {
+        var statusEl = document.getElementById("sync-status");
+        statusEl.textContent = "⚠ couldn't read that file";
+        statusEl.classList.add("error", "visible");
+      });
+    });
+  }
+  attachFileDropZone(document.getElementById("preview-text"));
+  attachFileDropZone(document.querySelector(".scope-wrap"));
 
   function updatePreview() {
     var active = document.querySelector(".jack button.active-fmt");

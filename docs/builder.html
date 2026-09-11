@@ -2500,6 +2500,13 @@
     if (els.length === 0) throw new Error("No Warmup/SteadyState/Cooldown/Ramp blocks");
     var sportType = (doc.querySelector("sportType") || {}).textContent || "";
     var isBike = sportType.trim().toLowerCase() === "bike";
+    // The file's own `<name>` becomes the heading (`#workout-name-input`,
+    // `state.name`) – same "as is" treatment the app's own
+    // `ZWOWorkoutParser.parse`'s `fallbackName` gives an absent/empty one:
+    // a missing or blank `<name>` here leaves the current heading alone
+    // rather than blanking it out (there's no filename to fall back to in
+    // this tool the way the app's own file-picker import has one).
+    var importedName = ((doc.querySelector("name") || {}).textContent || "").trim();
 
     var blocks = els.map(function (el) {
       return {
@@ -2556,6 +2563,7 @@
     state.mode = isBike ? "bike" : "treadmill";
     state.layout = "segments";
     state.segments[state.mode] = segments;
+    if (importedName) state.name = importedName;
     syncControlsFromState();
   }
 

@@ -3841,3 +3841,23 @@ would change, roughly in the order it'd need doing:
       Zero console errors throughout. Also updated the app-side
       `ZWOWorkoutParser` (`main`) to match this corrected design – see
       its own `STATUS.md` entry there.
+- [x] **Importing a `.zwo` file now sets the heading (`#workout-name-input`)
+      from its own `<name>` element** – requested directly: `applyZwoText`
+      parsed everything else about a `.zwo` (segments, sport type, ramps)
+      but never read `<name>` at all, so pasting/dropping a file always
+      left whatever heading was already showing. Now reads `doc
+      .querySelector("name")`'s text content, trimmed; a present, non-
+      empty name becomes the new `state.name` (picked up by the existing
+      `syncControlsFromState()` call already at the end of `applyZwoText`,
+      which is what actually writes it into the input) – same "as is"
+      treatment the app's own `ZWOWorkoutParser.parse`'s own
+      `fallbackName` gives an absent/empty one: nothing to fall back to
+      here beyond just leaving the current heading alone, since this tool
+      has no imported filename to fall back to the way the app's own
+      file-picker import does.
+      Verified live in the browser (waiting out `handlePreviewEdit`'s own
+      debounce before reading the input back, not immediately after
+      dispatching the paste): a `.zwo` with `<name>My Imported Ramp
+      Workout</name>` correctly updated the heading; a second paste with
+      no `<name>` element at all left the previous heading untouched
+      rather than blanking it. Zero console errors.

@@ -3564,3 +3564,235 @@ would change, roughly in the order it'd need doing:
       its own "Removed stale file" notes confirmed the four deleted
       source files' compiled objects were actually gone from the build
       too, not just absent from the file list.
+- [x] **`docs/builder.html`: replaced Cut/Mark *modes* with direct,
+      always-on hover interaction** – requested directly: instead of
+      pressing C or M to enter a mode (a guide line only then appearing,
+      a click needed to actually commit), a thin hover line and a
+      highlighted segment now always track the pointer over any lane's
+      chart, and "C"/"M"/"Delete"/"Backspace" act immediately, right
+      where the pointer already is – cut, mark, or delete that segment,
+      no click needed at all. New shared `hoverSeconds` (`null` whenever
+      the pointer isn't over any chart) is what makes this possible:
+      every lane's own `pointermove` keeps it current and repositions
+      that lane's hover line/segment highlight; `pointerleave` clears it
+      back to `null`; the one keydown listener for C/M/Delete/Backspace
+      simply does nothing while it's `null`. Shared across lanes
+      (Speed/Incline on a treadmill), not lane-local – a cut/mark/delete
+      acts on the one segment list underlying both, whichever lane's
+      chart the pointer happens to be hovering; verified a cut made
+      while hovering Speed is immediately visible as a new boundary on
+      Incline too. Also reset on a Profile switch (Bike ↔ Treadmill) –
+      the previously-hovered lane's `#lanes-bike`/`#lanes-treadmill`
+      ancestor gets hidden via `display:none` without ever firing its
+      own `pointerleave`, which would otherwise leave `hoverSeconds`
+      stale, pointing C/M/Delete at a chart that's no longer even
+      visible; confirmed a bare press right after switching (no re-hover
+      yet) is correctly a no-op.
+      New "Delete"/"Backspace" (`performDeleteSegment`) removes the
+      hovered segment entirely and ripples every later segment earlier
+      by its own duration to close the gap – this data model has no way
+      to represent a gap at all (segments are always contiguous), so
+      that's the only shape that stays valid, the same way deleting a
+      clip in an audio editor's own timeline closes the hole instead of
+      leaving silence. A no-op if it's the only segment left (verified:
+      deleting down to exactly one, then trying again, correctly does
+      nothing). Same "breaks the grid's own uniform-width invariant"
+      promotion `performCut` already had – deleting a segment from a
+      grid workout now promotes it to "segments" too, verified alongside
+      confirming Undo correctly reverts that promotion (grid-only fields
+      reappearing) right along with the delete itself, and Mark's own
+      undo needing no such revert since it never promotes.
+      `EDGE_HIT_PX`/`segEdgeAt`/Shift+drag ramp editing, plain painting,
+      and marker-click-to-edit are all untouched – only the Cut/Mark
+      *mode* mechanism is gone, confirmed both still work exactly as
+      before. Also fixed in passing: a genuinely orphaned doc comment
+      for `renderLaneForMode`, a function deleted in the grid/segment
+      unification two entries up but whose own doc comment was
+      accidentally left behind, sitting in front of unrelated code ever
+      since.
+      Verified extensively live in the browser (direct `PointerEvent`/
+      `KeyboardEvent` dispatch): hover line + segment highlight both
+      track the pointer and update on every move; "M" prompts and adds a
+      marker at the exact hovered second with no prior mode-entry; "C"
+      cuts at the hovered second (confirmed the resulting two pieces'
+      own time ranges via the readout); "Backspace" deletes the hovered
+      segment and the workout's total time shrinks by exactly its
+      duration; all three fully reversible via Undo, including the
+      layout-promotion side effects; cross-lane sharing on a treadmill;
+      the Profile-switch reset; plain painting and Shift+drag ramp-edge
+      editing both still work unchanged. Zero console errors throughout.
+- [ ] **Idea for later: two-way highlight between the chart and the
+      Preview textarea** – requested directly (hover a segment → its own
+      text lights up below; move the caret in the text → the segment it
+      falls in lights up on the chart), not yet built – design explored
+      far enough to know the shape of it, parked here rather than rushed.
+      Two real problems, independent of each other:
+      1. **The Preview field is a plain `<textarea>`** – no native way to
+         color part of its own text. `textarea.setSelectionRange(...)`
+         is the tempting shortcut (native "highlight" for free, no new
+         DOM), but it very likely only *renders* visibly while the
+         textarea actually has focus – calling it on hover without
+         focusing first (focusing on mere hover would be its own new
+         problem, see below) would probably set the selection with
+         nothing to show for it; this was flagged as a real risk but
+         deliberately not empirically confirmed either way before
+         stopping to write this note down instead of guessing further in
+         code. The robust fallback (assume the worst) is the standard
+         "poor man's syntax highlighting" trick: an invisible-background
+         `<textarea>` layered exactly on top of a styled backdrop
+         `<div>`/`<pre>` showing the identical text with the relevant
+         range wrapped in a `<mark>` – same font/size/line-height/
+         padding/border so the two stay pixel-aligned, backdrop's own
+         `scrollTop`/`scrollLeft` synced from the textarea's `scroll`
+         event, backdrop content regenerated alongside the textarea's
+         own value on every edit (`handlePreviewEdit`/`updatePreview`
+         both already touch `.value` at exactly the right moments to
+         hook this into). More plumbing than `setSelectionRange`, but
+         doesn't touch focus at all, so it can't ever fight the hover-
+         driven chart interaction the previous entry just built (Cut/
+         Mark/Delete's own keydown listener explicitly bails out the
+         moment a text field has focus – *any* approach here has to
+         leave that alone, hovering the chart must never silently steal
+         focus into the textarea).
+      2. **Export merges same-value neighbors into one run** – a
+         segment-index-to-text-range map isn't 1:1: `ergLikeBodyFromSegments`
+         and `buildZwo` both already collapse a run of identical
+         consecutive segments into a single pair of `.erg`/`.mrc` lines
+         or one `.zwo` block via `mergeRuns` (see those two functions'
+         own doc comments). Highlighting "this segment's own text" for
+         real means "the merged run it belongs to's own text" – both
+         builders would need to track, per run, which segment index
+         range (`r.start`…`r.start+r.length-1`) produced which *line*
+         range of their own `lines` array (recording `lines.length`
+         immediately before/after each run's own `push`(es), `pushZwoBlock`
+         included since it can emit 1 or 3+ lines depending on whether
+         the run carries a marker), then converting that to a character
+         range once the full `lines` array is final (a small shared
+         `lines.slice(0, n).join("\n").length`-based helper, not
+         expensive at these array sizes). `buildErg`/`buildMrc` need one
+         extra step `buildZwo` doesn't: shifting `ergLikeBodyFromSegments`'s
+         own body-relative offsets by their own header's length, since
+         that function's `lines` array is body-only, unlike `buildZwo`'s
+         own single `lines` array spanning the whole file. And a real
+         edge case to guard explicitly: `ergLikeBodyFromSegments` always
+         reads `state.segments.bike`, never `activeSegments()` (.erg/.mrc
+         are Power-only, see its own doc comment) – so the map it builds
+         is only meaningful for cross-highlighting while `state.mode ===
+         "bike"`; with the ".erg"/".mrc" tab active while Treadmill is
+         the displayed Profile (both download cards are always shown,
+         regardless of Profile), neither highlight direction should do
+         anything at all, not highlight the wrong chart's segments.
+- [x] **Fixed a real bug, reported directly: `docs/builder.html`'s `.zwo`
+      export flattened every ramped Bike Power segment into one averaged
+      flat value instead of an actual ramp.** This was previously
+      believed to be a genuine `.zwo` format limitation (documented that
+      way in several places this session) – turned out to be wrong.
+      Verified directly against the file format reference (every
+      attribute Zwift's own files have ever actually used, auto-
+      generated from a large real-world corpus) before touching any
+      code, specifically because getting the fix backwards would have
+      been worse than the bug it fixes: `PowerLow`/`PowerHigh` really do
+      exist, on `Warmup`/`SteadyState`/`Cooldown` alike, not just
+      `Warmup`/`Cooldown` – and critically, they're **chronological**
+      (start value / end value), not "whichever number happens to be
+      smaller/larger" – confirmed by the reference's own worked example,
+      a `Cooldown` ramping 100W down to 25W written as `PowerLow="1"
+      PowerHigh="0.25"`, `PowerLow` there being the numerically *larger*
+      one. `buildZwo`'s bike branch now writes a genuinely ramped
+      segment (`seg0.startWatts !== lastSeg.endWatts` for its own merged
+      run) as `PowerLow`/`PowerHigh` set to exactly that segment's own
+      start/end values – no more averaging, no information lost at all
+      – falling back to a plain `Power="…"` only for a truly flat run,
+      same as before.
+      Treadmill's own Speed/Incline ramps still always write the flat,
+      averaged `Pace`/`Incline` pair too, alongside whichever of the new
+      attributes below apply – re-checked the same reference just as
+      carefully and confirmed Zwift's format has no `PaceLow`/`PaceHigh`/
+      `InclineLow`/`InclineHigh` at all, anywhere, on any element, so
+      that flat pair is the only thing any standard reader (Zwift, or
+      this app's own *current* `ZWOWorkoutParser`) can actually use –
+      never omitted, see the very next entry for what's added alongside
+      it.
+      Verified live in the browser: an ascending ramp (100W→200W)
+      exported as `PowerLow="0.400" PowerHigh="0.800"`; a descending one
+      (250W→100W) as `PowerLow="1.000" PowerHigh="0.400"` (confirming
+      the direction survives, not just the two values); a workout mixing
+      flat/ramped/flat segments showed the flat runs still correctly
+      merging on either side while the ramp stayed its own unique block
+      in between; a ramped `Warmup`-kind segment (via Shift+drag on the
+      default sample) exported correctly as `<Warmup … PowerLow=…
+      PowerHigh=…/>`, confirming the fix isn't SteadyState-only; the
+      Treadmill branch re-confirmed still exporting a plain averaged
+      `Pace`/`Incline` with no `Low`/`High` attributes at all, unaffected
+      by the bike-side change. Zero console errors throughout.
+- [ ] Also noted mid-conversation, not yet acted on: confirmed the
+      user's own instinct that highlighting part of a plain `<textarea>`
+      (see the two-way chart↔Preview highlight idea two entries up) is
+      normally done with an overlay – the same technique a spell-checker
+      uses for its own squiggly underlines.
+- [x] **`docs/builder.html`: Treadmill Speed/Incline ramps now export via
+      new, deliberately Unchain-specific `SpeedLow`/`SpeedHigh`/
+      `InclineLow`/`InclineHigh` attributes** – requested directly, right
+      after confirming Zwift's own format has no ramp attributes for
+      Speed/Incline at all (previous entry). Since there's nowhere
+      standard to put a real Treadmill ramp, this adds Unchain's own:
+      written *alongside* the existing flat, averaged `Pace`/`Incline`
+      pair, never instead of it (a reader that doesn't know these new
+      attributes – every reader alive today, including this app's own
+      `ZWOWorkoutParser` – just ignores them and keeps using the
+      average, exactly as before this entry; this app's own future
+      importer reading them back in is a deliberate, separate follow-up,
+      deferred to `main`, not part of this). Each pair only appears when
+      that specific field is actually ramped – `SpeedLow`/`SpeedHigh` and
+      `InclineLow`/`InclineHigh` are independent (Speed and Incline can
+      each ramp on their own within one segment, see the treadmill ramp-
+      builder entry above), so a segment with only one of the two ramped
+      only gets that one pair, not both.
+      Verified live in the browser: a Speed-only ramp wrote `SpeedLow`/
+      `SpeedHigh` with the flat `Pace` still present as their average and
+      no `InclineLow`/`InclineHigh` at all; an Incline-only ramp the
+      mirror image; both ramped on the same segment wrote all four
+      attributes together, flat `Pace`/`Incline` still present too;
+      confirmed the resulting `.zwo` still parses as well-formed XML
+      (`DOMParser`); confirmed Bike's own export carries no
+      `SpeedLow`/`InclineLow` at all, unaffected. Zero console errors.
+- [ ] **Follow-up, deferred to `main` on purpose**: teach the app's own
+      `ZWOWorkoutParser` (`Unchain/Models/TreadmillWorkoutProgram.swift`)
+      to read `SpeedLow`/`SpeedHigh`/`InclineLow`/`InclineHigh` back in
+      when present, producing a genuinely ramped `TreadmillWorkoutSegment`
+      instead of just reading the flat `Pace`/`Incline` average it reads
+      today. Not started – deliberately, per Oliver's own call: web-
+      builder work now happens on its own `dev-workout-builder` branch,
+      kept separate from the app (still developed on `main`), and this
+      is squarely an app change.
+- [x] **`docs/builder.html`: `.erg`/`.mrc` download cards are hidden
+      entirely in Treadmill mode** – requested directly: those two are
+      Power-only formats (`ergLikeBodyFromSegments` always reads
+      `state.segments.bike`, never `activeSegments()`), so offering them
+      at all while Treadmill is the displayed Profile was always an
+      export disconnected from what's actually on screen – confirmed
+      as unwanted rather than assumed. `renderAll` now toggles the two
+      cards' own `#jack-erg`/`#jack-mrc` visibility off `state.mode`
+      directly, and – the part that actually matters, since just hiding
+      the card would still leave a stale erg/mrc `active-fmt` silently
+      driving the Preview – force-switches `active-fmt` to `.zwo`
+      whenever Treadmill is current and the active one was `erg`/`mrc`.
+      Placed in `renderAll` itself rather than only the Profile toggle's
+      own click handler, deliberately: every path that can change
+      `state.mode` runs through it (pasting a Treadmill-shaped file or
+      shorthand while on the erg/mrc tab, Undo/Redo landing back on a
+      Treadmill state, a restored session booting straight into
+      Treadmill), so all of them self-correct the same way, not just a
+      deliberate Profile-toggle click.
+      Verified live in the browser: switching to Treadmill hides both
+      cards and switches the Preview to genuine `.zwo` content (label
+      and text both); switching back to Bike brings both cards back,
+      leaving `.zwo` active rather than silently reverting (no "remember
+      what was active before" bookkeeping needed – the rider can just
+      click `.erg` again); pasting Treadmill shorthand while `.erg` was
+      active auto-switched Profile *and* correctly hid the card/forced
+      `.zwo` *without* touching the Preview textarea's own just-pasted
+      content (matches `handlePreviewEdit`'s existing "never overwrite a
+      still-being-edited paste" rule); Undo back to Bike correctly
+      un-hides the cards, Redo back to Treadmill correctly re-hides them.
+      Zero console errors throughout.

@@ -545,16 +545,24 @@
       <div class="scope-scroll" id="scroll-incline"><svg class="lane" id="svg-incline" height="140"></svg></div>
     </div>
     <div class="readout" id="readout"></div>
-    <div class="hint" id="grid-hint">Drag vertically to set a value, sideways to draw across intervals. Drag the ⋮ handle at either shaded edge to resize Warm-up/Cool-down — everything between exports as <code>SteadyState</code>.</div>
+    <div class="hint" id="grid-hint">Drag vertically to set a value, sideways to draw across intervals. Hover an interval, then press <kbd>C</kbd> to cut there, <kbd>M</kbd> to add a text marker, <kbd>Del</kbd>/<kbd>Backspace</kbd> to delete it. Drag the ⋮ handle at either shaded edge to resize Warm-up/Cool-down — everything between exports as <code>SteadyState</code>.</div>
     <!-- Shown instead of `#grid-hint` while `state.layout === "segments"`
          (an imported/parsed workout, shown "as is" – see `state.layout`'s
          own doc comment) – toggled in `renderAll`, matching how every
          other mode-dependent bit of chrome here already works. -->
-    <div class="hint" id="segments-hint" style="display:none;">Drag vertically to set a value. Press <kbd>C</kbd> to cut an interval where you click, <kbd>M</kbd> to add a text marker, <kbd>Esc</kbd> to stop. Click an existing marker to edit or remove it.</div>
+    <div class="hint" id="segments-hint" style="display:none;">Drag vertically to set a value. Hover a segment, then press <kbd>C</kbd> to cut there, <kbd>M</kbd> to add a text marker, <kbd>Del</kbd>/<kbd>Backspace</kbd> to delete it. Click an existing marker to edit or remove it.</div>
   </div>
 
   <div class="export-row">
-    <div class="jack">
+    <!-- `.erg`/`.mrc` are Power-only formats (`ergLikeBodyFromSegments`
+         always reads `state.segments.bike`, never `activeSegments()`) –
+         hidden outright in Treadmill mode rather than just left visible
+         and technically clickable but disconnected from what's actually
+         on screen. `renderAll` toggles these `id`s and force-corrects
+         `active-fmt`/the Preview off them the moment Treadmill becomes
+         current, from every path that can change `state.mode`, not just
+         the Profile toggle's own click handler. -->
+    <div class="jack" id="jack-erg">
       <div class="fmt">.erg</div>
       <p>Absolute watts, minute-by-minute. Reads directly as a Power target.</p>
       <div class="jack-actions">
@@ -562,7 +570,7 @@
         <button class="copy-btn" data-copy="erg" type="button">Copy</button>
       </div>
     </div>
-    <div class="jack">
+    <div class="jack" id="jack-mrc">
       <div class="fmt">.mrc</div>
       <p>Percent of the FTP above, minute-by-minute. Same shape as TrainerDay's exports.</p>
       <div class="jack-actions">
@@ -1047,8 +1055,23 @@
   // comment on why). The "Preview" textarea (already-exported text, live
   // re-parsed on every edit) stays a fully general fallback for anything
   // not covered here directly.
-
-  var cutModeActive = false;
+  //
+  // No more Cut/Mark *modes* – requested directly, replacing the earlier
+  // "press C/M to enter a mode, a guide line follows the pointer, click
+  // to commit, Esc to leave" flow with direct action: a thin hover line
+  // and a highlighted segment now always track the pointer over any
+  // lane's chart (see `positionHoverLine`/`positionSegHighlight` inside
+  // `ensureSegmentLaneSetup`), and "C"/"M"/"Delete"/"Backspace" act
+  // immediately, right there, the moment they're pressed – see the
+  // shared keydown listener further down. `hoverSeconds` (below) is what
+  // makes that possible: every lane's own `pointermove` keeps it current,
+  // `pointerleave` clears it back to `null`, and the keydown listener
+  // simply does nothing whenever it's `null` (the pointer isn't over any
+  // chart right now). Shared across every lane rather than kept lane-
+  // local – a cut/mark/delete acts on the one shared segment list
+  // (`activeSegments()`) regardless of which lane's own chart the
+  // pointer happens to be hovering, Speed or Incline alike.
+  var hoverSeconds = null;
 
   // Total elapsed seconds across every segment – `0` for an empty list,
   // never actually reachable in practice (every `apply*Text` path that
@@ -1073,8 +1096,8 @@
   }
 
   // Splits whichever segment contains `seconds` into two, right at that
-  // point – Cut mode's own click handler, shared across every lane
-  // (whichever one the click actually landed on, the same segment list
+  // point – "C"'s own keydown handler, shared across every lane
+  // (whichever one the pointer's actually hovering, the same segment list
   // underlies all of them). A no-op at either of the segment's own two
   // edges – cutting exactly on a boundary that already exists there
   // wouldn't produce two real pieces, just one zero-duration one.
@@ -1140,7 +1163,6 @@
     updatePreview();
   }
 
-  var markModeActive = false;
   // How close (in the same px-per-second space `PX_PER_SECOND` already
   // uses) a click has to be to an existing marker's own time for it to
   // count as clicking *that* marker rather than the chart underneath it –
@@ -1156,10 +1178,10 @@
 
   // Sets a new `<TextEvent>` marker (see `parseTextEvents`'s own doc
   // comment for the shape) on whichever segment contains `seconds`, at
-  // that exact point – Mark mode's own click handler, the direct
-  // counterpart of `performCut` above. Prompts for the marker's text
-  // (Zwift's own `message` attribute); cancelling, or leaving it blank,
-  // creates nothing.
+  // that exact point – "M"'s own keydown handler, the direct counterpart
+  // of `performCut` above. Prompts for the marker's text (Zwift's own
+  // `message` attribute); cancelling, or leaving it blank, creates
+  // nothing.
   function performMark(seconds) {
     var index = segmentIndexAt(seconds);
     var seg = activeSegments()[index];
@@ -1172,6 +1194,33 @@
     seg.textEvents = seg.textEvents || [];
     seg.textEvents.push({ timeOffset: timeOffset, message: message, duration: null });
     seg.textEvents.sort(function (a, b) { return a.timeOffset - b.timeOffset; });
+    renderAll();
+    updatePreview();
+  }
+
+  // Removes segment `index` entirely, shifting every later segment
+  // earlier by its own duration to close the gap it would otherwise
+  // leave – "Delete"/"Backspace"'s own keydown handler. A ripple delete,
+  // not a "hand the freed time to a neighbor" merge: this data model has
+  // no way to represent a gap at all (segments are always contiguous,
+  // start-to-end), so closing it by shifting everything after is the
+  // only shape that stays valid – the same way deleting a clip in an
+  // audio editor's timeline closes the hole instead of leaving silence.
+  // A no-op if `index` is the only segment left, or out of range – zero
+  // segments isn't a state anything here is built to handle.
+  function performDeleteSegment(index) {
+    var segs = activeSegments();
+    if (segs.length <= 1 || index < 0 || index >= segs.length) return;
+    pushUndo();
+    // Same reasoning as `performCut`'s own promotion – deleting a
+    // segment from a grid workout breaks its "every segment is
+    // `binSeconds` wide" invariant just as surely as a cut does.
+    if (state.layout === "grid") state.layout = "segments";
+    var removedDuration = segs[index].duration;
+    segs.splice(index, 1);
+    for (var i = index; i < segs.length; i++) {
+      segs[i].startSeconds -= removedDuration;
+    }
     renderAll();
     updatePreview();
   }
@@ -1194,8 +1243,8 @@
     return best;
   }
 
-  // Handles a normal-mode (not Cut, not Mark) click that lands on an
-  // existing marker – edits its text, or removes it if left blank.
+  // Handles a plain click that lands on an existing marker – edits its
+  // text, or removes it if left blank.
   // Returns whether it actually found (and handled) one, so the caller's
   // own click handler knows whether to fall through to its usual
   // paint-a-value behavior instead. `evtY` (already converted to this
@@ -1239,19 +1288,34 @@
     lane.svg.appendChild(visualGroup);
     lane.segVisualGroup = visualGroup;
 
+    // Highlights whichever segment the pointer is currently over – shown
+    // and repositioned on every `pointermove`, hidden on `pointerleave`,
+    // regardless of what else the pointer's doing (painting, edge-
+    // dragging, hovering a marker) – "what would C/M/Delete act on right
+    // now" should always be visible. Appended before `hit`/`hoverLine`/
+    // `edgeHandle` so those still draw on top of it.
+    var segHighlight = document.createElementNS(svgNS, "rect");
+    segHighlight.setAttribute("fill", "var(--focus)");
+    segHighlight.setAttribute("opacity", "0.10");
+    segHighlight.style.display = "none";
+    segHighlight.style.pointerEvents = "none";
+    lane.svg.appendChild(segHighlight);
+
     var hit = document.createElementNS(svgNS, "rect");
     hit.setAttribute("fill", "transparent");
     lane.svg.appendChild(hit);
     lane.segHit = hit;
 
-    var cutLine = document.createElementNS(svgNS, "line");
-    cutLine.setAttribute("stroke", "var(--focus)");
-    cutLine.setAttribute("stroke-width", "1.5");
-    cutLine.setAttribute("stroke-dasharray", "3,3");
-    cutLine.style.display = "none";
-    cutLine.style.pointerEvents = "none";
-    lane.svg.appendChild(cutLine);
-    lane.segCutLine = cutLine;
+    // Always tracks the pointer while it's over this lane's own chart –
+    // no more "only while Cut/Mark mode is active" (see `hoverSeconds`'s
+    // own doc comment on why there's no mode at all anymore).
+    var hoverLine = document.createElementNS(svgNS, "line");
+    hoverLine.setAttribute("stroke", "var(--focus)");
+    hoverLine.setAttribute("stroke-width", "1.5");
+    hoverLine.setAttribute("stroke-dasharray", "3,3");
+    hoverLine.style.display = "none";
+    hoverLine.style.pointerEvents = "none";
+    lane.svg.appendChild(hoverLine);
 
     var readout = document.getElementById("readout");
     var wrap = document.querySelector(".scope-wrap");
@@ -1401,20 +1465,6 @@
       readout.textContent = binTimeLabel(seg.startSeconds) + "–" + binTimeLabel(seg.startSeconds + seg.duration) + "  " + lane.fmt(value) + "  ·  " + seg.kind;
       readout.classList.add("visible");
     }
-    function showCutReadout(seconds, clientX, clientY) {
-      var wrect = wrap.getBoundingClientRect();
-      readout.style.left = (clientX - wrect.left) + "px";
-      readout.style.top = (clientY - wrect.top) + "px";
-      readout.textContent = "Cut at " + binTimeLabel(seconds);
-      readout.classList.add("visible");
-    }
-    function showMarkReadout(seconds, clientX, clientY) {
-      var wrect = wrap.getBoundingClientRect();
-      readout.style.left = (clientX - wrect.left) + "px";
-      readout.style.top = (clientY - wrect.top) + "px";
-      readout.textContent = "Mark at " + binTimeLabel(seconds);
-      readout.classList.add("visible");
-    }
     // Ported from grid's own `showReadout`'s `labelOverride` branch, split
     // into its own function here since segment view already has several
     // differently-shaped readouts rather than one parameterized one.
@@ -1427,14 +1477,25 @@
     }
     function hideReadout() { readout.classList.remove("visible"); }
 
-    function positionCutLine(seconds) {
+    function positionHoverLine(seconds) {
       var g = lane.segGeom;
       var x = g.padLeft + seconds * PX_PER_SECOND;
-      cutLine.setAttribute("x1", x); cutLine.setAttribute("x2", x);
-      cutLine.setAttribute("y1", g.padTop); cutLine.setAttribute("y2", g.padTop + g.plotH);
-      cutLine.style.display = "";
+      hoverLine.setAttribute("x1", x); hoverLine.setAttribute("x2", x);
+      hoverLine.setAttribute("y1", g.padTop); hoverLine.setAttribute("y2", g.padTop + g.plotH);
+      hoverLine.style.display = "";
     }
-    function hideCutLine() { cutLine.style.display = "none"; }
+    function hideHoverLine() { hoverLine.style.display = "none"; }
+
+    function positionSegHighlight(index) {
+      var g = lane.segGeom;
+      var seg = activeSegments()[index];
+      segHighlight.setAttribute("x", g.padLeft + seg.startSeconds * PX_PER_SECOND);
+      segHighlight.setAttribute("y", g.padTop);
+      segHighlight.setAttribute("width", seg.duration * PX_PER_SECOND);
+      segHighlight.setAttribute("height", g.plotH);
+      segHighlight.style.display = "";
+    }
+    function hideSegHighlight() { segHighlight.style.display = "none"; }
 
     // Sideways multi-segment paint-drag interpolation, ported from grid's
     // own `applyPaint` – addressed by segment index instead of bin index.
@@ -1459,16 +1520,6 @@
 
     hit.addEventListener("pointerdown", function (evt) {
       try { hit.setPointerCapture(evt.pointerId); } catch (e) { /* proceed uncaptured */ }
-      if (cutModeActive) {
-        performCut(Math.round(eventToSeconds(evt)));
-        evt.preventDefault();
-        return;
-      }
-      if (markModeActive) {
-        performMark(Math.round(eventToSeconds(evt)));
-        evt.preventDefault();
-        return;
-      }
       if (lane.hasRamps && evt.shiftKey) {
         var edge = segEdgeAt(evt);
         if (edge) {
@@ -1485,10 +1536,9 @@
           return;
         }
       }
-      // Not a mode-click, not an edge-drag – a click landing on an
-      // existing marker edits it instead of painting a value underneath
-      // it (see `editTextEventAt`'s own doc comment on why only near the
-      // very top of the plot).
+      // Not an edge-drag – a click landing on an existing marker edits it
+      // instead of painting a value underneath it (see `editTextEventAt`'s
+      // own doc comment on why only near the very top of the plot).
       if (editTextEventAt(eventToSeconds(evt), eventToSvgY(evt) - lane.segGeom.padTop)) {
         evt.preventDefault();
         return;
@@ -1503,18 +1553,14 @@
       evt.preventDefault();
     });
     hit.addEventListener("pointermove", function (evt) {
-      if (cutModeActive) {
-        var secondsC = Math.round(eventToSeconds(evt));
-        positionCutLine(secondsC);
-        showCutReadout(secondsC, evt.clientX, evt.clientY);
-        return;
-      }
-      if (markModeActive) {
-        var secondsM = Math.round(eventToSeconds(evt));
-        positionCutLine(secondsM);
-        showMarkReadout(secondsM, evt.clientX, evt.clientY);
-        return;
-      }
+      // Hover line + segment highlight always track the pointer, first,
+      // regardless of what else this move ends up doing below – see
+      // `hoverSeconds`'s own doc comment.
+      var hoverNow = eventToSeconds(evt);
+      hoverSeconds = hoverNow;
+      positionHoverLine(Math.round(hoverNow));
+      positionSegHighlight(segmentIndexAt(hoverNow));
+
       if (edgeDragging) {
         var vE = setEdgeValue(edgeDragIndex, edgeDragWhich, eventToValue(evt), evt);
         renderSegmentLane(lane);
@@ -1530,7 +1576,7 @@
           var seg = activeSegments()[edge.index];
           positionEdgeHandle(edge.index, edge.which, edge.which === "start" ? lane.segStart(seg) : lane.segEnd(seg));
         } else {
-          lane.svg.style.cursor = "";
+          lane.svg.style.cursor = "crosshair";
           hideEdgeHandle();
         }
       }
@@ -1551,8 +1597,10 @@
     });
     hit.addEventListener("pointerleave", function () {
       if (!painting) hideReadout();
-      hideCutLine();
+      hideHoverLine();
+      hideSegHighlight();
       if (!edgeDragging) hideEdgeHandle();
+      hoverSeconds = null;
     });
 
     // Warm-up/Cool-down boundary handles – grid-workout-only (see
@@ -1586,8 +1634,11 @@
     lane.segHit.setAttribute("y", padTop);
     lane.segHit.setAttribute("width", plotW);
     lane.segHit.setAttribute("height", plotH);
-    lane.svg.style.cursor = cutModeActive ? "crosshair" : (markModeActive ? "text" : "");
-    if (!cutModeActive && !markModeActive) lane.segCutLine.style.display = "none";
+    // Always a crosshair now – the hover line + segment highlight (and
+    // C/M/Delete) are live wherever the pointer is, not just during a
+    // now-gone Cut/Mark mode. `pointermove`'s own ramp-edge-hover check
+    // still overrides this to "ns-resize" near a Shift-held ramp edge.
+    lane.svg.style.cursor = "crosshair";
 
     var accent = css(lane.accent);
     var gridColor = css("--grid");
@@ -1823,45 +1874,34 @@
     });
   }
 
-  // Picks grid view or segment view for `lane` (`state.layout`) and hides
-  // the other one's own hit-rect/visual group – both live in the same
-  // `<svg>` at once (see `ensureLaneSetup`/`ensureSegmentLaneSetup`), only
-  // one ever actually interactive/visible. `lane.warmupHandleGroup`/
-  // `lane.cooldownHandleGroup` (grid view's own drag handles, `hasBoundaryHandles`
-  // lanes only) need the same treatment – nothing about entering segment
-  // view otherwise repositions or hides them, so without this they'd just
-  // sit at wherever they last were in grid view, floating over segment
-  // view's own chart.
-  // "C" enters Cut mode, "M" enters Mark mode, requested directly, both
-  // modeled on an audio editor's own razor/split and marker tools –
-  // available regardless of `state.layout` now that grid and segments
-  // share one underlying model (Cut promotes a grid workout to
-  // "segments" itself, see `performCut`'s own doc comment; Mark doesn't
-  // need to). Mutually exclusive – entering one leaves the other, rather
-  // than leaving it ambiguous what a click does with both active at
-  // once. Guarded against firing while typing, same as the undo/redo
-  // listener above, so typing an actual "c"/"m" into a text field works
+  // "C" cuts, "M" marks, "Delete"/"Backspace" deletes – each acting
+  // immediately at/on whatever `hoverSeconds` currently says the pointer
+  // is over (see its own doc comment for why there's no "enter a mode
+  // first" step anymore), on whichever lane last updated it. A no-op
+  // whenever `hoverSeconds` is `null` – the pointer isn't over any
+  // lane's chart right now, nothing sensible to act on. Guarded against
+  // firing while typing, same as the undo/redo listener elsewhere in
+  // this file, so typing an actual "c"/"m" into a text field still works
   // normally; exclude every modifier too, so "C" doesn't shadow
-  // Cmd/Ctrl+C (copy). "Escape" (to leave either) is deliberately *not*
-  // guarded the same way – it doesn't do anything unwanted in a text
-  // field either, and leaving these modes is the one action here that
-  // should always work regardless of where focus happens to be.
+  // Cmd/Ctrl+C (copy), and a modified Delete/Backspace chord doesn't get
+  // swallowed either. All three work regardless of `state.layout` (Cut
+  // and Delete promote a grid workout to "segments" themselves, see
+  // `performCut`/`performDeleteSegment`'s own doc comments; Mark doesn't
+  // need to) – `evt.preventDefault()` on Delete/Backspace specifically,
+  // since an unhandled Backspace can otherwise trigger the browser's own
+  // back-navigation once focus isn't in a text field.
   document.addEventListener("keydown", function (evt) {
-    if (evt.key === "Escape") {
-      if (cutModeActive || markModeActive) { cutModeActive = false; markModeActive = false; renderAll(); }
-      return;
-    }
+    if (hoverSeconds === null) return;
     var tag = document.activeElement ? document.activeElement.tagName : "";
     if (tag === "INPUT" || tag === "TEXTAREA") return;
     if (evt.ctrlKey || evt.metaKey || evt.altKey) return;
     if (evt.key === "c" || evt.key === "C") {
-      cutModeActive = true;
-      markModeActive = false;
-      renderAll();
+      performCut(Math.round(hoverSeconds));
     } else if (evt.key === "m" || evt.key === "M") {
-      markModeActive = true;
-      cutModeActive = false;
-      renderAll();
+      performMark(Math.round(hoverSeconds));
+    } else if (evt.key === "Delete" || evt.key === "Backspace") {
+      performDeleteSegment(segmentIndexAt(hoverSeconds));
+      evt.preventDefault();
     }
   });
 
@@ -1881,6 +1921,25 @@
     document.getElementById("total-read").textContent = binTimeLabel(totalSec);
     document.getElementById("ftp-field").style.display = state.mode === "bike" ? "" : "none";
     document.getElementById("speed-step-field").style.display = state.mode === "treadmill" ? "" : "none";
+
+    // `.erg`/`.mrc` are Power-only, meaningless in Treadmill mode (see
+    // `jack-erg`/`jack-mrc`'s own comment in the markup) – requested
+    // directly, an unusable export shouldn't be offered as if it were
+    // one. Hidden outright, not just disabled, and force-corrected off
+    // `active-fmt`/the Preview the instant Treadmill becomes current –
+    // from here, not just the Profile toggle's own click handler, so
+    // every path that can change `state.mode` (pasting a treadmill-
+    // shaped file/shorthand while on the erg/mrc tab, Undo/Redo landing
+    // back on a treadmill state, a restored session) self-corrects too,
+    // not only a deliberate toggle click.
+    var ergMrcAllowed = state.mode === "bike";
+    document.getElementById("jack-erg").style.display = ergMrcAllowed ? "" : "none";
+    document.getElementById("jack-mrc").style.display = ergMrcAllowed ? "" : "none";
+    if (!ergMrcAllowed) {
+      var activeBtn = document.querySelector(".jack button.active-fmt");
+      var activeFmt = activeBtn ? activeBtn.getAttribute("data-fmt") : null;
+      if (activeFmt === "erg" || activeFmt === "mrc") setActiveFmt("zwo");
+    }
 
     // Interval Length/Intervals/Warm-up/Cool-down only mean anything for
     // a uniform grid – hidden in segment view (see `state.layout`'s own
@@ -2033,16 +2092,15 @@
       // Keyed by segment index – each already its own exact, "as is"
       // duration, no resampling needed, grid or imported alike. A
       // segment carrying its own `<TextEvent>` marker(s), or a ramped
-      // one (`startWatts !== endWatts` – `.zwo`'s flat blocks can't
-      // express a ramp at all, see `ZWOWorkoutParser`'s own doc comment
-      // in the app), always keeps its own unique key too: a ramped
-      // segment is exported as its start/end average instead of being
-      // silently flattened by merging with a same-average neighbor that
-      // might have a completely different actual ramp; a marked one
-      // would need re-expressing each marker's own `timeoffset` relative
-      // to a different block's start if merged, which `performCut`'s own
-      // splitting logic already keeps correct as long as a segment's
-      // markers never have to survive a *merge*.
+      // one (`startWatts !== endWatts`), always keeps its own unique key
+      // too: a marked one would need re-expressing each marker's own
+      // `timeoffset` relative to a different block's start if merged,
+      // which `performCut`'s own splitting logic already keeps correct
+      // as long as a segment's markers never have to survive a *merge*;
+      // a ramped one keeps its own key so it can be written as a genuine
+      // `PowerLow`/`PowerHigh` ramp (see the `forEach` just below) rather
+      // than getting silently flattened into a same-average neighbor
+      // that might have a completely different actual ramp.
       var segRuns = mergeRuns(activeSegments().length, function (i) {
         var seg = activeSegments()[i];
         var ramped = seg.startWatts !== seg.endWatts;
@@ -2051,22 +2109,57 @@
       });
       segRuns.forEach(function (r) {
         var seg0 = activeSegments()[r.start];
+        var lastSeg = activeSegments()[r.start + r.length - 1];
         var duration = segmentRunEnd(activeSegments(), r) - seg0.startSeconds;
-        var avg = (seg0.startWatts + activeSegments()[r.start + r.length - 1].endWatts) / 2;
-        var fraction = (avg / state.ftp).toFixed(3);
-        pushZwoBlock(lines, seg0.kind, duration, 'Power="' + fraction + '"', seg0.textEvents);
+        var attrs;
+        if (seg0.startWatts !== lastSeg.endWatts) {
+          // A genuine ramp – Zwift's own format really does support this
+          // directly, on `Warmup`/`SteadyState`/`Cooldown` alike
+          // (verified against the file format reference's own attribute
+          // list and a worked example: `PowerLow`/`PowerHigh` are
+          // chronological – start value/end value – not "whichever is
+          // numerically smaller/larger"; the reference's own Cooldown
+          // example, ramping 100W down to 25W, writes `PowerLow="1"
+          // PowerHigh="0.25"` even though PowerLow is the *larger*
+          // number there). Averaging a ramp away into one flat `Power`
+          // value was a workaround for a format limitation that turned
+          // out not to actually apply here – unlike Treadmill's own
+          // Speed/Incline ramps just below, which really do have no
+          // standard-format equivalent to fall back on.
+          attrs = 'PowerLow="' + (seg0.startWatts / state.ftp).toFixed(3) + '" PowerHigh="' + (lastSeg.endWatts / state.ftp).toFixed(3) + '"';
+        } else {
+          attrs = 'Power="' + (seg0.startWatts / state.ftp).toFixed(3) + '"';
+        }
+        pushZwoBlock(lines, seg0.kind, duration, attrs, seg0.textEvents);
       });
       lines.push('  </workout>');
     } else {
       lines.push('  <sportType>run</sportType>');
       lines.push('  <workout>');
       // Same "a ramped or marked segment always keeps its own unique key"
-      // reasoning as the bike branch above – `.zwo`'s flat blocks can't
-      // express a Speed/Incline ramp any more than they can a Power one
-      // (see `ZWOWorkoutParser`'s own doc comment in the app), so a
-      // ramped segment (either field, independently) is exported as its
-      // own start/end average instead of merging with a same-average
-      // neighbor that might have a completely different actual ramp.
+      // reasoning as the bike branch above.
+      //
+      // Zwift's own format has no ramp support for Speed/Incline at all
+      // – confirmed directly against the file format reference (every
+      // attribute Zwift's own files have ever actually used, on every
+      // element): `PowerLow`/`PowerHigh` exist, but no `PaceLow`/
+      // `PaceHigh`/`InclineLow`/`InclineHigh` do, anywhere in the format.
+      // So a ramped Treadmill segment always still writes the flat,
+      // averaged `Pace`/`Incline` pair Zwift itself (or any other reader
+      // – including this app's own `ZWOWorkoutParser`, *today*) expects
+      // and requires – never omitted, exactly as before this entry.
+      // Alongside that, when Speed and/or Incline is actually ramped,
+      // this now *also* writes this app's own extra, Zwift-non-standard
+      // `SpeedLow`/`SpeedHigh`/`InclineLow`/`InclineHigh` attributes –
+      // requested directly, a deliberate Unchain-specific extension
+      // (there's nowhere else to put a real treadmill ramp, the format
+      // simply has no field for it) rather than something Zwift or any
+      // other tool is expected to understand. Purely additive: a reader
+      // that doesn't know these attributes exist (every reader alive
+      // right now, including this app's own `ZWOWorkoutParser` – reading
+      // them back in is a separate, deferred follow-up on `main`) just
+      // ignores them and uses the flat average like always; nothing here
+      // can make an existing file harder to read than it already was.
       var segRuns2 = mergeRuns(activeSegments().length, function (i) {
         var seg = activeSegments()[i];
         var ramped = seg.startSpeedKmh !== seg.endSpeedKmh || seg.startInclinePercent !== seg.endInclinePercent;
@@ -2079,7 +2172,14 @@
         var duration = segmentRunEnd(activeSegments(), r) - seg0.startSeconds;
         var avgSpeed = (seg0.startSpeedKmh + lastSeg.endSpeedKmh) / 2;
         var avgIncline = (seg0.startInclinePercent + lastSeg.endInclinePercent) / 2;
-        pushZwoBlock(lines, seg0.kind, duration, 'Pace="' + avgSpeed.toFixed(1) + '" Incline="' + avgIncline.toFixed(1) + '"', seg0.textEvents);
+        var attrs = 'Pace="' + avgSpeed.toFixed(1) + '" Incline="' + avgIncline.toFixed(1) + '"';
+        if (seg0.startSpeedKmh !== lastSeg.endSpeedKmh) {
+          attrs += ' SpeedLow="' + seg0.startSpeedKmh.toFixed(1) + '" SpeedHigh="' + lastSeg.endSpeedKmh.toFixed(1) + '"';
+        }
+        if (seg0.startInclinePercent !== lastSeg.endInclinePercent) {
+          attrs += ' InclineLow="' + seg0.startInclinePercent.toFixed(1) + '" InclineHigh="' + lastSeg.endInclinePercent.toFixed(1) + '"';
+        }
+        pushZwoBlock(lines, seg0.kind, duration, attrs, seg0.textEvents);
       });
       lines.push('  </workout>');
     }
@@ -3119,6 +3219,12 @@
     pushUndo();
     state.mode = btn.getAttribute("data-mode");
     document.querySelectorAll("#mode-toggle button").forEach(function (b) { b.classList.toggle("active", b === btn); });
+    // The previously-hovered lane just got hidden (`display:none` on its
+    // `#lanes-bike`/`#lanes-treadmill` ancestor) without ever firing its
+    // own `pointerleave` – left stale, `hoverSeconds` would still point
+    // C/M/Delete at a time position from a chart that's no longer even
+    // visible.
+    hoverSeconds = null;
     renderAll();
     updatePreview();
   });

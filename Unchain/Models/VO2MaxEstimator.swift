@@ -55,8 +55,12 @@ enum VO2MaxEstimator {
         // The longest qualifying segment gives heart rate the most time to
         // genuinely settle, so it's the best candidate when a program has
         // more than one `SteadyState` block.
+        // `!isRamped` too – a segment whose speed/incline changes across
+        // its own duration isn't a genuinely held, steady effort, which
+        // these ACSM equations assume throughout (a single speed/grade
+        // pair, not a moving target).
         guard let segment = program.segments
-            .filter({ $0.kind == .steadyState && $0.duration >= minimumSegmentSeconds })
+            .filter({ $0.kind == .steadyState && !$0.isRamped && $0.duration >= minimumSegmentSeconds })
             .max(by: { $0.duration < $1.duration }) else { return nil }
 
         let settledStartSeconds = segment.startSeconds + max(minimumSettlingSeconds, segment.duration / 2)
@@ -73,9 +77,9 @@ enum VO2MaxEstimator {
         // to extrapolate from, it would just blow the estimate up.
         guard averageHeartRateBPM > Double(restingHeartRateBPM) + 5 else { return nil }
 
-        let speedMetersPerMinute = segment.speedKmh * 1000 / 60
-        let gradeFraction = segment.inclinePercent / 100
-        let isRunning = segment.speedKmh >= runningSpeedThresholdKmh
+        let speedMetersPerMinute = segment.startSpeedKmh * 1000 / 60
+        let gradeFraction = segment.startInclinePercent / 100
+        let isRunning = segment.startSpeedKmh >= runningSpeedThresholdKmh
         // ACSM metabolic equations, VO2 in ml/(kg·min).
         let submaximalVO2 = isRunning
             ? 0.2 * speedMetersPerMinute + 0.9 * speedMetersPerMinute * gradeFraction + 3.5

@@ -3756,15 +3756,84 @@ would change, roughly in the order it'd need doing:
       confirmed the resulting `.zwo` still parses as well-formed XML
       (`DOMParser`); confirmed Bike's own export carries no
       `SpeedLow`/`InclineLow` at all, unaffected. Zero console errors.
-- [ ] **Follow-up, deferred to `main` on purpose**: teach the app's own
-      `ZWOWorkoutParser` (`Unchain/Models/TreadmillWorkoutProgram.swift`)
-      to read `SpeedLow`/`SpeedHigh`/`InclineLow`/`InclineHigh` back in
-      when present, producing a genuinely ramped `TreadmillWorkoutSegment`
-      instead of just reading the flat `Pace`/`Incline` average it reads
-      today. Not started – deliberately, per Oliver's own call: web-
-      builder work now happens on its own `dev-workout-builder` branch,
-      kept separate from the app (still developed on `main`), and this
-      is squarely an app change.
+- [x] **Follow-up, landed on `main`: the app now reads a treadmill
+      `<Ramp>` block back in and genuinely ramps Speed/Incline during
+      live Treadmill playback** – the app-side half of the previous two
+      entries, and a correction of them: those entries (and the writer
+      code they describe, still live on `dev-workout-builder`'s own
+      history at the time) had `SpeedLow`/`SpeedHigh`/`InclineLow`/
+      `InclineHigh` written *additively* onto `Warmup`/`SteadyState`/
+      `Cooldown`. That wasn't actually the intended design – corrected,
+      here and on `dev-workout-builder`, to a dedicated `<Ramp>` element
+      instead (`<Ramp Duration=… SpeedLow=… SpeedHigh=… InclineLow=…
+      InclineHigh=…/>`), deliberately mirroring how Zwift's own real
+      `<Ramp>` carries `PowerLow`/`PowerHigh` for cycling, rather than
+      Zwift's separate (and *also* real) support for `PowerLow`/
+      `PowerHigh` directly on `Warmup`/`SteadyState`/`Cooldown`. A ramped
+      segment's `kind` is now always `nil` – same as Zwift's own `<Ramp>`,
+      which isn't tagged Warmup/SteadyState/Cooldown either – so `Warmup`/
+      `SteadyState`/`Cooldown` themselves stay genuinely flat, both in the
+      file format and in this app's own model, exactly as before ramping
+      existed at all.
+      `TreadmillWorkoutSegment` (`Unchain/Models/TreadmillWorkoutProgram.swift`)
+      widened its flat `speedKmh`/`inclinePercent` into `startSpeedKmh`/
+      `endSpeedKmh`/`startInclinePercent`/`endInclinePercent` plus a new
+      `isRamped` flag; a persisted pre-ramp `TreadmillWorkoutProgramStore`
+      recent still decodes via a decode-only `LegacyCodingKeys` fallback
+      (start=end=old value), the same pattern `textEvents` already
+      established for a different missing-key case, kept out of the main
+      `CodingKeys` so `Encodable` stays synthesized. `target
+      (atElapsedSeconds:)` now linearly interpolates within a ramped
+      segment instead of returning one flat value, with everything
+      downstream (`ControlView`'s target label, `sendCurrentTarget()`)
+      unaffected since the tuple shape it returns didn't change.
+      `ZWOWorkoutParser`'s new `case "Ramp":` requires all four attributes
+      (a `<Ramp>` block has no flat `Pace`/`Incline` of its own to fall
+      back to) – a real, Power-based cycling `<Ramp>`, or a malformed
+      treadmill one missing an attribute, correctly falls through to the
+      same "unsupported element" failure `IntervalsT`/`FreeRide`/
+      `MaxEffort` already have, rather than silently misreading it. The
+      `.unsupportedSegment` error text (English + German) was reworded to
+      name `Ramp` as conditionally supported.
+      Caught and fixed a real, pre-existing bug while wiring this up
+      (would otherwise have shipped invisibly, since a flat segment never
+      exposed it): `WorkoutSession.sendCurrentWorkoutTarget(for:)`'s
+      existing boundary-transition ramp (a *different* mechanism – it
+      paces the belt catching up to a fresh segment's incline change, not
+      an in-file ramp) only clamped its own interpolation *fraction* to
+      `[0,1]`, never re-evaluating its `if let` guard back to false once
+      that window elapsed – so `speedToSend`/`estimatedInclinePercent`
+      froze at the value captured at the crossing instant for the rest of
+      the segment instead of continuing to track the now-ramping `target`.
+      Fixed by additionally gating both guards on `elapsed < rampStart +
+      rampDurationSeconds`. `clampActiveTreadmillProgram` now clamps start
+      and end independently (and, an unrelated bug noticed in passing,
+      now preserves `textEvents` through the clamp instead of silently
+      dropping them); `ControlView`'s `warnIfOutOfRange` considers both
+      ends of a ramp, not just one; `TreadmillProgramSegmentList` shows a
+      "start→end" range for a ramped segment instead of one number;
+      `VO2MaxEstimator` now excludes ramped segments from SteadyState
+      candidacy (not a genuinely held, steady effort for its ACSM-based
+      methodology; a ramped segment's `kind == nil` already excludes it
+      from the `.kind == .steadyState` check alone, `!isRamped` kept as
+      explicit, documented intent rather than relying on that silently).
+      Verified: `xcodegen generate` + `make build` → `BUILD SUCCEEDED`;
+      standalone `swift`-compiled checks (outside Xcode, mirroring
+      `ZWOWorkoutParser`'s own established verification style) against
+      hand-built `.zwo` fixtures confirmed a `<Ramp>` block parsing with
+      independent per-field values, a flat `Warmup`/`Cooldown` around it
+      staying genuinely flat (no stray Speed/Incline effect), a real
+      Power-based `<Ramp>` and a malformed treadmill one (missing one
+      attribute) both correctly rejected by name, `target
+      (atElapsedSeconds:)` interpolation at segment start/mid/end/
+      boundary/out-of-range on a `kind == nil` ramp segment, and a
+      legacy-keyed JSON blob decoding with start=end and re-encoding
+      under the new key names; a separate isolated reproduction of the
+      boundary-ramp arithmetic confirmed the freeze bug on the pre-fix
+      logic and its absence with the fix, side by side. No live-device/
+      Bluetooth testing is possible in this environment (Simulator has no
+      Bluetooth) – flagged as an explicit manual real-device QA step
+      before this is relied on for an actual ramped workout.
 - [x] **`docs/builder.html`: `.erg`/`.mrc` download cards are hidden
       entirely in Treadmill mode** – requested directly: those two are
       Power-only formats (`ergLikeBodyFromSegments` always reads

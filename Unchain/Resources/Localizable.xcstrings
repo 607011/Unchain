@@ -1731,12 +1731,12 @@
         }
       }
     },
-    "This .zwo file uses a \"%@\" block Unchain doesn't support yet – only Warmup, SteadyState, and Cooldown (flat Pace/Incline, no ramping or repeats) are.": {
+    "This .zwo file uses a \"%@\" block Unchain doesn't support yet – only Warmup, SteadyState, Cooldown (flat Pace/Incline) and Ramp (Speed/Incline, this app's own extension – not Zwift's Power-based Ramp) are.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diese .zwo-Datei verwendet einen „%@\"-Block, den Unchain noch nicht unterstützt – nur Warmup, SteadyState und Cooldown (konstante Pace/Incline, keine Rampen oder Wiederholungen) werden unterstützt."
+            "value": "Diese .zwo-Datei verwendet einen „%@\"-Block, den Unchain noch nicht unterstützt – nur Warmup, SteadyState, Cooldown (konstante Pace/Incline) und Ramp (Speed/Incline, eine eigene Erweiterung dieser App – nicht Zwifts leistungsbasiertes Ramp) werden unterstützt."
           }
         }
       }

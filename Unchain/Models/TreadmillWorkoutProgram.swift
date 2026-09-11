@@ -15,19 +15,31 @@ enum TreadmillSegmentKind: String, Codable {
     case cooldown
 }
 
-/// One flat-value block of a treadmill workout: a target speed and
-/// inclination held constant for `duration` seconds. Unlike
-/// `WorkoutProgram` (`.erg`/`.mrc`, where a value ramps linearly *between*
-/// breakpoints), every real-world Warmup/SteadyState/Cooldown block seen so
-/// far uses a single flat `Pace`/`Incline` value for its own whole
-/// duration – no interpolation needed or attempted. A genuine Zwift ramp
-/// (`PaceLow`/`PaceHigh` instead of a flat `Pace`) isn't supported yet –
-/// see `ZWOWorkoutParser`.
+/// One block of a treadmill workout: a target speed and inclination held
+/// for `duration` seconds, either flat (`startSpeedKmh == endSpeedKmh` and
+/// likewise for incline) or ramping linearly from the start value to the
+/// end value across the segment's own duration – see `isRamped`. Unlike
+/// `WorkoutProgram` (`.erg`/`.mrc`, whose *own* breakpoint-to-breakpoint
+/// ramping is a real Zwift/ERG-format concept), a `.zwo` file has no
+/// standard way to ramp Speed/Incline at all – Zwift's own `<Ramp>`
+/// element is Power/cycling-only (`PowerLow`/`PowerHigh`). A ramped
+/// segment here comes from this app and `docs/builder.html`'s web Workout
+/// Builder's own invented extension: a `<Ramp>` block carrying
+/// `SpeedLow`/`SpeedHigh`/`InclineLow`/`InclineHigh` instead of Power –
+/// deliberately mirroring Zwift's own `<Ramp>`/`PowerLow`/`PowerHigh`
+/// shape rather than bolting these onto `Warmup`/`SteadyState`/
+/// `Cooldown`, which stay genuinely flat (plain `Pace`/`Incline`) both in
+/// the real format and in this app's own model – see `ZWOWorkoutParser`.
+/// A ramped segment's own `kind` is always `nil`: Zwift's own `<Ramp>`
+/// isn't tagged Warmup/SteadyState/Cooldown either, so there's nothing to
+/// carry over.
 struct TreadmillWorkoutSegment: Codable, Equatable {
     let startSeconds: TimeInterval
     let duration: TimeInterval
-    let speedKmh: Double
-    let inclinePercent: Double
+    let startSpeedKmh: Double
+    let endSpeedKmh: Double
+    let startInclinePercent: Double
+    let endInclinePercent: Double
     let kind: TreadmillSegmentKind?
     /// `<TextEvent>` markers nested in this segment's own `.zwo` block, if
     /// any – see `TextEventMarker`. `var`, unlike every other field here,
@@ -46,25 +58,57 @@ struct TreadmillWorkoutSegment: Codable, Equatable {
     /// it could.
     var textEvents: [TextEventMarker] = []
 
-    init(startSeconds: TimeInterval, duration: TimeInterval, speedKmh: Double, inclinePercent: Double, kind: TreadmillSegmentKind?, textEvents: [TextEventMarker] = []) {
+    /// Whether this segment's speed and/or incline actually changes across
+    /// its own duration – used by `VO2MaxEstimator` to exclude a ramping
+    /// segment from SteadyState candidacy (not a genuinely held, steady
+    /// effort), and by UI/export code to decide whether a single value or a
+    /// start→end range is the honest thing to show.
+    var isRamped: Bool { startSpeedKmh != endSpeedKmh || startInclinePercent != endInclinePercent }
+
+    init(startSeconds: TimeInterval, duration: TimeInterval, startSpeedKmh: Double, endSpeedKmh: Double, startInclinePercent: Double, endInclinePercent: Double, kind: TreadmillSegmentKind?, textEvents: [TextEventMarker] = []) {
         self.startSeconds = startSeconds
         self.duration = duration
-        self.speedKmh = speedKmh
-        self.inclinePercent = inclinePercent
+        self.startSpeedKmh = startSpeedKmh
+        self.endSpeedKmh = endSpeedKmh
+        self.startInclinePercent = startInclinePercent
+        self.endInclinePercent = endInclinePercent
         self.kind = kind
         self.textEvents = textEvents
     }
 
     private enum CodingKeys: String, CodingKey {
-        case startSeconds, duration, speedKmh, inclinePercent, kind, textEvents
+        case startSeconds, duration, startSpeedKmh, endSpeedKmh, startInclinePercent, endInclinePercent, kind, textEvents
+    }
+
+    /// Decode-only, deliberately kept separate from `CodingKeys` above so
+    /// `Encodable` stays fully synthesized (a case here has no
+    /// corresponding stored property, which would break that synthesis if
+    /// mixed into the main enum) – reads a `TreadmillWorkoutProgramStore`
+    /// recent saved before this type had ramping at all, back when it only
+    /// ever stored one flat speed/incline pair per segment.
+    private enum LegacyCodingKeys: String, CodingKey {
+        case speedKmh, inclinePercent
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         startSeconds = try container.decode(TimeInterval.self, forKey: .startSeconds)
         duration = try container.decode(TimeInterval.self, forKey: .duration)
-        speedKmh = try container.decode(Double.self, forKey: .speedKmh)
-        inclinePercent = try container.decode(Double.self, forKey: .inclinePercent)
+        if let startSpeed = try container.decodeIfPresent(Double.self, forKey: .startSpeedKmh),
+           let startIncline = try container.decodeIfPresent(Double.self, forKey: .startInclinePercent) {
+            startSpeedKmh = startSpeed
+            endSpeedKmh = try container.decode(Double.self, forKey: .endSpeedKmh)
+            startInclinePercent = startIncline
+            endInclinePercent = try container.decode(Double.self, forKey: .endInclinePercent)
+        } else {
+            let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+            let speedKmh = try legacy.decode(Double.self, forKey: .speedKmh)
+            let inclinePercent = try legacy.decode(Double.self, forKey: .inclinePercent)
+            startSpeedKmh = speedKmh
+            endSpeedKmh = speedKmh
+            startInclinePercent = inclinePercent
+            endInclinePercent = inclinePercent
+        }
         kind = try container.decodeIfPresent(TreadmillSegmentKind.self, forKey: .kind)
         textEvents = try container.decodeIfPresent([TextEventMarker].self, forKey: .textEvents) ?? []
     }
@@ -129,19 +173,31 @@ struct TreadmillWorkoutProgram: Codable, Equatable {
         return segments[nextIndex].startSeconds
     }
 
-    /// The flat (speed, incline) target at `elapsed` seconds into the
-    /// workout; `nil` once the workout has run its full length.
+    /// The (speed, incline) target at `elapsed` seconds into the workout;
+    /// `nil` once the workout has run its full length. For a ramping
+    /// segment (`isRamped`), linearly interpolates between its start and
+    /// end values based on how far `elapsed` is into the segment's own
+    /// duration – a flat segment (the common case, and the only case
+    /// before ramping existed) is unaffected, since start==end makes the
+    /// interpolation a no-op.
     func target(atElapsedSeconds elapsed: TimeInterval) -> (speedKmh: Double, inclinePercent: Double)? {
         guard elapsed <= duration else { return nil }
         if let index = segmentIndex(atElapsedSeconds: elapsed) {
-            let segment = segments[index]
-            return (segment.speedKmh, segment.inclinePercent)
+            return Self.interpolatedTarget(segments[index], atElapsedSeconds: elapsed)
         }
         // Exactly at `duration` itself falls just outside every segment's
-        // own half-open range above – hold the last segment's value rather
-        // than reporting "finished" one instant early.
+        // own half-open range above – hold the last segment's own end
+        // value rather than reporting "finished" one instant early.
         guard let last = segments.last, elapsed >= last.startSeconds else { return nil }
-        return (last.speedKmh, last.inclinePercent)
+        return (last.endSpeedKmh, last.endInclinePercent)
+    }
+
+    private static func interpolatedTarget(_ segment: TreadmillWorkoutSegment, atElapsedSeconds elapsed: TimeInterval) -> (speedKmh: Double, inclinePercent: Double) {
+        guard segment.duration > 0 else { return (segment.startSpeedKmh, segment.startInclinePercent) }
+        let fraction = min(max((elapsed - segment.startSeconds) / segment.duration, 0), 1)
+        let speedKmh = segment.startSpeedKmh + (segment.endSpeedKmh - segment.startSpeedKmh) * fraction
+        let inclinePercent = segment.startInclinePercent + (segment.endInclinePercent - segment.startInclinePercent) * fraction
+        return (speedKmh, inclinePercent)
     }
 
     /// The `<TextEvent>` marker that should currently be showing at
@@ -194,6 +250,12 @@ struct TreadmillWorkoutProgram: Codable, Equatable {
             // A machine-readable file format, not UI text – always "." and
             // no thousands separator, same reasoning `WorkoutProgram
             // .fileContents()` already uses for its own `MINUTES` column.
+            // No `SpeedLow`/`SpeedHigh`/`InclineLow`/`InclineHigh` here –
+            // every segment a recorded manual session produces has
+            // start==end by construction (see `WorkoutSession
+            // .recordTreadmillTarget(speedKmh:inclinePercent:)`), so
+            // `mergedRuns` below only ever merges flat runs and a plain
+            // `Pace`/`Incline` is always the whole story.
             let duration = String(format: "%.0f", locale: Locale(identifier: "en_US_POSIX"), run.duration)
             let pace = String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), run.speedKmh)
             let incline = String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), run.inclinePercent)
@@ -204,29 +266,33 @@ struct TreadmillWorkoutProgram: Codable, Equatable {
         return lines.joined(separator: "\n")
     }
 
-    /// Combines consecutive `segments` sharing the same `speedKmh`/
-    /// `inclinePercent` into a single run spanning their combined
-    /// duration – requested directly, alongside the identical fix for
+    /// Combines consecutive flat `segments` sharing the same start speed/
+    /// incline into a single run spanning their combined duration –
+    /// requested directly, alongside the identical fix for
     /// `WorkoutProgram.fileContents()`'s own `.erg`/`.mrc` export: a
     /// rider holding one target for a long stretch of a recorded session
     /// would otherwise write one `<SteadyState>` line per individual
     /// recording tick (`WorkoutSession
     /// .recordTreadmillTarget(speedKmh:inclinePercent:)`) instead of one
-    /// line for the whole held stretch. Applied only here, at export
-    /// time – `segments` itself is left untouched, so nothing that reads
-    /// it during a live workout
+    /// line for the whole held stretch. Excludes any `isRamped` segment
+    /// from merging (never actually encountered here in practice – see
+    /// `fileContents()`'s own note – but comparing only the start value
+    /// would otherwise silently discard a merged run's own end value).
+    /// Applied only here, at export time – `segments` itself is left
+    /// untouched, so nothing that reads it during a live workout
     /// (`segmentIndex(atElapsedSeconds:)` and everything built on it) is
     /// affected.
     private static func mergedRuns(_ segments: [TreadmillWorkoutSegment]) -> [(duration: TimeInterval, speedKmh: Double, inclinePercent: Double)] {
-        var runs: [(duration: TimeInterval, speedKmh: Double, inclinePercent: Double)] = []
+        var runs: [(duration: TimeInterval, speedKmh: Double, inclinePercent: Double, merges: Bool)] = []
         for segment in segments {
-            if !runs.isEmpty, runs[runs.count - 1].speedKmh == segment.speedKmh, runs[runs.count - 1].inclinePercent == segment.inclinePercent {
+            if !segment.isRamped, let last = runs.last, last.merges,
+               last.speedKmh == segment.startSpeedKmh, last.inclinePercent == segment.startInclinePercent {
                 runs[runs.count - 1].duration += segment.duration
             } else {
-                runs.append((segment.duration, segment.speedKmh, segment.inclinePercent))
+                runs.append((segment.duration, segment.startSpeedKmh, segment.startInclinePercent, !segment.isRamped))
             }
         }
-        return runs
+        return runs.map { ($0.duration, $0.speedKmh, $0.inclinePercent) }
     }
 
     /// Suggested filename for exporting `fileContents()` – mirrors
@@ -265,7 +331,7 @@ enum ZWOParseError: LocalizedError {
         case .noSegments:
             return String(localized: "No Warmup/SteadyState/Cooldown blocks with Pace/Incline found in this .zwo file – a cycling (Power-based) .zwo isn't supported yet.")
         case .unsupportedSegment(let name):
-            return String(localized: "This .zwo file uses a \"\(name)\" block Unchain doesn't support yet – only Warmup, SteadyState, and Cooldown (flat Pace/Incline, no ramping or repeats) are.")
+            return String(localized: "This .zwo file uses a \"\(name)\" block Unchain doesn't support yet – only Warmup, SteadyState, Cooldown (flat Pace/Incline) and Ramp (Speed/Incline, this app's own extension – not Zwift's Power-based Ramp) are.")
         }
     }
 }
@@ -276,11 +342,20 @@ enum ZWOParseError: LocalizedError {
 /// actually been seen using, on `Warmup`/`SteadyState`/`Cooldown` blocks –
 /// not a genuine Zwift cycling workout (`Power`/`PowerLow`/`PowerHigh`, %FTP
 /// based – the same "would need an FTP concept for %-based targets" gap
-/// `.mrc` already has), and not a ramping Warmup/Cooldown
-/// (`PaceLow`/`PaceHigh`) or repeating interval block (`IntervalsT`) either.
-/// A file using one of those fails clearly (`ZWOParseError
-/// .unsupportedSegment`) rather than silently producing a wrong or
-/// incomplete workout.
+/// `.mrc` already has) – or a repeating interval block (`IntervalsT`)
+/// either. It *does* additionally read a treadmill-flavored `<Ramp>` block
+/// – `SpeedLow`/`SpeedHigh`/`InclineLow`/`InclineHigh`, a non-standard set
+/// of attribute names this app and `docs/builder.html`'s web Workout
+/// Builder invented together (see `TreadmillWorkoutSegment`'s own doc
+/// comment), deliberately mirroring how Zwift's own `<Ramp>` carries
+/// `PowerLow`/`PowerHigh` for cycling – as a genuinely ramped segment; all
+/// four attributes are required (a `<Ramp>` block has no flat fallback of
+/// its own), so a real, Power-based cycling `<Ramp>` – or a malformed
+/// treadmill one missing an attribute – correctly falls through to the
+/// same "unsupported element" failure as `IntervalsT`/`FreeRide`/
+/// `MaxEffort`. A file using an actually unsupported element fails
+/// clearly (`ZWOParseError.unsupportedSegment`) rather than silently
+/// producing a wrong or incomplete workout.
 enum ZWOWorkoutParser {
     static var contentType: UTType? { UTType(filenameExtension: "zwo") }
 
@@ -313,19 +388,30 @@ enum ZWOWorkoutParser {
         private var cursorSeconds: TimeInterval = 0
         private var isInsideName = false
         private var nameBuffer = ""
-        /// Index into `segments` of whatever flat block is currently open,
-        /// so a `<TextEvent>` encountered while inside it (the only place
-        /// it's ever meaningful – a `<TextEvent>` outside any of these three
-        /// is simply ignored, same as any other unrecognized element) knows
-        /// which segment to attach itself to. `nil` outside all three.
+        /// Index into `segments` of whatever segment-opening block is
+        /// currently open (`allSegmentElements` – Warmup/SteadyState/
+        /// Cooldown/Ramp), so a `<TextEvent>` encountered while inside it
+        /// (the only place it's ever meaningful – a `<TextEvent>` outside
+        /// all of these is simply ignored, same as any other unrecognized
+        /// element) knows which segment to attach itself to. `nil`
+        /// outside all of them.
         private var currentSegmentIndex: Int?
 
         private static let flatSegmentElements: Set<String> = ["Warmup", "SteadyState", "Cooldown"]
+        /// `flatSegmentElements` plus `"Ramp"` – every element that can
+        /// open a segment and take nested `<TextEvent>` children. Used
+        /// wherever `didEndElement` needs to recognize the close of
+        /// *any* segment-opening element, not just a flat one.
+        private static let allSegmentElements: Set<String> = flatSegmentElements.union(["Ramp"])
         /// Named explicitly (rather than lumping them into "anything
         /// else") so the resulting error can name the actual element, and
         /// so a future version adding support for one of these has a
-        /// ready-made list to start from.
-        private static let knownUnsupportedSegmentElements: Set<String> = ["Ramp", "IntervalsT", "FreeRide", "MaxEffort"]
+        /// ready-made list to start from. `"Ramp"` itself is *not* here –
+        /// it's handled by its own `case` below, which falls through to
+        /// `unsupportedSegmentName` on its own terms (missing one of the
+        /// required Speed/Incline attributes, e.g. a real Power-based
+        /// cycling Ramp) rather than being unconditionally rejected.
+        private static let knownUnsupportedSegmentElements: Set<String> = ["IntervalsT", "FreeRide", "MaxEffort"]
 
         func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String: String]) {
             // Once one unsupported block's been seen, stop collecting
@@ -347,7 +433,28 @@ enum ZWOWorkoutParser {
                 case "Cooldown": .cooldown
                 default: nil
                 }
-                segments.append(TreadmillWorkoutSegment(startSeconds: cursorSeconds, duration: duration, speedKmh: pace, inclinePercent: incline, kind: kind))
+                segments.append(TreadmillWorkoutSegment(startSeconds: cursorSeconds, duration: duration, startSpeedKmh: pace, endSpeedKmh: pace, startInclinePercent: incline, endInclinePercent: incline, kind: kind))
+                currentSegmentIndex = segments.count - 1
+                cursorSeconds += duration
+            case "Ramp":
+                // This app's own treadmill-flavored Ramp – see
+                // `ZWOWorkoutParser`'s own doc comment. All four
+                // attributes are required, independently of each other
+                // being ramped or not (the writer always emits all four,
+                // `Low === High` for whichever dimension isn't actually
+                // ramping) – a real, Power-based cycling `<Ramp>` simply
+                // doesn't have these and falls through to the `guard`
+                // failing below, same treatment as any other genuinely
+                // unsupported element.
+                guard let duration = attributeDict["Duration"].flatMap(Double.init), duration > 0,
+                      let speedLow = Self.attributeValue(attributeDict, "SpeedLow").flatMap(Double.init),
+                      let speedHigh = Self.attributeValue(attributeDict, "SpeedHigh").flatMap(Double.init),
+                      let inclineLow = Self.attributeValue(attributeDict, "InclineLow").flatMap(Double.init),
+                      let inclineHigh = Self.attributeValue(attributeDict, "InclineHigh").flatMap(Double.init) else {
+                    unsupportedSegmentName = "Ramp"
+                    return
+                }
+                segments.append(TreadmillWorkoutSegment(startSeconds: cursorSeconds, duration: duration, startSpeedKmh: speedLow, endSpeedKmh: speedHigh, startInclinePercent: inclineLow, endInclinePercent: inclineHigh, kind: nil))
                 currentSegmentIndex = segments.count - 1
                 cursorSeconds += duration
             case "TextEvent":
@@ -368,7 +475,7 @@ enum ZWOWorkoutParser {
         }
 
         func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
-            if Self.flatSegmentElements.contains(elementName), let index = currentSegmentIndex {
+            if Self.allSegmentElements.contains(elementName), let index = currentSegmentIndex {
                 // Sorted once the block closes rather than kept sorted on
                 // every insert – real files list `<TextEvent>`s in order
                 // already, this just doesn't assume that.

@@ -1226,8 +1226,12 @@ struct ControlView: View {
     /// speed shouldn't wait on an incline answer that may never come, or
     /// vice versa.
     private func warnIfOutOfRange(_ program: TreadmillWorkoutProgram) {
-        let speeds = program.segments.map { $0.speedKmh }
-        let inclines = program.segments.map { $0.inclinePercent }
+        // `flatMap` rather than `map`, one value per segment – a ramped
+        // segment's start and end can straddle the device's own range even
+        // when neither one alone is the min/max across the whole program,
+        // so both need to be in the pool this range-checks against.
+        let speeds = program.segments.flatMap { [$0.startSpeedKmh, $0.endSpeedKmh] }
+        let inclines = program.segments.flatMap { [$0.startInclinePercent, $0.endInclinePercent] }
         guard let minSpeed = speeds.min(), let maxSpeed = speeds.max(),
               let minIncline = inclines.min(), let maxIncline = inclines.max() else { return }
         let speedRange = connection.speedRangeKmh
@@ -2296,10 +2300,10 @@ private struct TreadmillProgramSegmentList: View {
             Text(formattedSegmentDuration(segment, isCurrent: isCurrent))
                 .frame(width: 44, alignment: .leading)
                 .monospacedDigit()
-            Text(String(format: "%.1f km/h", locale: .current, segment.speedKmh))
+            Text(Self.speedText(segment))
                 .fontWeight(isCurrent ? .semibold : .regular)
             Spacer()
-            Text(String(format: "%.1f %%", locale: .current, segment.inclinePercent))
+            Text(Self.inclineText(segment))
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
@@ -2320,6 +2324,22 @@ private struct TreadmillProgramSegmentList: View {
                 }
             }
         }
+    }
+
+    /// A flat segment shows one number, same as before ramping existed; a
+    /// ramped one shows its own start→end span instead – the honest
+    /// picture of what the belt/incline will actually do across it, rather
+    /// than picking just one of the two values to show.
+    private static func speedText(_ segment: TreadmillWorkoutSegment) -> String {
+        segment.startSpeedKmh == segment.endSpeedKmh
+            ? String(format: "%.1f km/h", locale: .current, segment.startSpeedKmh)
+            : String(format: "%.1f→%.1f km/h", locale: .current, segment.startSpeedKmh, segment.endSpeedKmh)
+    }
+
+    private static func inclineText(_ segment: TreadmillWorkoutSegment) -> String {
+        segment.startInclinePercent == segment.endInclinePercent
+            ? String(format: "%.1f %%", locale: .current, segment.startInclinePercent)
+            : String(format: "%.1f→%.1f %%", locale: .current, segment.startInclinePercent, segment.endInclinePercent)
     }
 
     private func formattedSegmentDuration(_ segment: TreadmillWorkoutSegment, isCurrent: Bool) -> String {

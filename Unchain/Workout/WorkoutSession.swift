@@ -645,9 +645,16 @@ final class WorkoutSession: ObservableObject {
             TreadmillWorkoutSegment(
                 startSeconds: segment.startSeconds,
                 duration: segment.duration,
-                speedKmh: speedRange?.clamp(segment.speedKmh) ?? segment.speedKmh,
-                inclinePercent: inclineRange?.clamp(segment.inclinePercent) ?? segment.inclinePercent,
-                kind: segment.kind
+                startSpeedKmh: speedRange?.clamp(segment.startSpeedKmh) ?? segment.startSpeedKmh,
+                endSpeedKmh: speedRange?.clamp(segment.endSpeedKmh) ?? segment.endSpeedKmh,
+                startInclinePercent: inclineRange?.clamp(segment.startInclinePercent) ?? segment.startInclinePercent,
+                endInclinePercent: inclineRange?.clamp(segment.endInclinePercent) ?? segment.endInclinePercent,
+                kind: segment.kind,
+                // Was previously dropped here (defaulted to `[]`) – an
+                // unrelated pre-existing bug noticed in passing while
+                // touching this constructor for the ramp fields above;
+                // fixed in the same edit since it's directly adjacent.
+                textEvents: segment.textEvents
             )
         }
         activeWorkout = .treadmillProgram(TreadmillWorkoutProgram(name: program.name, segments: clampedSegments))
@@ -1049,8 +1056,10 @@ final class WorkoutSession: ObservableObject {
         recordedTreadmillSegments.append(TreadmillWorkoutSegment(
             startSeconds: segmentStart,
             duration: now - segmentStart,
-            speedKmh: previousSpeedKmh,
-            inclinePercent: previousInclinePercent,
+            startSpeedKmh: previousSpeedKmh,
+            endSpeedKmh: previousSpeedKmh,
+            startInclinePercent: previousInclinePercent,
+            endInclinePercent: previousInclinePercent,
             kind: nil
         ))
         recordedTreadmillSegmentStartSeconds = now
@@ -1094,7 +1103,7 @@ final class WorkoutSession: ObservableObject {
            let speedKmh = recordedTreadmillSpeedKmh, let inclinePercent = recordedTreadmillInclinePercent {
             var segments = recordedTreadmillSegments
             if finalElapsedSeconds > segmentStart {
-                segments.append(TreadmillWorkoutSegment(startSeconds: segmentStart, duration: finalElapsedSeconds - segmentStart, speedKmh: speedKmh, inclinePercent: inclinePercent, kind: nil))
+                segments.append(TreadmillWorkoutSegment(startSeconds: segmentStart, duration: finalElapsedSeconds - segmentStart, startSpeedKmh: speedKmh, endSpeedKmh: speedKmh, startInclinePercent: inclinePercent, endInclinePercent: inclinePercent, kind: nil))
             }
             guard !segments.isEmpty else { return nil }
             return .treadmillProgram(TreadmillWorkoutProgram(name: name, segments: segments))
@@ -1483,10 +1492,27 @@ final class WorkoutSession: ObservableObject {
                     treadmillInclineRampFromPercent = previousInclinePercent
                     treadmillInclineRampToPercent = clampedInclinePercent
                 }
+                // Both `if let`s below are also gated on `elapsed` still
+                // being inside the boundary-ramp's own short catch-up
+                // window (`elapsed < rampStart + …DurationSeconds`), not
+                // just on the ramp state being non-nil/non-zero – without
+                // that, once the window has elapsed the condition would
+                // stay true forever (only `fraction` was being clamped to
+                // `[0,1]`, not re-evaluated to false), freezing
+                // `speedToSend`/`estimatedInclinePercent` at the value
+                // captured at the crossing instant for the rest of the
+                // segment instead of falling through to `target`'s own,
+                // freshly recomputed value. Invisible before `target`
+                // could ramp *within* a segment (a flat segment's own
+                // target never changed, so "frozen" and "recomputed" were
+                // indistinguishable) – but exactly wrong for a ramped
+                // segment, which needs every post-window tick to keep
+                // tracking `target` as it continues to advance.
                 let speedToSend: Double
                 if let rampFrom = treadmillSpeedRampFromKmh, let rampTo = treadmillSpeedRampToKmh,
-                   let rampStart = treadmillSpeedRampStartSeconds, treadmillSpeedRampDurationSeconds > 0 {
-                    let fraction = min(max((elapsed - rampStart) / treadmillSpeedRampDurationSeconds, 0), 1)
+                   let rampStart = treadmillSpeedRampStartSeconds, treadmillSpeedRampDurationSeconds > 0,
+                   elapsed < rampStart + treadmillSpeedRampDurationSeconds {
+                    let fraction = (elapsed - rampStart) / treadmillSpeedRampDurationSeconds
                     speedToSend = rampFrom + (rampTo - rampFrom) * fraction
                 } else {
                     speedToSend = target.speedKmh
@@ -1500,8 +1526,9 @@ final class WorkoutSession: ObservableObject {
                 // ramp keeps interpolating from wherever it actually is).
                 let estimatedInclinePercent: Double
                 if let rampFrom = treadmillInclineRampFromPercent, let rampTo = treadmillInclineRampToPercent,
-                   let rampStart = treadmillSpeedRampStartSeconds, treadmillSpeedRampDurationSeconds > 0 {
-                    let fraction = min(max((elapsed - rampStart) / treadmillSpeedRampDurationSeconds, 0), 1)
+                   let rampStart = treadmillSpeedRampStartSeconds, treadmillSpeedRampDurationSeconds > 0,
+                   elapsed < rampStart + treadmillSpeedRampDurationSeconds {
+                    let fraction = (elapsed - rampStart) / treadmillSpeedRampDurationSeconds
                     estimatedInclinePercent = rampFrom + (rampTo - rampFrom) * fraction
                 } else {
                     estimatedInclinePercent = clampedInclinePercent

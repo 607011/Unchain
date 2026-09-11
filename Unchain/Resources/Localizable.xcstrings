@@ -181,26 +181,6 @@
         }
       }
     },
-    "Create": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erstellen"
-          }
-        }
-      }
-    },
-    "Create Workout": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workout erstellen"
-          }
-        }
-      }
-    },
     "Export…": {
       "localizations": {
         "de": {
@@ -331,32 +311,12 @@
         }
       }
     },
-    "Name": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Name"
-          }
-        }
-      }
-    },
     "Duration": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Dauer"
-          }
-        }
-      }
-    },
-    "Preview": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vorschau"
           }
         }
       }
@@ -477,16 +437,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Zeit in Herzfrequenz-Zonen"
-          }
-        }
-      }
-    },
-    "Custom Workout": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eigenes Workout"
           }
         }
       }
@@ -801,26 +751,6 @@
         }
       }
     },
-    "Type a workout, e.g. \"10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP), 10min 55%FTP\".": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workout eingeben, z. B. „10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP), 10min 55%FTP“."
-          }
-        }
-      }
-    },
-    "e.g. \"10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP), 10min 55%FTP\". Durations: min or s. Targets: %FTP or W. A ramp within one step: \"20min 100W->300W\".": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "z. B. „10min 60%FTP, 4x(5min 105%FTP, 3min 50%FTP), 10min 55%FTP“. Dauer: min oder s. Zielwerte: %FTP oder W. Eine Rampe innerhalb eines Schritts: „20min 100W->300W“."
-          }
-        }
-      }
-    },
     "Single Beep": {
       "localizations": {
         "de": {
@@ -997,46 +927,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kein [COURSE DATA]-Abschnitt gefunden – ist das wirklich eine .erg-/.mrc-Datei?"
-          }
-        }
-      }
-    },
-    "Couldn't understand \"%@\" – expected something like \"5min 250W\" or \"3x(...)\".": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "„%@“ konnte nicht verstanden werden – erwartet wurde z. B. „5min 250W“ oder „3x(...)“."
-          }
-        }
-      }
-    },
-    "Couldn't understand the duration \"%@\" – use e.g. \"10min\" or \"90s\".": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Dauer „%@“ konnte nicht verstanden werden – nutze z. B. „10min“ oder „90s“."
-          }
-        }
-      }
-    },
-    "Couldn't understand the target \"%@\" – use e.g. \"250W\" or \"75%%FTP\".": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Zielwert „%@“ konnte nicht verstanden werden – nutze z. B. „250W“ oder „75%%FTP“."
-          }
-        }
-      }
-    },
-    "This workout uses %FTP, but no FTP is set – add one in Settings first.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dieses Workout nutzt %FTP, aber es ist keine FTP eingetragen – trage zuerst eine in den Einstellungen ein."
           }
         }
       }
@@ -2397,66 +2287,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "↑ bpm"
-          }
-        }
-      }
-    },
-    "Type a workout, e.g. \"5min 8km/h, 5x(3min 10km/h 6%, 2min 6km/h), 5min 8km/h\".": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gib ein Workout ein, z. B. „5min 8km/h, 5x(3min 10km/h 6%, 2min 6km/h), 5min 8km/h“."
-          }
-        }
-      }
-    },
-    "Couldn't understand \"%@\" – expected something like \"5min 8km/h\", \"400m 10km/h 2%%\", or \"3x(...)\".": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "„%@“ konnte nicht verstanden werden – erwartet wird z. B. „5min 8km/h“, „400m 10km/h 2%%“ oder „3x(...)“."
-          }
-        }
-      }
-    },
-    "Couldn't understand the length \"%@\" – use a duration like \"10min\" or a distance like \"400m\", \"0.5mi\", \"440yd\".": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Länge „%@“ konnte nicht verstanden werden – verwende eine Dauer wie „10min“ oder eine Strecke wie „400m“, „0.5mi“, „440yd“."
-          }
-        }
-      }
-    },
-    "Couldn't understand the speed \"%@\" – use e.g. \"8km/h\" or \"5mph\".": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Geschwindigkeit „%@“ konnte nicht verstanden werden – verwende z. B. „8km/h“ oder „5mph“."
-          }
-        }
-      }
-    },
-    "Couldn't understand the incline \"%@\" – use e.g. \"2%%\".": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Die Steigung „%@“ konnte nicht verstanden werden – verwende z. B. „2%%“."
-          }
-        }
-      }
-    },
-    "e.g. \"5min 8km/h, 5x(3min 10km/h 6%, 2min 6km/h), 5min 8km/h\", or by distance: \"8x400m 12km/h\". Length: min/sec/h, or a distance – m/km/mi/yd/ft. Speed: km/h or mph. Incline is optional (default flat): 2%.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "z. B. „5min 8km/h, 5x(3min 10km/h 6%, 2min 6km/h), 5min 8km/h“, oder per Strecke: „8x400m 12km/h“. Länge: min/sec/h, oder eine Strecke – m/km/mi/yd/ft. Geschwindigkeit: km/h oder mph. Steigung ist optional (Standard: flach): 2%."
           }
         }
       }

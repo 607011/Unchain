@@ -212,12 +212,9 @@ struct TreadmillWorkoutProgram: Codable, Equatable {
     /// would otherwise write one `<SteadyState>` line per individual
     /// recording tick (`WorkoutSession
     /// .recordTreadmillTarget(speedKmh:inclinePercent:)`) instead of one
-    /// line for the whole held stretch; a shorthand-built program (see
-    /// `TreadmillShorthandParser`, reached via `WorkoutSession
-    /// .fileContents`'s `.treadmillProgram` case too) can just as easily
-    /// repeat the exact same step back-to-back, e.g. `"3x(3min 10km/h
-    /// 6%)"`. Applied only here, at export time – `segments` itself is
-    /// left untouched, so nothing that reads it during a live workout
+    /// line for the whole held stretch. Applied only here, at export
+    /// time – `segments` itself is left untouched, so nothing that reads
+    /// it during a live workout
     /// (`segmentIndex(atElapsedSeconds:)` and everything built on it) is
     /// affected.
     private static func mergedRuns(_ segments: [TreadmillWorkoutSegment]) -> [(duration: TimeInterval, speedKmh: Double, inclinePercent: Double)] {

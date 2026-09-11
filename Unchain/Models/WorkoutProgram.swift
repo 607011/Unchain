@@ -104,10 +104,9 @@ struct WorkoutProgram: Codable, Equatable {
     }
 
     /// Serializes back to the `.erg`/`.mrc` text format `WorkoutProgramParser`
-    /// reads – the inverse operation, so a workout built from the shorthand
-    /// notation (see `ShorthandWorkoutParser`), or just the currently loaded
-    /// one, can be saved as a portable, plain-text file other apps can read
-    /// too, not just kept inside Unchain's own "Recent" list. Always writes
+    /// reads – the inverse operation, so the currently loaded workout can be
+    /// saved as a portable, plain-text file other apps can read too, not
+    /// just kept inside Unchain's own "Recent" list. Always writes
     /// absolute values (`WATTS` for `.power`, literal `PERCENT` for
     /// `.resistance` – never an `FTP =` header), so re-parsing this output
     /// resolves to the same `targetKind` it started as.
@@ -140,10 +139,10 @@ struct WorkoutProgram: Codable, Equatable {
     /// resulting piecewise-linear curve – one that already lies exactly on
     /// the straight line its own neighbors already describe. Requested
     /// directly: consecutive intervals with identical data should merge on
-    /// export – most commonly a repeat group like `"5x(3min 200W)"`, which
-    /// `ShorthandWorkoutParser.flatten` turns into five separate
-    /// back-to-back 200W breakpoint pairs (`(0,200),(180,200),(180,200),
-    /// (360,200),…`). A single rule covers both that case (every value
+    /// export – most commonly a repeated interval, which produces a run of
+    /// separate back-to-back same-value breakpoint pairs (`(0,200),
+    /// (180,200),(180,200),(360,200),…`). A single rule covers both that
+    /// case (every value
     /// along the run is equal, trivially "collinear") and the narrower one
     /// of two differently-built adjacent blocks merely *ending*/*starting*
     /// at the same value (a would-be step at `b.timeSeconds ==

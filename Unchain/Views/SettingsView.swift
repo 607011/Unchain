@@ -21,8 +21,8 @@ import SwiftUI
 /// here over time.
 struct SettingsView: View {
     /// `UserDefaults` key for the rider's FTP – shared here since
-    /// `CreateWorkoutView`'s shorthand workout notation (`%FTP` targets) also
-    /// needs to read it, not just this settings screen.
+    /// `WorkoutProgramChart` also needs to read it, to draw the FTP
+    /// reference line, not just this settings screen.
     static let ftpWattsKey = "userFTPWatts"
     /// `UserDefaults` key for the rider's max heart rate – shared here since
     /// `WorkoutSession`, not this settings screen, is what actually reads it

@@ -52,7 +52,6 @@ struct ControlView: View {
     @State private var isShowingSettings = false
     @State private var isShowingFileImporter = false
     @State private var isShowingRecentWorkouts = false
-    @State private var isShowingCreateWorkout = false
     @State private var isShowingExporter = false
     @State private var loadError: LoadErrorAlert?
     /// Set by `warnIfOutOfRange(_:)` right after a program actually loads
@@ -329,13 +328,6 @@ struct ControlView: View {
         }
         .sheet(isPresented: $isShowingRecentWorkouts) {
             RecentWorkoutsView(recents: compatibleRecents, onSelect: loadRecentEntry, onDelete: deleteRecentEntry)
-        }
-        .sheet(isPresented: $isShowingCreateWorkout) {
-            CreateWorkoutView(
-                machineKind: connection.machineKind,
-                onSave: loadProgramIntoSession,
-                onSaveTreadmillProgram: loadTreadmillProgramIntoSession
-            )
         }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView()
@@ -918,15 +910,6 @@ struct ControlView: View {
             Button("Recent") { isShowingRecentWorkouts = true }
                 .buttonStyle(.bordered)
                 .disabled(compatibleRecents.isEmpty)
-            // On a bike, the shorthand notation only ever produces a
-            // power-kind program (no %-of-resistance-range target), so
-            // this needs Power Target support the same way ".erg" does. On
-            // a treadmill, `CreateWorkoutView` instead uses
-            // `TreadmillShorthandParser` (speed+incline), gated the same
-            // way ".zwo" already is via `allowedFileContentTypes`.
-            Button("Create") { isShowingCreateWorkout = true }
-                .buttonStyle(.bordered)
-                .disabled(!canCreateShorthandWorkout)
         }
         .disabled(session.state == .running || session.state == .paused)
     }
@@ -947,15 +930,6 @@ struct ControlView: View {
             types.append(zwo)
         }
         return types
-    }
-
-    /// Whether `CreateWorkoutView`'s shorthand notation applies to the
-    /// connected machine at all – power-only on a bike (`supportsPowerTarget`,
-    /// same as `.erg`), speed+incline on a treadmill (same `.zwo` gate as
-    /// `allowedFileContentTypes` above).
-    private var canCreateShorthandWorkout: Bool {
-        if connection.machineKind == .treadmill { return supportsSpeedTarget || supportsInclinationTarget }
-        return supportsPowerTarget
     }
 
     /// The currently loaded Program (not a GPX route – there's no route
@@ -2914,16 +2888,12 @@ private func formatStatValue(_ value: Double?) -> String {
 }
 
 /// Converts a speed in km/h to a running/walking pace, formatted `m'ss"` per
-/// kilometer (e.g. 10 km/h → `6'00"`) – the same prime/double-prime
-/// minutes/seconds notation `ShorthandWorkoutParser`/`TreadmillShorthandParser`
-/// already use for typed-in durations (see `ShorthandNotation`'s own doc
-/// comment on `'`/`"`), not a plain `6:00` clock-style reading – a pace
-/// reads the same both ways at a glance, but only one of them is also this
-/// app's own shorthand for "6 minutes, 0 seconds" elsewhere, so this keeps
-/// the two consistent instead of using bare-colon notation nowhere else in
-/// the app actually means. `nil` or a speed too low to produce a meaningful
-/// pace (below brisk-walking, where the minutes-per-km figure balloons into
-/// something nobody reads as a pace) both fall back to "–".
+/// kilometer (e.g. 10 km/h → `6'00"`) – the standard prime/double-prime
+/// running-pace notation, not a plain `6:00` clock-style reading, which
+/// could be misread as an actual duration rather than a per-kilometer rate.
+/// `nil` or a speed too low to produce a meaningful pace (below brisk-
+/// walking, where the minutes-per-km figure balloons into something nobody
+/// reads as a pace) both fall back to "–".
 private func paceString(fromSpeedKmh speedKmh: Double?) -> String {
     guard let speedKmh, speedKmh >= 1 else { return "–" }
     let secondsPerKm = 3600 / speedKmh

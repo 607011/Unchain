@@ -142,30 +142,6 @@ internet. If that turns out to be too limiting in practice:
   between resistance level and felt difficulty (see the resistance-mapping
   fix earlier in this project's history) the way it does for grade simulation.
 
-## Idea for later: a true free-form "describe your workout" prompt
-
-The shorthand notation behind **Create** (see [STATUS.md](STATUS.md)) is deliberately a
-small, fixed grammar — offline, no account, no ongoing cost. A genuinely
-free-form prompt ("give me a hard 45-minute FTP-builder") needs an actual
-LLM to turn intent into structure, which is a different, bigger feature:
-
-- Notably, this doesn't need any new code *today* to get real value: `.erg`
-  is a simple, documented text format any capable general-purpose LLM can
-  already produce directly (this session generated several by hand) — ask
-  one for an `.erg` file with the numbers you want, save it, "Load from
-  File". TrainerDay's own AI integration works similarly at its core: rather
-  than running a proprietary model, they expose their workout/calendar API
-  as MCP tools to the user's *own* ChatGPT/Gemini subscription, which does
-  the actual reasoning.
-- An in-app version of that would need: a network call (the first one purely
-  for a *prompt*, distinct from the elevation idea above), an API key (the
-  user's own, to avoid ongoing cost/liability on this app's side), and
-  critically, the model should return **structured JSON** matching
-  `WorkoutProgramBreakpoint`'s shape rather than talking to FTMS or inventing
-  free text — reusing the exact same parsing/clamping path a shorthand or
-  file-loaded program already goes through, so a hallucinated response can't
-  reach the trainer with implausible values unchecked.
-
 ## Considered and rejected: an HR+-style heart-rate-locked control mode
 
 TrainerDay has an "HR+" mode: set a target heart rate, and it continuously

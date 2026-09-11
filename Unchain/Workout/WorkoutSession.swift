@@ -289,11 +289,11 @@ final class WorkoutSession: ObservableObject {
     /// distance/speed from (see `reset()`), not shown live anywhere itself.
     @Published private(set) var speedHistory: [SpeedSample] = []
     /// Session-local nudge to a Program's target values, e.g. "+5" means
-    /// every target is sent (and shown) at 105 % of what the file/shorthand
-    /// actually says – lets the rider scale a loaded workout up/down live
-    /// without touching their stored FTP, which only resolves `%FTP` at
-    /// *load* time (see `WorkoutProgramParser`/`ShorthandWorkoutParser`) and
-    /// can't retroactively rescale an already-loaded program anyway. Not
+    /// every target is sent (and shown) at 105 % of what the file actually
+    /// says – lets the rider scale a loaded workout up/down live without
+    /// touching their stored FTP, which only resolves `%FTP` at *load* time
+    /// (see `WorkoutProgramParser`) and can't retroactively rescale an
+    /// already-loaded program anyway. Not
     /// persisted, and reset back to 0 whenever a program is (re)loaded –
     /// see `loadProgram(_:)`/`loadRoute(_:)`/`reset()` – so every fresh
     /// attempt starts neutral rather than carrying over an old adjustment.

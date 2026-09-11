@@ -3509,3 +3509,58 @@ would change, roughly in the order it'd need doing:
       listeners don't interfere with the chart's own interaction layer;
       the dashed outline correctly wraps the whole chart card, in both
       Bike and Treadmill mode.
+- [x] **Removed the in-app "Create Workout" shorthand builder entirely** –
+      requested directly: `docs/builder.html`'s own "Interval Sketch" is
+      now the one and only Workout Builder, and the in-app one (typing a
+      shorthand string into a sheet, `CreateWorkoutView`, reached via a
+      "Create" button next to "Load from File"/"Recent") was always a
+      narrower stopgap next to it – no chart to actually see/adjust what
+      you're typing before saving, no drag-and-drop, no file import at
+      all, none of the segment-view features (Cut/Mark/ramp-editing) the
+      web tool has now. Deleted outright rather than deprecated:
+      `Unchain/Views/CreateWorkoutView.swift`, `Unchain/Models
+      /ShorthandWorkoutParser.swift` (bike grammar), `Unchain/Models
+      /TreadmillShorthandParser.swift` (treadmill grammar), and
+      `Unchain/Models/ShorthandNotation.swift` (the low-level tokenizing
+      the two parsers shared – `consumePrefixedValue`/`splitTopLevel` –
+      nothing else in the app used it). `ControlView`'s "Create" button,
+      its `isShowingCreateWorkout` sheet presentation, and the
+      `canCreateShorthandWorkout` gating property all went with it;
+      `loadProgramIntoSession`/`loadTreadmillProgramIntoSession` –
+      shared with "Load from File" and "Recent" – were untouched, since
+      those two remain exactly how a workout gets into a session now.
+      `WorkoutProgram`/`TreadmillWorkoutProgram` themselves (the actual
+      playback models, driving *any* loaded workout regardless of
+      source) and the file-based parsers (`WorkoutProgramParser`,
+      `ZWOWorkoutParser`) are untouched – only the *typed-shorthand*
+      production path is gone, not what plays a program back.
+      Several doc comments elsewhere referenced the deleted feature as
+      context (why a merge-collinear-breakpoints rule exists, why
+      `ftpWattsKey` is `static`/shared, why `intensityAdjustmentPercent`
+      says "file" not "file/shorthand") – reworded in place rather than
+      left dangling, in `WorkoutProgram.swift`, `TreadmillWorkoutProgram
+      .swift`, `WorkoutSession.swift`, `SettingsView.swift`, and
+      `ControlView.swift`'s own `paceString(fromSpeedKmh:)` (which
+      doesn't call into the shorthand parsers at all – it only borrowed
+      their prime/double-prime `'`/`"` notation as a "stay consistent"
+      justification that no longer applies now that notation isn't used
+      anywhere else in the app; the function and its own formatting are
+      otherwise completely unaffected). Removed README.md's "a true
+      free-form 'describe your workout' prompt" idea-for-later section
+      too – its whole premise (evolving the in-app shorthand into an
+      LLM-driven prompt) no longer has an in-app shorthand to evolve
+      from. 17 now-orphaned `Localizable.xcstrings` entries (the "Create"
+      button, "Create Workout"/"Custom Workout", the Form's own "Name"/
+      "Preview" section headers, both grammar hints, and all 10 of the
+      two parsers' own error messages) removed too – cross-checked each
+      one first (`grep`) to confirm nothing else in the app still uses
+      that exact source string, since an `.xcstrings` key is shared by
+      source text, not by call site; "Workout"/"Duration"/"Cancel"/"Save"
+      collided with still-live keys elsewhere and were correctly left
+      alone.
+      Verified clean: full-codebase `grep` for every deleted symbol name
+      confirmed zero remaining references anywhere (Swift, `project.yml`,
+      README); `xcodebuild build` (Debug, Simulator SDK) succeeded, and
+      its own "Removed stale file" notes confirmed the four deleted
+      source files' compiled objects were actually gone from the build
+      too, not just absent from the file list.

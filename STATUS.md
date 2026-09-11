@@ -3955,3 +3955,44 @@ would change, roughly in the order it'd need doing:
       Workout</name>` correctly updated the heading; a second paste with
       no `<name>` element at all left the previous heading untouched
       rather than blanking it. Zero console errors.
+- [x] **Every previously-connected heart rate strap now auto-reconnects,
+      not just the most recently connected one** – reported directly.
+      Root cause (`Unchain/Bluetooth/BluetoothManager.swift`): the app
+      persisted a *single* `UUID` under `UserDefaults` key
+      `lastHeartRateStrapUUID`, overwritten on every connect – own two
+      straps (running vs. cycling, or just switched brands) and only
+      whichever was connected *last* ever reconnected on its own again.
+      Replaced with `knownHeartRateStrapUUIDsKey`, a plain, never-pruned
+      set of UUID strings (`knownHeartRateStrapUUIDs()`/
+      `rememberHeartRateStrapUUID(_:)`) – `connectHeartRate(to:)` now adds
+      to it instead of overwriting, and both auto-reconnect paths read the
+      whole set: `centralManager(_:didDiscover:)`'s passive match is now a
+      membership check, and `attemptAutoReconnectHeartRateStrap()` issues a
+      speculative `central.connect()` for *every* known, currently-
+      retrievable strap at launch (`retrievePeripherals(withIdentifiers:)`
+      already accepted multiple UUIDs – the bug was only ever having one to
+      give it).
+      Since more than one known strap could genuinely be in range at once,
+      a new `pendingHeartRateReconnectPeripherals` list tracks every
+      speculative attempt until exactly one actually completes –
+      `centralManager(_:didConnect:)` gained a third branch that promotes
+      whichever one connects first to `currentHeartRateConnection` (the
+      app's own connection model stays singular throughout – no change to
+      that) and cancels every other still-pending attempt via a new
+      `cancelPendingHeartRateReconnectAttempts()`, avoiding an orphaned
+      CoreBluetooth-level connection to a second strap that also happened
+      to be in range. `didFailToConnect` drops a failed pending attempt
+      from the tracking list for bookkeeping; `didDisconnectPeripheral`
+      needed no change (a peripheral that was only ever pending, never
+      promoted, can't reach it). `TrainerDeviceStore`'s own doc comment
+      (which referenced "the last-used heart rate strap" as precedent) was
+      corrected to reflect the new set. The trainer side is unaffected and
+      deliberately stays without cross-launch auto-reconnect, per its own
+      pre-existing doc comment.
+      Verified: `xcodegen generate` + `make build` → `BUILD SUCCEEDED`;
+      traced the "two known straps both in range at launch" case through
+      the new `didConnect` branch and confirmed only one is promoted, the
+      other's pending connect cancelled. No Bluetooth in the Simulator, so
+      the actual dual-strap-reconnect behavior itself still needs real-
+      device QA (pair two straps, relaunch with only one in range, confirm
+      it reconnects; repeat with the other).

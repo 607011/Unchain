@@ -7,7 +7,7 @@ import Foundation
 /// documents for FTP/Heart Rate. Keyed by `CBPeripheral.identifier`
 /// (`id` here), stable across scans and app launches for a given device on
 /// this phone – same identifier `BluetoothManager` already relies on for
-/// the last-used heart rate strap.
+/// its own set of known heart rate straps.
 struct KnownTrainerDevice: Codable, Identifiable, Equatable {
     let id: UUID
     var name: String

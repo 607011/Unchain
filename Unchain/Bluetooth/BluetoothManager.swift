@@ -24,26 +24,54 @@ struct DiscoveredDevice: Identifiable, Equatable {
 /// Currently holds exactly one active trainer connection plus, optionally,
 /// a heart rate strap connection running in parallel (MVP scope).
 final class BluetoothManager: NSObject, ObservableObject {
-    /// `UserDefaults` key for the last heart rate strap the user connected
-    /// to (`CBPeripheral.identifier`, stable across scans and app launches
-    /// for a given device on this phone – see Apple's docs on
-    /// `CBPeripheral.identifier`). Lets a strap that's been paired with
-    /// before reconnect on its own as soon as it's seen again (see
-    /// `centralManager(_:didDiscover:)`) or, without even needing to be seen
-    /// via scanning first, as soon as Bluetooth is ready (see
-    /// `attemptAutoReconnectHeartRateStrap()`) – saving the one tap that
-    /// would otherwise be needed every single time. Deliberately not
-    /// extended to
-    /// the trainer too: connecting there also navigates away to
-    /// `ControlView` and requests exclusive control, a bigger, more
-    /// consequential action than just starting to receive BPM values.
-    private static let lastHeartRateStrapUUIDKey = "lastHeartRateStrapUUID"
+    /// `UserDefaults` key for every heart rate strap the user has ever
+    /// connected to (`CBPeripheral.identifier`, stable across scans and app
+    /// launches for a given device on this phone – see Apple's docs on
+    /// `CBPeripheral.identifier`), stored as a plain set of UUID strings –
+    /// never pruned automatically (there's no "forget this device" UI).
+    /// Lets any strap that's been paired with before reconnect on its own
+    /// as soon as it's seen again (see `centralManager(_:didDiscover:)`)
+    /// or, without even needing to be seen via scanning first, as soon as
+    /// Bluetooth is ready (see `attemptAutoReconnectHeartRateStrap()`) –
+    /// saving the one tap that would otherwise be needed every single time,
+    /// for whichever of possibly several known straps is actually being
+    /// worn this time (a rider might own more than one – one for running,
+    /// one for cycling, or just switched brands – not just whichever was
+    /// connected most recently). Deliberately not extended to the trainer
+    /// too: connecting there also navigates away to `ControlView` and
+    /// requests exclusive control, a bigger, more consequential action than
+    /// just starting to receive BPM values.
+    private static let knownHeartRateStrapUUIDsKey = "knownHeartRateStrapUUIDs"
+
+    private static func knownHeartRateStrapUUIDs() -> [UUID] {
+        (UserDefaults.standard.stringArray(forKey: knownHeartRateStrapUUIDsKey) ?? []).compactMap(UUID.init(uuidString:))
+    }
+
+    private static func rememberHeartRateStrapUUID(_ id: UUID) {
+        var known = Set(UserDefaults.standard.stringArray(forKey: knownHeartRateStrapUUIDsKey) ?? [])
+        known.insert(id.uuidString)
+        UserDefaults.standard.set(Array(known), forKey: knownHeartRateStrapUUIDsKey)
+    }
 
     @Published private(set) var discoveredDevices: [DiscoveredDevice] = []
     @Published private(set) var isBluetoothReady = false
     @Published private(set) var isScanning = false
     @Published private(set) var currentConnection: TrainerConnection?
     @Published private(set) var currentHeartRateConnection: HeartRateConnection?
+
+    /// Peripherals `attemptAutoReconnectHeartRateStrap()` has speculatively
+    /// issued `central.connect()` for but that haven't completed (and been
+    /// promoted to `currentHeartRateConnection`) yet – more than one known
+    /// strap can be in range at launch, but only one ever ends up as the
+    /// active connection (see `centralManager(_:didConnect:)`'s own third
+    /// branch). Tracked separately from a promoted connection: unlike one
+    /// of those, none of these has a `HeartRateConnection` object yet (no
+    /// `peripheral.delegate` assigned), so cancelling one here carries none
+    /// of `HeartRateConnection.disconnect()`'s own `BLEDisconnectGracePeriod`
+    /// concern – only `BluetoothManager` itself (long-lived, see this
+    /// class's own doc comment) is ever this peripheral's delegate while it
+    /// sits in here.
+    private var pendingHeartRateReconnectPeripherals: [CBPeripheral] = []
 
     private var central: CBCentralManager!
 
@@ -154,8 +182,9 @@ final class BluetoothManager: NSObject, ObservableObject {
     /// out for it), but a real, independently-reachable instance of the
     /// same class of bug, found along the way.
     func connectHeartRate(to device: DiscoveredDevice) {
-        UserDefaults.standard.set(device.id.uuidString, forKey: Self.lastHeartRateStrapUUIDKey)
+        Self.rememberHeartRateStrapUUID(device.id)
         currentHeartRateConnection?.disconnect()
+        cancelPendingHeartRateReconnectAttempts()
         let connection = HeartRateConnection(peripheral: device.peripheral, central: central)
         currentHeartRateConnection = connection
         central.connect(device.peripheral, options: nil)
@@ -170,29 +199,45 @@ final class BluetoothManager: NSObject, ObservableObject {
     }
 
     /// Reconnects a previously-used strap purely from its stored identifier
-    /// (`lastHeartRateStrapUUIDKey`) – no scanning needed, and it works even
-    /// before the strap is back in range. Once `central.connect(_:options:)`
-    /// is issued for a peripheral CoreBluetooth already knows about
-    /// (`retrievePeripherals(withIdentifiers:)`), the system holds that
-    /// connection request pending and completes it automatically the moment
-    /// the peripheral becomes reachable again – the same mechanism iOS
-    /// itself uses to reconnect known accessories in the background.
-    /// Complements, rather than replaces, the discovery-based auto-reconnect
-    /// in `centralManager(_:didDiscover:)`, which only helps if scanning
-    /// happens to still be running at that exact moment. That mattered in
-    /// practice: `ControlView` itself never scans (see `connect(to:)`'s own
-    /// note on `stopScan()`), so a strap that hadn't already reconnected
-    /// *before* the trainer did – put on afterwards, or just missed during
-    /// the brief device-list scan – could never be found again for the rest
-    /// of the session without this.
+    /// (`knownHeartRateStrapUUIDsKey`) – no scanning needed, and it works
+    /// even before the strap is back in range. Once
+    /// `central.connect(_:options:)` is issued for a peripheral CoreBluetooth
+    /// already knows about (`retrievePeripherals(withIdentifiers:)`), the
+    /// system holds that connection request pending and completes it
+    /// automatically the moment the peripheral becomes reachable again – the
+    /// same mechanism iOS itself uses to reconnect known accessories in the
+    /// background. Complements, rather than replaces, the discovery-based
+    /// auto-reconnect in `centralManager(_:didDiscover:)`, which only helps
+    /// if scanning happens to still be running at that exact moment. That
+    /// mattered in practice: `ControlView` itself never scans (see
+    /// `connect(to:)`'s own note on `stopScan()`), so a strap that hadn't
+    /// already reconnected *before* the trainer did – put on afterwards, or
+    /// just missed during the brief device-list scan – could never be found
+    /// again for the rest of the session without this.
+    ///
+    /// Issues a speculative `connect()` for *every* known strap at once,
+    /// not just one – more than one could genuinely be in range (e.g. two
+    /// straps sitting near the phone), so `pendingHeartRateReconnectPeripherals`
+    /// tracks all of them until exactly one actually completes and gets
+    /// promoted (see `centralManager(_:didConnect:)`), at which point the
+    /// rest are cancelled.
     private func attemptAutoReconnectHeartRateStrap() {
-        guard currentHeartRateConnection == nil,
-              let uuidString = UserDefaults.standard.string(forKey: Self.lastHeartRateStrapUUIDKey),
-              let uuid = UUID(uuidString: uuidString),
-              let peripheral = central.retrievePeripherals(withIdentifiers: [uuid]).first else { return }
-        let connection = HeartRateConnection(peripheral: peripheral, central: central)
-        currentHeartRateConnection = connection
-        central.connect(peripheral, options: nil)
+        guard currentHeartRateConnection == nil else { return }
+        let peripherals = central.retrievePeripherals(withIdentifiers: Self.knownHeartRateStrapUUIDs())
+        guard !peripherals.isEmpty else { return }
+        pendingHeartRateReconnectPeripherals = peripherals
+        peripherals.forEach { central.connect($0, options: nil) }
+    }
+
+    /// Cancels every still-pending speculative auto-reconnect attempt from
+    /// `attemptAutoReconnectHeartRateStrap()` and clears the tracking list –
+    /// called once any one strap (whether from that speculative reconnect
+    /// itself, a `centralManager(_:didConnect:)` promotion, or a direct
+    /// user tap via `connectHeartRate(to:)`) actually claims the single
+    /// `currentHeartRateConnection` slot, so at most one ends up connected.
+    private func cancelPendingHeartRateReconnectAttempts() {
+        pendingHeartRateReconnectPeripherals.forEach { central.cancelPeripheralConnection($0) }
+        pendingHeartRateReconnectPeripherals.removeAll()
     }
 }
 
@@ -220,12 +265,14 @@ extension BluetoothManager: CBCentralManagerDelegate {
 
         // Reconnect a previously-used strap the moment it's seen again,
         // rather than making the user tap it every time – see
-        // `lastHeartRateStrapUUIDKey`. `currentHeartRateConnection == nil`
+        // `knownHeartRateStrapUUIDsKey`. `currentHeartRateConnection == nil`
         // guards against re-triggering while already connected/connecting
-        // to it (or to some other strap the user picked instead).
+        // to it (or to some other strap the user picked instead) – whichever
+        // known strap is discovered first naturally claims the single
+        // connection slot.
         if kind == .heartRateMonitor,
            currentHeartRateConnection == nil,
-           device.id.uuidString == UserDefaults.standard.string(forKey: Self.lastHeartRateStrapUUIDKey) {
+           Self.knownHeartRateStrapUUIDs().contains(device.id) {
             connectHeartRate(to: device)
         }
     }
@@ -235,6 +282,17 @@ extension BluetoothManager: CBCentralManagerDelegate {
             currentConnection?.handleConnected()
         } else if peripheral.identifier == currentHeartRateConnection?.peripheral.identifier {
             currentHeartRateConnection?.handleConnected()
+        } else if let index = pendingHeartRateReconnectPeripherals.firstIndex(where: { $0.identifier == peripheral.identifier }) {
+            // One of `attemptAutoReconnectHeartRateStrap()`'s speculative
+            // attempts actually completed first – promote it and cancel
+            // every other still-pending one, so at most one strap ends up
+            // connected (same singular-connection model every other path
+            // here already assumes).
+            pendingHeartRateReconnectPeripherals.remove(at: index)
+            cancelPendingHeartRateReconnectAttempts()
+            let connection = HeartRateConnection(peripheral: peripheral, central: central)
+            currentHeartRateConnection = connection
+            connection.handleConnected()
         }
     }
 
@@ -243,6 +301,13 @@ extension BluetoothManager: CBCentralManagerDelegate {
             currentConnection?.handleFailedToConnect(error: error)
         } else if peripheral.identifier == currentHeartRateConnection?.peripheral.identifier {
             currentHeartRateConnection?.handleFailedToConnect(error: error)
+        } else {
+            // A still-pending speculative attempt that failed outright
+            // (rather than just staying pending until reachable, the
+            // ordinary case) – drop it from the tracking list so it isn't
+            // cancelled again later for no reason; no further action needed,
+            // there's nothing showing its state anywhere yet.
+            pendingHeartRateReconnectPeripherals.removeAll { $0.identifier == peripheral.identifier }
         }
     }
 

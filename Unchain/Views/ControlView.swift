@@ -373,23 +373,48 @@ struct ControlView: View {
         // outright) mirrors what an app-initiated Pause already does –
         // recoverable, the rider decides from here whether to resume or
         // end the workout via the normal Stop flow, rather than this
-        // silently discarding it for them. Acknowledges immediately, not
-        // gated on the alert being dismissed – see `TrainerConnection
+        // silently discarding it for them. No alert for an ordinary
+        // console pause/stop – reported directly as unwanted friction for
+        // what's usually just a quick water break, especially now that a
+        // console-initiated *resume* is also mirrored automatically below,
+        // with nothing left for the rider to do here at all. The emergency
+        // Safety Key case keeps its own alert, deliberately: a materially
+        // different, genuinely safety-relevant event (not reported as
+        // unwanted) worth surfacing before the rider resumes into
+        // whatever caused it. Acknowledges immediately, not gated on the
+        // alert being dismissed – see `TrainerConnection
         // .acknowledgeDeviceInitiatedStop()`'s own doc comment on why a
         // second, later stop for the identical reason needs this cleared
         // first to even register as a change at all.
         .onChange(of: connection.deviceInitiatedStopReason) { reason in
             guard let reason else { return }
             session.pauseDueToDeviceStop()
-            let message: String
-            switch reason {
-            case .stoppedByUser:
-                message = String(localized: "The treadmill's own Stop button was pressed. Your workout has been paused to match.")
-            case .safetyKey:
-                message = String(localized: "The treadmill's emergency stop (safety key) was triggered. Your workout has been paused to match — make sure it's safe before resuming.")
+            if reason == .safetyKey {
+                deviceStopAlert = DeviceStopAlert(message: String(localized: "The treadmill's emergency stop (safety key) was triggered. Your workout has been paused to match — make sure it's safe before resuming."))
             }
-            deviceStopAlert = DeviceStopAlert(message: message)
             connection.acknowledgeDeviceInitiatedStop()
+        }
+        // The mirror image – a console Start/Resume needs no alert either,
+        // same "usually just resuming after a quick break" reasoning as
+        // the pause side above, and unlike a pause there's nothing to
+        // decide here at all (resume or end the workout): resuming is
+        // exactly what already happened. See `WorkoutSession
+        // .resumeDueToDeviceStart()`'s own doc comment for the elapsed-time
+        // bug this specifically fixes.
+        .onChange(of: connection.deviceInitiatedResumeCount) { _ in
+            session.resumeDueToDeviceStart()
+        }
+        .onChange(of: connection.consoleTargetSpeedKmh) { kmh in
+            guard let kmh else { return }
+            session.applyConsoleTargetSpeed(kmh)
+            session.refreshNow()
+            connection.acknowledgeConsoleTargetSpeed()
+        }
+        .onChange(of: connection.consoleTargetInclinePercent) { percent in
+            guard let percent else { return }
+            session.applyConsoleTargetIncline(percent)
+            session.refreshNow()
+            connection.acknowledgeConsoleTargetIncline()
         }
         .onChange(of: scenePhase) { newPhase in
             if newPhase == .active {
@@ -868,6 +893,38 @@ struct ControlView: View {
                     .font(.system(size: isRegularWidth ? 44 : 30, weight: .bold, design: .rounded))
                     .monospacedDigit()
 
+                // Session-local nudges – additive, not percentage-based
+                // like `.program`'s own Intensity row (see `WorkoutSession
+                // .treadmillProgramSpeedOffsetKmh`'s own doc comment for
+                // why) – driven by these manual +/- rows or by the
+                // treadmill's own physical speed/incline buttons (see
+                // `.onChange(of: connection.consoleTargetSpeedKmh)` et al.
+                // below). Always shown (as "±0.0" when neutral), same
+                // fixed-slot reasoning as the `.program` Intensity row –
+                // and not optional polish here either: a change driven
+                // entirely from the treadmill's own console, with nothing
+                // shown in this app, would be a real "why did my target
+                // just change" moment; this is also the manual correction
+                // path if a console reading ever seems off.
+                HStack(spacing: 16) {
+                    stepButton(systemImage: "minus.circle.fill") { adjustTreadmillProgramSpeed(-1) }
+                    Text(treadmillProgramSpeedOffsetLabel)
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(session.treadmillProgramSpeedOffsetKmh == 0 ? Color.secondary : Color.orange)
+                        .frame(width: 88)
+                    stepButton(systemImage: "plus.circle.fill") { adjustTreadmillProgramSpeed(1) }
+                }
+                HStack(spacing: 16) {
+                    stepButton(systemImage: "minus.circle.fill") { adjustTreadmillProgramIncline(-1) }
+                    Text(treadmillProgramInclineOffsetLabel)
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(session.treadmillProgramInclineOffsetPercent == 0 ? Color.secondary : Color.orange)
+                        .frame(width: 88)
+                    stepButton(systemImage: "plus.circle.fill") { adjustTreadmillProgramIncline(1) }
+                }
+
                 // A plain scrolling list rather than a chart, deliberately –
                 // see `TreadmillProgramSegmentList`'s own doc comment.
                 TreadmillProgramSegmentList(program: program, elapsedSeconds: Int(session.programPositionSeconds), onSelectSegment: session.jump(toElapsedSeconds:))
@@ -1041,6 +1098,39 @@ struct ControlView: View {
         let percent = session.intensityAdjustmentPercent
         if percent == 0 { return "±0 %" }
         return percent > 0 ? "+\(percent) %" : "\(percent) %" // negative already carries its own "-"
+    }
+
+    /// `.treadmillProgram` counterparts to `adjustProgramIntensity(_:)`/
+    /// `intensityAdjustmentLabel` above – see `WorkoutSession
+    /// .treadmillProgramSpeedOffsetKmh`/`InclineOffsetPercent`'s own doc
+    /// comment for why these are additive rather than percentage-based.
+    /// `direction` is a step *count* here (same `speedStepKmh`/
+    /// `inclineStepPercent` units the manual Speed & Incline +/- buttons
+    /// already use), not a raw delta – the treadmill's own console buttons
+    /// go through `session.applyConsoleTargetSpeed(_:)`/
+    /// `applyConsoleTargetIncline(_:)` directly instead (see
+    /// `.onChange(of: connection.consoleTargetSpeedKmh)` et al.), since
+    /// those already report an absolute target, not a step count.
+    private func adjustTreadmillProgramSpeed(_ direction: Int) {
+        session.adjustTreadmillProgramSpeed(byKmh: Double(direction) * speedStepKmh)
+        session.refreshNow()
+    }
+
+    private func adjustTreadmillProgramIncline(_ direction: Int) {
+        session.adjustTreadmillProgramIncline(byPercent: Double(direction) * inclineStepPercent)
+        session.refreshNow()
+    }
+
+    private var treadmillProgramSpeedOffsetLabel: String {
+        let kmh = session.treadmillProgramSpeedOffsetKmh
+        if kmh == 0 { return "±0.0 km/h" }
+        return String(format: kmh > 0 ? "+%.1f km/h" : "%.1f km/h", locale: .current, kmh)
+    }
+
+    private var treadmillProgramInclineOffsetLabel: String {
+        let percent = session.treadmillProgramInclineOffsetPercent
+        if percent == 0 { return "±0.0 %" }
+        return String(format: percent > 0 ? "+%.1f %%" : "%.1f %%", locale: .current, percent)
     }
 
     private func routeTargetLabel(for route: GradeProfile) -> String {

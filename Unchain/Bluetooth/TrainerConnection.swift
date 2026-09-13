@@ -134,6 +134,36 @@ final class TrainerConnection: NSObject, ObservableObject {
     /// to this one" from "this is a fresh occurrence" here).
     @Published private(set) var deviceInitiatedStopReason: DeviceInitiatedStopReason?
 
+    /// How many times the machine's console has reported a Start/Resume
+    /// (`FTMS.StatusOpCode.startedOrResumedByUser`) – the mirror image of
+    /// `deviceInitiatedStopReason` above, reported directly after that one
+    /// left `WorkoutSession` with no way to notice a console-initiated
+    /// resume, stuck showing `.paused` indefinitely. A plain incrementing
+    /// counter rather than a `Bool`/one-shot optional: every occurrence is
+    /// already a distinct new value on its own (there's nothing here that
+    /// needs the "reset to nil so a same-value repeat still registers"
+    /// dance `deviceInitiatedStopReason` needs – a resume is a resume, no
+    /// varying reason to distinguish), so `ControlView`'s own `.onChange`
+    /// doesn't need an explicit acknowledge step either.
+    @Published private(set) var deviceInitiatedResumeCount = 0
+
+    /// The treadmill's own current target, the moment its console reports
+    /// one changed – confirmed directly, on real hardware, that pressing
+    /// the console's own physical +/- buttons while this app holds control
+    /// during a running Program produces exactly this notification (see
+    /// `FTMS.StatusOpCode.targetSpeedChanged`'s own doc comment for the
+    /// byte layout that was empirically verified doing so). `nil` initially
+    /// and reset back to it once consumed – same "a same-value repeat
+    /// wouldn't otherwise register as a fresh change" reasoning
+    /// `deviceInitiatedStopReason`'s own doc comment already gives, and for
+    /// the same reason: this *will* legitimately repeat the same value,
+    /// e.g. an echo of a target this app itself just sent (see
+    /// `WorkoutSession`'s own consumer of this for how that case nets out
+    /// to a harmless zero delta rather than needing to be filtered out
+    /// here).
+    @Published private(set) var consoleTargetSpeedKmh: Double?
+    @Published private(set) var consoleTargetInclinePercent: Double?
+
     let peripheral: CBPeripheral
     private weak var central: CBCentralManager?
 
@@ -229,6 +259,16 @@ final class TrainerConnection: NSObject, ObservableObject {
     /// otherwise register as a change at all.
     func acknowledgeDeviceInitiatedStop() {
         deviceInitiatedStopReason = nil
+    }
+
+    /// See `consoleTargetSpeedKmh`'s own doc comment for why clearing back
+    /// to `nil` here (rather than leaving the last value standing) matters.
+    func acknowledgeConsoleTargetSpeed() {
+        consoleTargetSpeedKmh = nil
+    }
+
+    func acknowledgeConsoleTargetIncline() {
+        consoleTargetInclinePercent = nil
     }
 
     // MARK: - Control commands
@@ -553,6 +593,24 @@ extension TrainerConnection: CBPeripheralDelegate {
             deviceInitiatedStopReason = .stoppedByUser
         case FTMS.StatusOpCode.stoppedBySafetyKey.rawValue:
             deviceInitiatedStopReason = .safetyKey
+        case FTMS.StatusOpCode.startedOrResumedByUser.rawValue:
+            deviceInitiatedResumeCount += 1
+        case FTMS.StatusOpCode.targetSpeedChanged.rawValue:
+            // UINT16, 0.01 km/h resolution, little-endian – confirmed
+            // empirically against a real treadmill's own console buttons,
+            // the same encoding `setTargetSpeed(kmh:)` already uses.
+            guard data.count >= 3 else { break }
+            let bytes = [UInt8](data)
+            let raw = UInt16(bytes[1]) | (UInt16(bytes[2]) << 8)
+            consoleTargetSpeedKmh = Double(raw) * 0.01
+        case FTMS.StatusOpCode.targetInclineChanged.rawValue:
+            // SINT16, 0.1 % resolution, little-endian – confirmed
+            // empirically the same way, the same encoding
+            // `setTargetInclination(percent:)` already uses.
+            guard data.count >= 3 else { break }
+            let bytes = [UInt8](data)
+            let raw = Int16(bitPattern: UInt16(bytes[1]) | (UInt16(bytes[2]) << 8))
+            consoleTargetInclinePercent = Double(raw) * 0.1
         default:
             break
         }

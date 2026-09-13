@@ -4049,3 +4049,100 @@ would change, roughly in the order it'd need doing:
       drive) – Oliver already has a 5-minute ramp test file with several
       `<TextEvent>` markers from earlier testing, a good fit for trying
       this on the next treadmill session.
+- [x] **Adjust a running `.treadmillProgram`'s speed/incline using the
+      treadmill's own physical +/- buttons** – the payoff of the FTMS
+      status investigation above: added after the voice-command attempt
+      was abandoned (real-device testing showed `SFSpeechRecognizer`
+      fundamentally isn't a good fit for this app's "listen indefinitely"
+      need) in favor of using the actual Bluetooth protocol instead of
+      fighting Apple's speech APIs. A temporary raw-byte diagnostic first
+      confirmed, directly on Oliver's own treadmill, both real unknowns
+      that couldn't be resolved by reading code alone: its console buttons
+      *do* stay responsive while this app holds control during a running
+      Program, and pressing them *does* produce genuine "Target Speed
+      Changed"/"Target Incline Changed" FTMS status notifications (op
+      codes 0x05/0x06 – new in `FTMS.StatusOpCode`, which previously only
+      had the two Stop-related ones) – with exactly the byte layout
+      reasoned out by symmetry with this app's own already-implemented
+      `setTargetSpeed(kmh:)`/`setTargetInclination(percent:)` control-point
+      commands (UInt16/0.01 km/h, Int16/0.1 %): captured bytes "05 FE 01"/
+      "05 F4 01"/"05 EA 01" decoded to exactly 5.10/5.00/4.90 km/h, "06 37
+      00"/"06 2D 00" to exactly 5.5/4.5 %, for real 5.0→5.1/4.9 km/h and
+      5.0→5.5/4.5 % button presses. The diagnostic log
+      (`rawFitnessMachineStatusLog`) is removed now that its question is
+      answered – replaced with the real, narrow parsing.
+      New `TrainerConnection.consoleTargetSpeedKmh`/
+      `consoleTargetInclinePercent` (same `@Published … ?`/"acknowledge to
+      clear" shape `deviceInitiatedStopReason` already established, and for
+      the same reason: a same-value repeat – e.g. an echo of a target this
+      app itself just sent, confirmed to also trigger this notification –
+      wouldn't otherwise register as a fresh `.onChange` in `ControlView`).
+      New `WorkoutSession.treadmillProgramSpeedOffsetKmh`/
+      `InclineOffsetPercent` – the additive (not percentage-based, unlike
+      `.program`'s `intensityAdjustmentPercent`) offset `.treadmillProgram`
+      never had before (confirmed directly: its own `sendCurrentWorkoutTarget(for:)`
+      case used to say outright that intensity adjustment was out of
+      scope for this workout kind) – applied by shadowing `target` right
+      after `program.target(atElapsedSeconds:)` resolves and *before* the
+      boundary-ramp-restart delta math runs, so a console-driven incline
+      change gets paced the same way a file-authored one already is.
+      `WorkoutSession.applyConsoleTargetSpeed(_:)`/`applyConsoleTargetIncline(_:)`
+      compute the *delta* against whatever this app itself most recently
+      sent (`lastSentTreadmillSpeedKmh`/`lastSentTreadmillInclinePercent`)
+      rather than treating the console's reported value as absolute – this
+      is what makes an echo of the app's own send net out to a harmless
+      zero delta instead of double-applying an offset already in effect.
+      New matching manual +/- rows in `ControlView`'s `.treadmillProgram`
+      case (mirroring `.program`'s own Intensity row) – not optional
+      polish: a change driven entirely from the console with nothing shown
+      in this app would be a real "why did my target just change" moment,
+      and it's the manual correction path if a console reading ever seems
+      off.
+      Verified: `xcodegen generate` + `make build` → `BUILD SUCCEEDED`;
+      standalone `swift`-compiled checks of the byte-parsing math against
+      Oliver's own exact captured bytes (all five decode correctly, within
+      floating-point epsilon) and the delta logic (an echoed same-value
+      send nets to a no-op; genuine console bumps produce the exact
+      expected ± delta for both speed and incline).
+- [x] **The app now mirrors a console-initiated Resume too, and the
+      device-paused alert is gone for the ordinary case** – reported
+      directly, from live-testing the feature above: pausing a workout at
+      the treadmill's own console already correctly paused the app (via
+      `deviceInitiatedStopReason`), but resuming it there again went
+      completely unnoticed – `WorkoutSession` stayed stuck showing
+      `.paused` indefinitely, and if the rider *also* tapped Resume in the
+      app once they noticed, the elapsed time visibly jumped back and
+      forth. Root cause: `startTracking()`'s existing pause-duration
+      bookkeeping (`totalPausedDuration += Date().timeIntervalSince(pauseDate) + …`)
+      was never wrong on its own – it just never got a chance to run at
+      the *actual* moment the belt started moving again, only whenever the
+      rider happened to notice and tap Resume themselves, silently folding
+      the time the belt had *already* been moving again into "paused."
+      Fixed the same way the pause direction was: `FTMS.StatusOpCode`
+      gained `startedOrResumedByUser = 0x04` (the console's own Start/
+      Resume notification, previously unhandled – the app already reads
+      0x02/0x03 and, since the previous entry, 0x05/0x06), new
+      `TrainerConnection.deviceInitiatedResumeCount` (a plain incrementing
+      counter rather than `deviceInitiatedStopReason`'s optional-with-
+      acknowledge shape – a resume has no varying "reason" to distinguish,
+      so every occurrence is already its own distinct value), and new
+      `WorkoutSession.resumeDueToDeviceStart()` (the `pauseDueToDeviceStop()`
+      counterpart – same local `startTracking()` call `resume()` itself
+      makes, deliberately without also re-sending a redundant
+      `startOrResumeWorkout()` control-point command, for the same
+      "the machine already told us" reasoning `pauseDueToDeviceStop()`
+      established for the opposite direction).
+      Also removed the "Workout Paused" alert for the ordinary console
+      Stop/Pause case – reported directly as unwanted friction for what's
+      usually just a quick water break, especially now that resuming is
+      mirrored automatically too, with nothing left for the rider to
+      decide. Kept for the Safety Key (emergency stop) case specifically –
+      a materially different, genuinely safety-relevant event, not part of
+      what was reported, worth surfacing before resuming into whatever
+      caused it rather than silently removed along with the other one.
+      Verified: `xcodegen generate` + `make build` → `BUILD SUCCEEDED`. The
+      actual live-device pause/resume-at-console cycle (the whole point)
+      needs Oliver's own re-test to confirm the elapsed-time jump is
+      actually gone – the fix reuses `startTracking()`'s own
+      already-correct math verbatim, just calls it at the right moment now,
+      but "verbatim" isn't the same as "confirmed."

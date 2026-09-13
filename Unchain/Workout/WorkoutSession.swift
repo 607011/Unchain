@@ -318,6 +318,30 @@ final class WorkoutSession: ObservableObject {
     /// guarding against an unsafe value reaching the trainer.
     private let minIntensityAdjustmentPercent = -50
 
+    /// The `.treadmillProgram` counterpart to `intensityAdjustmentPercent`
+    /// above – driven by the treadmill's own physical speed/incline +/-
+    /// buttons (`applyConsoleTargetSpeed(_:)`/`applyConsoleTargetIncline(_:)`,
+    /// via `TrainerConnection.consoleTargetSpeedKmh`/
+    /// `consoleTargetInclinePercent`) or the matching manual +/- rows in
+    /// `ControlView`, since a treadmill file's targets have no single
+    /// percentage that would mean anything to scale both speed *and*
+    /// incline by at once, unlike a Power/Resistance Program's one scalar
+    /// value. Additive, not multiplicative, and in the target's own real
+    /// units (percentage points, km/h) rather than a percent – "+1
+    /// percentage point of incline" is what actually makes sense here, not
+    /// "+1 % of whatever incline the file happens to specify at this exact
+    /// instant," which would mean nothing while incline is 0. Applied in
+    /// `sendCurrentWorkoutTarget(for:)`'s `.treadmillProgram` case,
+    /// immediately after `program.target(atElapsedSeconds:)` resolves and
+    /// before the boundary-ramp-smoothing math runs – that math derives
+    /// its own catch-up duration from how far incline is about to move, so
+    /// it needs to see the *offset* target, not the raw file value, or a
+    /// console-adjusted incline change wouldn't get paced the same way a
+    /// file-authored one already is. Reset alongside
+    /// `intensityAdjustmentPercent` in `loadTreadmillProgram(_:)`/`reset()`.
+    @Published private(set) var treadmillProgramSpeedOffsetKmh: Double = 0
+    @Published private(set) var treadmillProgramInclineOffsetPercent: Double = 0
+
     /// The last loaded `.erg`/`.mrc`/GPX file, if any. Stays loaded across
     /// `reset()` so the same workout can be re-run without picking the file
     /// again – whether a given session actually *follows* it is decided at
@@ -589,16 +613,21 @@ final class WorkoutSession: ObservableObject {
     }
 
     /// Loads a `.zwo`-derived treadmill speed/incline schedule. Same rules
-    /// as `loadProgram(_:)` – `intensityAdjustmentPercent` is reset too,
-    /// even though nothing currently lets the rider actually adjust it for
-    /// this workout kind (see `sendCurrentWorkoutTarget(for:)`'s own note),
-    /// just so it can't carry over a stale nonzero value from an earlier
-    /// `.program` run into this one.
+    /// as `loadProgram(_:)` – `intensityAdjustmentPercent` is reset too
+    /// (it has no effect on this workout kind at all, see
+    /// `sendCurrentWorkoutTarget(for:)`'s own note, but stays reset so it
+    /// can't carry over a stale nonzero value from an earlier `.program`
+    /// run into this one) – and so are `treadmillProgramSpeedOffsetKmh`/
+    /// `treadmillProgramInclineOffsetPercent`, which very much *do* apply
+    /// here, for the same "don't carry over a stale value from a previous
+    /// run" reason.
     func loadTreadmillProgram(_ program: TreadmillWorkoutProgram) {
         guard state == .idle else { return }
         activeWorkout = .treadmillProgram(program)
         isProgramFinished = false
         intensityAdjustmentPercent = 0
+        treadmillProgramSpeedOffsetKmh = 0
+        treadmillProgramInclineOffsetPercent = 0
     }
 
     /// Rewrites the currently loaded `.power`-kind `.program`'s own
@@ -688,6 +717,59 @@ final class WorkoutSession: ObservableObject {
         return Swift.max(0, Int(scaled.rounded()))
     }
 
+    /// Nudges `treadmillProgramSpeedOffsetKmh`/`treadmillProgramInclineOffsetPercent`
+    /// by `delta` – the `.treadmillProgram` counterparts to
+    /// `adjustIntensity(byPercent:)`, additive rather than percentage-based
+    /// (see that property's own doc comment for why), used directly by
+    /// `ControlView`'s own manual +/- rows. No floor/ceiling here the way
+    /// `intensityAdjustmentPercent` has one below – whatever this produces
+    /// still goes through `connection.speedRangeKmh`/
+    /// `inclinationRangePercent`'s own clamping in `sendCurrentWorkoutTarget(for:)`
+    /// before anything is actually sent, same safety net `adjustIntensity`
+    /// already relies on downstream.
+    func adjustTreadmillProgramSpeed(byKmh delta: Double) {
+        treadmillProgramSpeedOffsetKmh += delta
+    }
+
+    func adjustTreadmillProgramIncline(byPercent delta: Double) {
+        treadmillProgramInclineOffsetPercent += delta
+    }
+
+    /// Called when `TrainerConnection.consoleTargetSpeedKmh`/
+    /// `consoleTargetInclinePercent` reports the treadmill's own console
+    /// changed its current target (see that property's own doc comment) –
+    /// folds the *delta* against whatever this app itself most recently
+    /// sent (`lastSentTreadmillSpeedKmh`/`lastSentTreadmillInclinePercent`)
+    /// into the same offset `adjustTreadmillProgramSpeed(byKmh:)`/
+    /// `adjustTreadmillProgramIncline(byPercent:)` maintain, rather than
+    /// treating the console's reported value as an absolute one to jump
+    /// to directly. This matters for two reasons: it's what lets an echo
+    /// of a target this app itself just sent (the same console notification
+    /// fires for control-point-initiated changes too, confirmed directly
+    /// against real hardware) net out to a harmless zero delta instead of
+    /// re-applying an offset that's already reflected; and it's what keeps
+    /// this additive with whatever the file itself is already ramping
+    /// through, the same way the manual +/- rows are, rather than
+    /// overwriting it. Only meaningful while a `.treadmillProgram` is
+    /// actually active and has sent at least one target so far
+    /// (`lastSentTreadmillSpeedKmh`/`lastSentTreadmillInclinePercent`
+    /// non-nil) – a no-op otherwise, e.g. a stray notification arriving
+    /// just before the first tick, or while some other workout kind is
+    /// loaded.
+    func applyConsoleTargetSpeed(_ kmh: Double) {
+        guard case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillSpeedKmh else { return }
+        let delta = kmh - lastSent
+        guard delta != 0 else { return }
+        treadmillProgramSpeedOffsetKmh += delta
+    }
+
+    func applyConsoleTargetIncline(_ percent: Double) {
+        guard case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillInclinePercent else { return }
+        let delta = percent - lastSent
+        guard delta != 0 else { return }
+        treadmillProgramInclineOffsetPercent += delta
+    }
+
     func pause() {
         guard state == .running else { return }
         connection.pauseWorkout()
@@ -730,6 +812,30 @@ final class WorkoutSession: ObservableObject {
     func resume() {
         guard state == .paused else { return }
         connection.startOrResumeWorkout()
+        state = .running
+        startTracking()
+    }
+
+    /// The `TrainerConnection.deviceInitiatedResumeCount` counterpart to
+    /// `resume()` above – same local state transition, but deliberately
+    /// doesn't also call `connection.startOrResumeWorkout()` the way
+    /// `resume()` itself does: the machine already told *this app* it
+    /// started moving again – on its own, via a console Start/Resume
+    /// button – so sending it another control-point command asking it to
+    /// do exactly that again would be redundant, not corrective (same
+    /// reasoning `pauseDueToDeviceStop()` already established for the
+    /// opposite direction). Reacting at all matters regardless: without
+    /// this, a treadmill resumed at the console left `WorkoutSession`
+    /// stuck showing `.paused` indefinitely – and if the rider *also*
+    /// tapped Resume in the app once they noticed, `startTracking()`
+    /// would fold the *entire* stretch since the original pause into
+    /// `totalPausedDuration`, even the part the belt had already spent
+    /// moving again, visibly yanking the elapsed time back and forth as
+    /// `refreshWorkoutState`'s own device-elapsed reconciliation then
+    /// fought to catch it back up. `ControlView` is what actually calls
+    /// this, from observing `connection.deviceInitiatedResumeCount`.
+    func resumeDueToDeviceStart() {
+        guard state == .paused else { return }
         state = .running
         startTracking()
     }
@@ -879,6 +985,8 @@ final class WorkoutSession: ObservableObject {
         isProgramFinished = false
         programOffsetSeconds = 0
         intensityAdjustmentPercent = 0
+        treadmillProgramSpeedOffsetKmh = 0
+        treadmillProgramInclineOffsetPercent = 0
         lastProgramBreakpointIndex = nil
         treadmillSpeedRampFromKmh = nil
         treadmillSpeedRampToKmh = nil
@@ -1424,11 +1532,23 @@ final class WorkoutSession: ObservableObject {
             // safe since only one `ActiveWorkout` case is ever loaded at a
             // time) – but no `adjustedTargetValue(_:)` call: that scales a
             // single `Int`, and this sends two `Double` targets at once.
-            // Session-local intensity adjustment for this workout kind is
-            // simply out of scope for now, not silently dropped – nothing
-            // in `ControlView` exposes the +/- for it either.
+            // Session-local intensity adjustment for this workout kind
+            // instead lives in `treadmillProgramSpeedOffsetKmh`/
+            // `treadmillProgramInclineOffsetPercent` (additive, not
+            // percentage-based – see their own doc comment).
             let elapsed = programPositionSeconds
-            if let target = program.target(atElapsedSeconds: elapsed) {
+            if let rawTarget = program.target(atElapsedSeconds: elapsed) {
+                // Shadows `target` with the offset already folded in, right
+                // away – every read of `target.speedKmh`/`.inclinePercent`
+                // below (including the boundary-ramp restart math, which
+                // derives its own catch-up duration from how far incline is
+                // about to move) needs to see the *adjusted* value, not the
+                // raw file one, or an offset incline change wouldn't get
+                // paced the same way a file-authored one already is.
+                let target = (
+                    speedKmh: rawTarget.speedKmh + treadmillProgramSpeedOffsetKmh,
+                    inclinePercent: rawTarget.inclinePercent + treadmillProgramInclineOffsetPercent
+                )
                 // See the `.program` case's own note above on why this is
                 // explicit – `jump(toElapsedSeconds:)` is exactly why.
                 isProgramFinished = false

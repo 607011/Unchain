@@ -53,15 +53,27 @@ enum FTMS {
     /// The op code a Fitness Machine Status notification (0x2ADA) itself
     /// leads with – the *machine*'s own side of "something changed here",
     /// unprompted by any control-point command this app sent (see FTMS
-    /// spec, table 4.18, for the full op-code table; only the two this app
-    /// actually reacts to are listed here, same "only what's handled"
-    /// scope `OpCode`/`ResultCode` above already keep). Both cover a real,
-    /// safety-relevant scenario this app had no way to notice before: the
-    /// treadmill physically stopping – console Stop button, or an
-    /// emergency/safety key pulled – with this app's own `WorkoutSession`
-    /// having no idea, still showing `.running` and still computing
-    /// elapsed time/targets against a belt that's no longer moving. See
-    /// `TrainerConnection.deviceInitiatedStopReason`.
+    /// spec, table 4.18, for the full op-code table; only the five this
+    /// app actually reacts to are listed here, same "only what's handled"
+    /// scope `OpCode`/`ResultCode` above already keep). The first two cover
+    /// a real, safety-relevant scenario this app had no way to notice
+    /// before: the treadmill physically stopping – console Stop button, or
+    /// an emergency/safety key pulled – with this app's own
+    /// `WorkoutSession` having no idea, still showing `.running` and still
+    /// computing elapsed time/targets against a belt that's no longer
+    /// moving. See `TrainerConnection.deviceInitiatedStopReason`.
+    /// `startedOrResumedByUser` is the mirror image, for the same reason in
+    /// reverse – a console Start/Resume with nothing telling this app the
+    /// belt is moving again used to leave `WorkoutSession` stuck showing
+    /// `.paused` indefinitely (reported directly, alongside the elapsed
+    /// time visibly jumping back and forth once the rider *also* tapped
+    /// Resume in the app afterward – two independent, conflicting "how long
+    /// has this actually been paused" answers). See
+    /// `TrainerConnection.deviceInitiatedResumeCount`. The last two let a
+    /// rider adjust a running `.treadmillProgram`'s speed/incline using the
+    /// treadmill's own physical +/- buttons instead of anything in this
+    /// app – see `TrainerConnection.consoleTargetSpeedKmh`/
+    /// `consoleTargetInclinePercent`.
     enum StatusOpCode: UInt8 {
         /// The spec uses one op code for both a stop and a pause
         /// initiated at the console – no separate parameter to tell them
@@ -69,6 +81,25 @@ enum FTMS {
         /// (0x08) has one, unlike `StopPauseControlParameter` above.
         case stoppedOrPausedByUser = 0x02
         case stoppedBySafetyKey = 0x03
+        case startedOrResumedByUser = 0x04
+        /// Fires whenever the machine's own current speed/incline target
+        /// changes, no matter what changed it – including, confirmed
+        /// directly against a real treadmill's own console +/- buttons
+        /// while this app held control during a running Program, a rider
+        /// adjusting it locally rather than through this app at all. Byte
+        /// layout confirmed empirically the same session: 1-byte op code
+        /// + one UINT16 (Speed, 0.01 km/h resolution, little-endian) for
+        /// `targetSpeedChanged`, or one SINT16 (Inclination, 0.1 %
+        /// resolution, little-endian) for `targetInclineChanged` – the
+        /// exact same shape and resolution this app's own
+        /// `setTargetSpeed(kmh:)`/`setTargetInclination(percent:)` already
+        /// use for the control-point commands going the other way, not
+        /// the two-field (inclination + ramp angle) shape the general FTMS
+        /// spec allows for other machine types. See
+        /// `TrainerConnection.consoleTargetSpeedKmh`/
+        /// `consoleTargetInclinePercent`.
+        case targetSpeedChanged = 0x05
+        case targetInclineChanged = 0x06
     }
 
     /// Fixed physical defaults sent with every "Set Indoor Bike Simulation

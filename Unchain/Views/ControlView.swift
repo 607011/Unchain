@@ -288,8 +288,24 @@ struct ControlView: View {
                     .accessibilityLabel("Trainer features")
                 }
             }
-            ToolbarItem(placement: .cancellationAction) {
+            ToolbarItemGroup(placement: .cancellationAction) {
                 if isReconnectable {
+                    // Bug: with only "Reconnect" shown here, a rider whose
+                    // trainer had dropped out of range for good (moved to a
+                    // different room, powered off, whatever) had no way back
+                    // to `DeviceListView` at all to pick a different device –
+                    // the back button stays hidden (see this view's own
+                    // `.navigationBarBackButtonHidden(true)` note on why),
+                    // and the interactive swipe-back gesture is disabled only
+                    // during a running/paused workout, which this isn't (a
+                    // dropped connection already paused it locally, but that
+                    // doesn't mean the rider isn't stuck on this screen).
+                    // "Devices" alongside "Reconnect" covers both outcomes
+                    // explicitly, rather than relying on the swipe gesture at
+                    // all here.
+                    Button("Devices") {
+                        bluetooth.clearConnection()
+                    }
                     Button("Reconnect") {
                         bluetooth.reconnectCurrent()
                     }

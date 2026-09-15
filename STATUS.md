@@ -1014,6 +1014,18 @@ protocol), but hasn't been verified here.
       list gated offering `.mrc` on the connected trainer supporting a
       Resistance target, which no longer matches what the format actually
       produces now — switched to gating on Power target support instead
+- [x] Fixed a real dead end: once a trainer's connection was lost for good
+      (out of range, powered off), `ControlView`'s toolbar showed only
+      "Reconnect" — no way back to `DeviceListView` to pick a different
+      device. The back button stays hidden on this screen deliberately (see
+      its own doc comment on the crash that fix prevents), and the
+      interactive swipe-back gesture is only disabled during a
+      running/paused workout, which a dropped-and-locally-paused session
+      isn't, but nothing told the rider that was still an option. Now shows
+      "Devices" (`bluetooth.clearConnection()`, same as "Disconnect"
+      already did) right alongside "Reconnect" whenever the connection is
+      in a reconnectable state, rather than relying on the swipe gesture as
+      the only way out
 
 ## App Store readiness
 

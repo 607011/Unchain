@@ -998,6 +998,22 @@ protocol), but hasn't been verified here.
       gets added to the workout's Health app entry on save. Section
       headers switched from the shorthand `Section("title")` initializer to
       `header:`/`footer:` closures to make room for the footer text
+- [x] Removed the special case where an `.mrc` file's percent column was
+      only treated as %FTP when the file's own `FTP = <value>` header was
+      present, otherwise falling back to a literal 0–100 % resistance
+      target. `.mrc`'s percent column is now always %FTP – the way
+      real-world `.mrc` exports (e.g. TrainerDay's) actually mean it – and
+      just falls back to the app's own FTP setting
+      (`SettingsView.ftpWattsKey`) when the file itself doesn't declare
+      one, rather than reinterpreting the numbers as something else
+      entirely (see `WorkoutProgramParser.parse`). `ProgramTargetKind
+      .resistance` is no longer ever produced by loading a file – it
+      remains meaningful only for a manually-recorded Resistance-mode
+      session (`WorkoutSession.beginRecordingManualTarget(kind:value:)`).
+      Follow-on fix: `ControlView`'s "Load from File"/empty-state file-type
+      list gated offering `.mrc` on the connected trainer supporting a
+      Resistance target, which no longer matches what the format actually
+      produces now — switched to gating on Power target support instead
 
 ## App Store readiness
 

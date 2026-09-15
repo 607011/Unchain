@@ -973,14 +973,16 @@ struct ControlView: View {
 
     /// Which file types "Load from File" offers, matching only the targets
     /// the connected machine actually supports — `.erg` needs Power Target,
-    /// `.mrc` needs Resistance Target, `.gpx` needs Indoor Bike Simulation,
-    /// `.zwo` needs a treadmill with Speed or Inclination Target support
-    /// (see `ZWOWorkoutParser`'s own note on why this is treadmill-only,
-    /// not the genuine Zwift cycling %FTP format too).
+    /// `.mrc` needs Power Target too (its percent column is always %FTP,
+    /// see `WorkoutProgramParser.parse` – never a literal resistance
+    /// percentage), `.gpx` needs Indoor Bike Simulation, `.zwo` needs a
+    /// treadmill with Speed or Inclination Target support (see
+    /// `ZWOWorkoutParser`'s own note on why this is treadmill-only, not the
+    /// genuine Zwift cycling %FTP format too).
     private var allowedFileContentTypes: [UTType] {
         var types: [UTType] = []
         if supportsPowerTarget, let erg = WorkoutProgramParser.ergContentType { types.append(erg) }
-        if supportsResistanceTarget, let mrc = WorkoutProgramParser.mrcContentType { types.append(mrc) }
+        if supportsPowerTarget, let mrc = WorkoutProgramParser.mrcContentType { types.append(mrc) }
         if supportsIndoorBikeSimulation { types.append(contentsOf: GPXParser.supportedContentTypes) }
         if connection.machineKind == .treadmill, supportsSpeedTarget || supportsInclinationTarget,
            let zwo = ZWOWorkoutParser.contentType {
@@ -1014,7 +1016,7 @@ struct ControlView: View {
     private var emptyWorkoutStateDescription: String {
         var extensions: [String] = []
         if supportsPowerTarget { extensions.append(".erg") }
-        if supportsResistanceTarget { extensions.append(".mrc") }
+        if supportsPowerTarget { extensions.append(".mrc") }
         if supportsIndoorBikeSimulation { extensions.append(".gpx") }
         if connection.machineKind == .treadmill, supportsSpeedTarget || supportsInclinationTarget {
             extensions.append(".zwo")

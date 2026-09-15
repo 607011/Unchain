@@ -33,11 +33,11 @@ struct WorkoutProgramBreakpoint: Codable, Equatable {
 /// A structured workout loaded from an `.erg` (power target, absolute watts)
 /// or `.mrc` file – the de facto standard formats used by TrainerRoad, Golden
 /// Cheetah, PerfPRO, TrainerDay, cyclingintervals.com, and others (see the
-/// README for free sources). `.mrc` resolves to a power target too whenever
-/// its header declares an FTP (percentages relative to that, converted to
-/// watts at parse time); only a percent column *without* a declared FTP
-/// resolves to a literal 0–100 % resistance target – see
-/// `WorkoutProgramParser.parse`. Both formats share the same file structure:
+/// README for free sources). `.mrc` always resolves to a power target: its
+/// percent column is %FTP, converted to watts at parse time using the
+/// file's own `FTP = <value>` header when present, or the app's own FTP
+/// setting otherwise – see `WorkoutProgramParser.parse`. Both formats share
+/// the same file structure:
 /// a `[COURSE HEADER]` metadata block followed by `[COURSE DATA]`, a list of
 /// (time in minutes, value) breakpoints. Between two consecutive breakpoints
 /// the target is linearly interpolated – a flat block is simply two points
@@ -222,13 +222,15 @@ enum WorkoutProgramParser {
     /// PERCENT" line is seen, if ever) and to name the program when no
     /// `DESCRIPTION` line is present.
     ///
-    /// A percent column is *not* automatically a raw 0–100 % resistance
-    /// target: real-world `.mrc` files (e.g. TrainerDay's exports) declare an
-    /// `FTP = <value>` header field and mean the percentages relative to
-    /// *that* – i.e. it's actually a power workout, just expressed as %FTP
-    /// instead of absolute watts the way `.erg` does it. Only when a percent
-    /// column has no FTP declared does this fall back to treating the number
-    /// as a literal resistance percentage, for files that genuinely mean that.
+    /// A percent column is never a raw 0–100 % resistance target: real-world
+    /// `.mrc` files (e.g. TrainerDay's exports) mean the percentages relative
+    /// to FTP – i.e. it's actually a power workout, just expressed as %FTP
+    /// instead of absolute watts the way `.erg` does it. If the file itself
+    /// declares an `FTP = <value>` header, that value is used; otherwise this
+    /// falls back to the app's own FTP setting (`SettingsView.ftpWattsKey`) –
+    /// there's no file-format convention here for "percent of what" other
+    /// than FTP, so a missing header is just a missing number, not a reason
+    /// to reinterpret the column as something else entirely.
     static func parse(text: String, fileExtension: String) -> Result<WorkoutProgram, Error> {
         var name = fileExtension.isEmpty ? String(localized: "Workout") : String(localized: "Workout (.\(fileExtension))")
         var isPercentColumn = fileExtension.lowercased() == "mrc"
@@ -245,9 +247,20 @@ enum WorkoutProgramParser {
             if upperLine.hasPrefix("[COURSE DATA]") {
                 isInDataSection = true
                 // The header (where FTP, if any, would have appeared) is
-                // fully read at this point – resolve the target kind once,
-                // rather than re-deciding it on every data row.
-                targetKind = (isPercentColumn && ftp == nil) ? .resistance : .power
+                // fully read at this point. A percent column always means
+                // %FTP, never a literal resistance percentage – fall back to
+                // the app's own FTP setting when the file doesn't declare
+                // its own.
+                if isPercentColumn, ftp == nil {
+                    // Not set in the file's own header – fall back to the
+                    // app's own FTP setting, defaulting the same way
+                    // `SettingsView`/`ControlView`'s own `@AppStorage` do
+                    // when it's never been configured (`UserDefaults` itself
+                    // has no notion of that default, it just reads back 0).
+                    let storedFTP = UserDefaults.standard.integer(forKey: SettingsView.ftpWattsKey)
+                    ftp = storedFTP > 0 ? Double(storedFTP) : 188
+                }
+                targetKind = .power
                 continue
             }
             if upperLine.hasPrefix("[END COURSE DATA]") {

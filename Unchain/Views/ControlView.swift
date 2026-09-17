@@ -422,13 +422,21 @@ struct ControlView: View {
         }
         .onChange(of: connection.consoleTargetSpeedKmh) { kmh in
             guard let kmh else { return }
-            session.applyConsoleTargetSpeed(kmh)
+            if mode == .speedIncline {
+                applyConsoleSpeedToManualTarget(kmh)
+            } else {
+                session.applyConsoleTargetSpeed(kmh)
+            }
             session.refreshNow()
             connection.acknowledgeConsoleTargetSpeed()
         }
         .onChange(of: connection.consoleTargetInclinePercent) { percent in
             guard let percent else { return }
-            session.applyConsoleTargetIncline(percent)
+            if mode == .speedIncline {
+                applyConsoleInclineToManualTarget(percent)
+            } else {
+                session.applyConsoleTargetIncline(percent)
+            }
             session.refreshNow()
             connection.acknowledgeConsoleTargetIncline()
         }
@@ -1542,6 +1550,39 @@ struct ControlView: View {
     private func stepIncline(_ direction: Int) {
         targetInclinePercent = connection.inclinationRangePercent.clamp(targetInclinePercent + Double(direction) * inclineStepPercent)
         connection.setTargetInclination(percent: targetInclinePercent)
+        session.recordTreadmillTarget(speedKmh: targetSpeedKmh, inclinePercent: targetInclinePercent)
+    }
+
+    /// The `.speedIncline` counterpart to `WorkoutSession
+    /// .applyConsoleTargetSpeed(_:)`/`applyConsoleTargetIncline(_:)` –
+    /// requested directly, the same "console buttons stay in charge, the
+    /// app follows along" mechanism `.treadmillProgram` already has (see
+    /// `TrainerConnection.consoleTargetSpeedKmh`'s own doc comment on the
+    /// underlying FTMS Status notification both rely on), but for the plain
+    /// manual mode: there's no file-driven curve/offset to fold a delta
+    /// into here, `targetSpeedKmh`/`targetInclinePercent` *are* the target,
+    /// so a genuine console-initiated change is applied directly rather
+    /// than additively.
+    ///
+    /// `targetSpeedKmh` itself doubles as the "what did this app last
+    /// believe/send" comparison – `stepSpeed(_:)` (and `sendCurrentTarget()`
+    /// on every reconnect) always updates it *before* writing to the
+    /// device, so by the time that same write's own echo notification
+    /// arrives back here, `kmh` already equals `targetSpeedKmh` and this is
+    /// a no-op – exactly the "net out to a harmless zero delta" self-echo
+    /// filtering `applyConsoleTargetSpeed(_:)`'s own doc comment describes,
+    /// just without needing a separate `lastSent` field to do it with,
+    /// since there's no offset/ramp math downstream here that needs one.
+    private func applyConsoleSpeedToManualTarget(_ kmh: Double) {
+        guard supportsSpeedTarget, kmh != targetSpeedKmh else { return }
+        targetSpeedKmh = connection.speedRangeKmh.clamp(kmh)
+        session.recordTreadmillTarget(speedKmh: targetSpeedKmh, inclinePercent: targetInclinePercent)
+    }
+
+    /// See `applyConsoleSpeedToManualTarget(_:)`'s own note.
+    private func applyConsoleInclineToManualTarget(_ percent: Double) {
+        guard supportsInclinationTarget, percent != targetInclinePercent else { return }
+        targetInclinePercent = connection.inclinationRangePercent.clamp(percent)
         session.recordTreadmillTarget(speedKmh: targetSpeedKmh, inclinePercent: targetInclinePercent)
     }
 

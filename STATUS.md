@@ -1064,6 +1064,22 @@ protocol), but hasn't been verified here.
         had actually just set. Now also gated on `isDrivenByProgram` –
         already exactly the flag that goes false the instant a workout
         starts in any other mode
+- [x] The treadmill's own console +/- buttons now also drive the app's
+      manual "Speed & Incline" (`.speedIncline`) mode – requested directly,
+      the same mechanism `.treadmillProgram` already has (see the
+      console-button entry above), extended to the one place it didn't yet
+      cover. No offset/delta math needed here the way `.treadmillProgram`
+      needs (there's no file-driven curve to fold a delta into) –
+      `targetSpeedKmh`/`targetInclinePercent` *are* the target, so a
+      genuine console-initiated change (`ControlView
+      .applyConsoleSpeedToManualTarget(_:)`/
+      `applyConsoleInclineToManualTarget(_:)`) is applied directly. Self-echo
+      filtering reuses `targetSpeedKmh`/`targetInclinePercent` themselves as
+      the "what did this app last send" comparison, rather than needing a
+      separate `lastSent` field the way the `.treadmillProgram` side does –
+      `stepSpeed(_:)`/`stepIncline(_:)` always update them *before* writing
+      to the device, so a self-echo notification always finds them already
+      equal by the time it arrives
 
 ## App Store readiness
 

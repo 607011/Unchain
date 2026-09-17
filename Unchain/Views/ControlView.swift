@@ -438,18 +438,35 @@ struct ControlView: View {
             }
         }
         .onAppear {
-            targetPower = connection.powerRange.clamp(targetPower)
             targetResistance = resistancePercentRange.clamp(targetResistance)
             targetGrade = gradePercentRange.clamp(targetGrade)
-            targetSpeedKmh = connection.speedRangeKmh.clamp(targetSpeedKmh)
-            targetInclinePercent = connection.inclinationRangePercent.clamp(targetInclinePercent)
-            // Only if capabilities are already known at this point (e.g.
-            // this view re-appearing on an already-`.ready` connection) –
-            // see `ensureModeIsAvailable()`'s own note on why calling this
-            // any earlier than that used to silently destroy a remembered
-            // mode. The `.onChange` handlers below cover the far more
-            // common case, a fresh connect, where they aren't yet.
+            // `connection.powerRange`/`speedRangeKmh`/`inclinationRangePercent`
+            // (unlike `resistancePercentRange`/`gradePercentRange` above,
+            // which are fixed constants) start out at a placeholder default
+            // – the device's *real* range only arrives later, once its
+            // "Supported Speed/Inclination/Power Range" characteristics are
+            // actually read. Clamping against the placeholder here, every
+            // time this view appears, used to silently and permanently
+            // overwrite a legitimately remembered target that just happened
+            // to fall outside that placeholder's narrower bounds (e.g. a
+            // negative/decline incline, before the real, possibly wider,
+            // device range had a chance to say that's fine) – the `@AppStorage`
+            // write persists immediately, so the original value was gone for
+            // good, not just misdisplayed for a moment. Same class of bug
+            // `ensureModeIsAvailable()`'s own note describes for `mode`, and
+            // the same fix: only clamp against a range that's actually
+            // known already (this view re-appearing on an already-`.ready`
+            // connection); the `.onChange` handlers below cover the far
+            // more common case, a fresh connect, once the real range
+            // arrives. `connection.setTargetPower(watts:)`/
+            // `setTargetSpeed(kmh:)`/`setTargetInclination(percent:)`
+            // already clamp against the current range themselves right
+            // before sending regardless, so nothing out-of-range ever
+            // reaches the device in the meantime either way.
             if connection.supportedFeatures != nil {
+                targetPower = connection.powerRange.clamp(targetPower)
+                targetSpeedKmh = connection.speedRangeKmh.clamp(targetSpeedKmh)
+                targetInclinePercent = connection.inclinationRangePercent.clamp(targetInclinePercent)
                 ensureModeIsAvailable()
             }
             loadPersistedOrDefaultProgramIfCapabilitiesKnown()

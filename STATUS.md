@@ -1026,6 +1026,44 @@ protocol), but hasn't been verified here.
       already did) right alongside "Reconnect" whenever the connection is
       in a reconnectable state, rather than relying on the swipe gesture as
       the only way out
+- [x] Two real bugs in the treadmill "Speed & Incline" (`.speedIncline`)
+      manual mode, both reported directly:
+      - The remembered speed/incline target (`@AppStorage("lastTargetSpeedKmh")`/
+        `"lastTargetInclinePercent")`) sometimes failed to come back on
+        reconnect. Root cause: `ControlView.onAppear` clamped it against
+        `connection.speedRangeKmh`/`inclinationRangePercent` *before* the
+        device's real range had actually been read – both start out at a
+        placeholder default, unlike the fixed `resistancePercentRange`/
+        `gradePercentRange` constants clamped right beside them – so a
+        legitimately remembered value outside that placeholder's narrower
+        bounds (e.g. a negative/decline incline) got force-clamped and,
+        since this is an `@AppStorage`-backed var, that clamped value was
+        immediately persisted too – gone for good, not just misdisplayed
+        for a moment. Same class of bug `ensureModeIsAvailable()`'s own doc
+        comment already describes for `mode`, fixed the same way: only
+        clamp once `connection.supportedFeatures != nil` says the real
+        range is actually known; `connection.setTargetPower(watts:)`/
+        `setTargetSpeed(kmh:)`/`setTargetInclination(percent:)` already
+        clamp against the current range themselves right before sending
+        regardless, so nothing out-of-range ever reached the device in the
+        meantime either way
+      - "For a few seconds, two competing deltas seemed to be fighting over
+        the treadmill's speed." Root cause: `WorkoutSession
+        .applyConsoleTargetSpeed(_:)`/`applyConsoleTargetIncline(_:)` (the
+        console-button-mirroring feature) only checked `activeWorkout`'s
+        case, not whether a `.treadmillProgram` was actually the
+        *currently-driven* workout — `activeWorkout` stays whatever was
+        last loaded across a mode switch, and even across `reset()` (by
+        design, so Program mode doesn't need reloading for its next run).
+        So: run a `.treadmillProgram` workout, stop it, switch to the
+        unrelated Speed & Incline tab for a plain manual session – the
+        trainer echoes the app's own +/- taps there back as an ordinary
+        Fitness Machine Status notification (indistinguishable at the BLE
+        layer from a genuine console press), misread as the *previous*
+        program's console nudging its speed, fighting whatever the rider
+        had actually just set. Now also gated on `isDrivenByProgram` –
+        already exactly the flag that goes false the instant a workout
+        starts in any other mode
 
 ## App Store readiness
 

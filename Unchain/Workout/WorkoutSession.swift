@@ -751,20 +751,40 @@ final class WorkoutSession: ObservableObject {
     /// this additive with whatever the file itself is already ramping
     /// through, the same way the manual +/- rows are, rather than
     /// overwriting it. Only meaningful while a `.treadmillProgram` is
-    /// actually active and has sent at least one target so far
-    /// (`lastSentTreadmillSpeedKmh`/`lastSentTreadmillInclinePercent`
-    /// non-nil) – a no-op otherwise, e.g. a stray notification arriving
-    /// just before the first tick, or while some other workout kind is
-    /// loaded.
+    /// actually the *active, currently-driven* workout – `isDrivenByProgram`,
+    /// not just `case .treadmillProgram = activeWorkout` – and has sent at
+    /// least one target so far (`lastSentTreadmillSpeedKmh`/
+    /// `lastSentTreadmillInclinePercent` non-nil); a no-op otherwise, e.g. a
+    /// stray notification arriving just before the first tick. Checking
+    /// `activeWorkout`'s case alone used to be the whole guard, and that's a
+    /// real gap: `activeWorkout` stays whatever was last loaded across a
+    /// mode switch and even across `reset()` (a rider isn't meant to have to
+    /// reload their file for the *next* Program run) –
+    /// `lastSentTreadmillSpeedKmh`/`InclinePercent` do get cleared by
+    /// `reset()`, but not in the window between `stop()` (already back to
+    /// `.ended`, so the Mode picker is enabled again) and that reset
+    /// actually running once the save/discard dialog resolves. Reported
+    /// directly: a rider who'd just run a `.treadmillProgram` workout, then
+    /// switched to the unrelated "Speed & Incline" tab for a plain manual
+    /// session, saw their own +/- taps there – which the trainer echoes
+    /// back as an ordinary Fitness Machine Status notification,
+    /// indistinguishable at the BLE layer from a genuine console button
+    /// press (see `TrainerConnection.consoleTargetSpeedKmh`'s own doc
+    /// comment) – misread as the console nudging the *previous*,
+    /// no-longer-relevant program's speed, competing with whatever the
+    /// rider had actually just set. `isDrivenByProgram` is exactly the flag
+    /// that's already false the instant a workout starts in any other mode
+    /// (`start(usingProgram:)`), so this reflects reality regardless of what
+    /// `activeWorkout` still happens to hold.
     func applyConsoleTargetSpeed(_ kmh: Double) {
-        guard case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillSpeedKmh else { return }
+        guard isDrivenByProgram, case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillSpeedKmh else { return }
         let delta = kmh - lastSent
         guard delta != 0 else { return }
         treadmillProgramSpeedOffsetKmh += delta
     }
 
     func applyConsoleTargetIncline(_ percent: Double) {
-        guard case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillInclinePercent else { return }
+        guard isDrivenByProgram, case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillInclinePercent else { return }
         let delta = percent - lastSent
         guard delta != 0 else { return }
         treadmillProgramInclineOffsetPercent += delta

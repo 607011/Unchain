@@ -726,13 +726,19 @@ final class WorkoutSession: ObservableObject {
     /// still goes through `connection.speedRangeKmh`/
     /// `inclinationRangePercent`'s own clamping in `sendCurrentWorkoutTarget(for:)`
     /// before anything is actually sent, same safety net `adjustIntensity`
-    /// already relies on downstream.
+    /// already relies on downstream. Also notifies `connection` that this
+    /// was a manual tap, not the ordinary auto-tick send – see
+    /// `TrainerConnection.noteManualTreadmillTargetAdjustment()`'s own doc
+    /// comment for the real bug (mashing this button made the offset
+    /// visibly jump up and down) that exists to prevent.
     func adjustTreadmillProgramSpeed(byKmh delta: Double) {
         treadmillProgramSpeedOffsetKmh += delta
+        connection.noteManualTreadmillTargetAdjustment()
     }
 
     func adjustTreadmillProgramIncline(byPercent delta: Double) {
         treadmillProgramInclineOffsetPercent += delta
+        connection.noteManualTreadmillTargetAdjustment()
     }
 
     /// Called when `TrainerConnection.consoleTargetSpeedKmh`/
@@ -743,11 +749,15 @@ final class WorkoutSession: ObservableObject {
     /// into the same offset `adjustTreadmillProgramSpeed(byKmh:)`/
     /// `adjustTreadmillProgramIncline(byPercent:)` maintain, rather than
     /// treating the console's reported value as an absolute one to jump
-    /// to directly. This matters for two reasons: it's what lets an echo
-    /// of a target this app itself just sent (the same console notification
+    /// to directly. This matters for two reasons: it's what lets an echo of
+    /// a target this app itself just sent (the same console notification
     /// fires for control-point-initiated changes too, confirmed directly
     /// against real hardware) net out to a harmless zero delta instead of
-    /// re-applying an offset that's already reflected; and it's what keeps
+    /// re-applying an offset that's already reflected – see
+    /// `TrainerConnection.consoleEchoGraceUntil`'s own doc comment for how
+    /// the trickier case of that (several of *this app's own* sends still
+    /// in flight at once) is actually kept from reaching here at all,
+    /// rather than being sorted out after the fact; and it's what keeps
     /// this additive with whatever the file itself is already ramping
     /// through, the same way the manual +/- rows are, rather than
     /// overwriting it. Only meaningful while a `.treadmillProgram` is

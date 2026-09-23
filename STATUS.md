@@ -1081,6 +1081,44 @@ protocol), but hasn't been verified here.
       to the device, so a self-echo notification always finds them already
       equal by the time it arrives
 
+- [x] Two more real bugs in the console-echo mirroring above, both reported
+      directly right after actual use, both affecting `.treadmillProgram`
+      *and* the manual `.speedIncline` mode (the latter suspected directly
+      too, correctly), and both fixed the same way in the end:
+      - Starting a `.treadmillProgram` (or, by the same mechanism, a manual
+        `.speedIncline` session) set to e.g. 5 km/h instead sent the offset
+        to roughly -4.2 km/h, every time. Root cause: the treadmill itself
+        reports its own built-in idle/startup speed (~0.8 km/h) as a
+        "Target Speed Changed" notification the moment Start/Resume is
+        issued – *before* this app's own commanded speed has been sent and
+        echoed back in turn – indistinguishable at the BLE layer from a
+        genuine console press, just originating from the machine's own
+        startup behavior rather than a rider's finger.
+      - Mashing a Plus/Minus button made the offset/target visibly jump up
+        and down instead of settling. Root cause: every tap sends a fresh
+        control-point command right away (not batched), and each one
+        optimistically updated the single "what did this app last send"
+        value used to recognize a self-echo — but an *earlier* tap's own
+        echo can still arrive after a *later* tap already moved that value
+        on, so it no longer matched and looked exactly like a genuine
+        console decrease.
+
+      First fixed independently (a startup grace window in
+      `TrainerConnection`; a small FIFO queue of not-yet-echoed values for
+      the mashing case), then – suggested directly, and simpler *and* more
+      robust than the FIFO queue – unified into one mechanism: `TrainerConnection
+      .consoleEchoGraceUntil` now suppresses `consoleTargetSpeedKmh`/
+      `consoleTargetInclinePercent` entirely for a window that both
+      `startOrResumeWorkout()` *and* every manual +/- tap
+      (`noteManualTreadmillTargetAdjustment()`, called from `WorkoutSession
+      .adjustTreadmillProgramSpeed(byKmh:)`/`adjustTreadmillProgramIncline(byPercent:)`
+      and `ControlView.stepSpeed(_:)`/`stepIncline(_:)`) push forward (never
+      backward), sliding further out with every additional tap for as long
+      as they keep coming – no value-matching needed at all, since nothing
+      reaches `WorkoutSession`/`ControlView` to be misread as genuine in the
+      first place. Both intervals are empirical guesses, flagged for
+      confirmation against real hardware
+
 ## App Store readiness
 
 Unchain has so far been built purely for personal use – sideloaded to one

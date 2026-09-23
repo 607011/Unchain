@@ -1542,6 +1542,9 @@ struct ControlView: View {
     private func stepSpeed(_ direction: Int) {
         targetSpeedKmh = connection.speedRangeKmh.clamp(targetSpeedKmh + Double(direction) * speedStepKmh)
         connection.setTargetSpeed(kmh: targetSpeedKmh)
+        // See `TrainerConnection.noteManualTreadmillTargetAdjustment()`'s
+        // own doc comment.
+        connection.noteManualTreadmillTargetAdjustment()
         session.recordTreadmillTarget(speedKmh: targetSpeedKmh, inclinePercent: targetInclinePercent)
     }
 
@@ -1550,6 +1553,7 @@ struct ControlView: View {
     private func stepIncline(_ direction: Int) {
         targetInclinePercent = connection.inclinationRangePercent.clamp(targetInclinePercent + Double(direction) * inclineStepPercent)
         connection.setTargetInclination(percent: targetInclinePercent)
+        connection.noteManualTreadmillTargetAdjustment()
         session.recordTreadmillTarget(speedKmh: targetSpeedKmh, inclinePercent: targetInclinePercent)
     }
 
@@ -1569,10 +1573,11 @@ struct ControlView: View {
     /// on every reconnect) always updates it *before* writing to the
     /// device, so by the time that same write's own echo notification
     /// arrives back here, `kmh` already equals `targetSpeedKmh` and this is
-    /// a no-op – exactly the "net out to a harmless zero delta" self-echo
-    /// filtering `applyConsoleTargetSpeed(_:)`'s own doc comment describes,
-    /// just without needing a separate `lastSent` field to do it with,
-    /// since there's no offset/ramp math downstream here that needs one.
+    /// a no-op. A mashed +/- button no longer risks an *earlier* tap's own
+    /// echo arriving after a *later* tap has moved `targetSpeedKmh` on –
+    /// `stepSpeed(_:)`'s call to `noteManualTreadmillTargetAdjustment()`
+    /// keeps this notification suppressed at the source for as long as taps
+    /// keep coming, so this only ever sees an echo once things have settled.
     private func applyConsoleSpeedToManualTarget(_ kmh: Double) {
         guard supportsSpeedTarget, kmh != targetSpeedKmh else { return }
         targetSpeedKmh = connection.speedRangeKmh.clamp(kmh)

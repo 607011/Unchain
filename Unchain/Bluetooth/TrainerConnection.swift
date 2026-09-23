@@ -164,6 +164,67 @@ final class TrainerConnection: NSObject, ObservableObject {
     @Published private(set) var consoleTargetSpeedKmh: Double?
     @Published private(set) var consoleTargetInclinePercent: Double?
 
+    /// Suppresses `consoleTargetSpeedKmh`/`consoleTargetInclinePercent`
+    /// entirely until this moment – two real bugs, reported directly right
+    /// after actual use, turned out to be the same shape and share this one
+    /// fix:
+    /// - Starting a `.treadmillProgram` (or a manual `.speedIncline`
+    ///   session) set for e.g. 5 km/h instead sent the offset/target to
+    ///   roughly -4.2 km/h, every time. Traced to the treadmill's own
+    ///   Start/Resume behavior, not to anything this app sent: it reports a
+    ///   "Target Speed Changed" notification for its own built-in
+    ///   idle/startup speed (a treadmill's usual ~0.8 km/h default) the
+    ///   moment Start/Resume is issued, *before* this app's own
+    ///   `setTargetSpeed(kmh:)` call (sent right alongside) has actually
+    ///   landed and been echoed back in turn.
+    /// - Mashing a Plus/Minus speed/incline button made the offset/target
+    ///   visibly jump up and down instead of settling. Each tap sends a
+    ///   fresh command right away (not batched to the next tick), so an
+    ///   *earlier* tap's own echo can arrive after a *later* tap has moved
+    ///   the app's own idea of "current" target on, which looked exactly
+    ///   like a genuine console decrease.
+    ///
+    /// Both are the treadmill's or this app's *own* target changing,
+    /// reported back over the same wire a genuine console button press
+    /// uses – exactly the ambiguity `consoleTargetSpeedKmh`'s own doc
+    /// comment already describes, just from a source other than a rider's
+    /// finger on the console. `WorkoutSession.applyConsoleTargetSpeed(_:)`/
+    /// `applyConsoleTargetIncline(_:)` (and `ControlView`'s manual-mode
+    /// counterpart) have no way to tell either apart from a real one after
+    /// the fact – the fix has to happen here, before either ever sees it:
+    /// `startOrResumeWorkout()` and `noteManualTreadmillTargetAdjustment()`
+    /// each push this deadline forward by their own interval (never
+    /// backward – a short manual-tap grace right after Start shouldn't cut
+    /// the longer startup grace short), and it keeps sliding forward with
+    /// every further tap for as long as they keep coming, so suppression
+    /// only actually ends once whatever triggered it has actually settled.
+    /// Both intervals are empirical guesses, flagged for confirmation
+    /// against real hardware, same as the rest of this notification's byte
+    /// layout originally was.
+    private var consoleEchoGraceUntil: Date?
+    private static let startEchoGraceInterval: TimeInterval = 2.0
+    private static let manualAdjustmentEchoGraceInterval: TimeInterval = 1.0
+
+    /// Pushes `consoleEchoGraceUntil` forward by `interval` from now, never
+    /// backward – see that property's own doc comment.
+    private func extendConsoleEchoGrace(by interval: TimeInterval) {
+        let candidate = Date().addingTimeInterval(interval)
+        if let current = consoleEchoGraceUntil, current > candidate { return }
+        consoleEchoGraceUntil = candidate
+    }
+
+    /// Called by `WorkoutSession.adjustTreadmillProgramSpeed(byKmh:)`/
+    /// `adjustTreadmillProgramIncline(byPercent:)` and `ControlView
+    /// .stepSpeed(_:)`/`stepIncline(_:)` – the manual +/- taps, never the
+    /// ordinary once-a-second auto-tick send that just keeps following a
+    /// loaded file's own curve, or `consoleEchoGraceUntil`'s own doc
+    /// comment's second bullet would suppress genuine console input
+    /// constantly throughout an entire `.treadmillProgram` run instead of
+    /// only right after a rider's own tap.
+    func noteManualTreadmillTargetAdjustment() {
+        extendConsoleEchoGrace(by: Self.manualAdjustmentEchoGraceInterval)
+    }
+
     let peripheral: CBPeripheral
     private weak var central: CBCentralManager?
 
@@ -369,6 +430,8 @@ final class TrainerConnection: NSObject, ObservableObject {
     /// Starts a new workout, or resumes one after `pauseWorkout()`.
     func startOrResumeWorkout() {
         guard hasControl, let cp = controlPoint else { return }
+        // See `consoleEchoGraceUntil`'s own doc comment.
+        extendConsoleEchoGrace(by: Self.startEchoGraceInterval)
         let payload = Data([FTMS.OpCode.startOrResume.rawValue])
         peripheral.writeValue(payload, for: cp, type: .withResponse)
     }
@@ -600,6 +663,8 @@ extension TrainerConnection: CBPeripheralDelegate {
             // empirically against a real treadmill's own console buttons,
             // the same encoding `setTargetSpeed(kmh:)` already uses.
             guard data.count >= 3 else { break }
+            // See `consoleEchoGraceUntil`'s own doc comment.
+            if let graceUntil = consoleEchoGraceUntil, Date() < graceUntil { break }
             let bytes = [UInt8](data)
             let raw = UInt16(bytes[1]) | (UInt16(bytes[2]) << 8)
             consoleTargetSpeedKmh = Double(raw) * 0.01
@@ -608,6 +673,7 @@ extension TrainerConnection: CBPeripheralDelegate {
             // empirically the same way, the same encoding
             // `setTargetInclination(percent:)` already uses.
             guard data.count >= 3 else { break }
+            if let graceUntil = consoleEchoGraceUntil, Date() < graceUntil { break }
             let bytes = [UInt8](data)
             let raw = Int16(bitPattern: UInt16(bytes[1]) | (UInt16(bytes[2]) << 8))
             consoleTargetInclinePercent = Double(raw) * 0.1

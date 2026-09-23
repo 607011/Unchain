@@ -41,6 +41,15 @@ struct SpeedSample {
     let kmh: Double
 }
 
+/// One second-resolution incline reading – see `WorkoutSession.inclineHistory`.
+/// Treadmill-only, same scoping as `estimatedElevationGainMeters`/
+/// `estimatedPowerWatts` (a bike's own simulated grade isn't a physical
+/// incline – see those properties' own doc comments).
+struct InclineSample {
+    let timeSeconds: TimeInterval
+    let percent: Double
+}
+
 enum WorkoutState: Equatable {
     case idle
     case running
@@ -298,6 +307,13 @@ final class WorkoutSession: ObservableObject {
     /// `WorkoutHistoryStore` to build a `.tcx` export's per-trackpoint
     /// distance/speed from (see `reset()`), not shown live anywhere itself.
     @Published private(set) var speedHistory: [SpeedSample] = []
+    /// Same shape and purpose as `speedHistory` above, just for incline –
+    /// requested directly, so a saved treadmill workout's history detail
+    /// view can show min/avg/max incline for the run, not just speed/power.
+    /// Treadmill-only, same scoping as `estimatedElevationGainMeters` right
+    /// below (stays empty for a bike, which has nothing physical to record
+    /// here).
+    @Published private(set) var inclineHistory: [InclineSample] = []
     /// Session-local nudge to a Program's target values, e.g. "+5" means
     /// every target is sent (and shown) at 105 % of what the file actually
     /// says – lets the rider scale a loaded workout up/down live without
@@ -986,6 +1002,7 @@ final class WorkoutSession: ObservableObject {
                 activeDuration: summary.activeDuration,
                 distanceMeters: summary.distanceMeters,
                 workDoneKilojoules: summary.workDoneKilojoules,
+                elevationGainMeters: summary.elevationGainMeters,
                 programName: summary.programName,
                 heartRateZoneSeconds: summary.heartRateZoneSeconds,
                 samples: samples,
@@ -1003,6 +1020,7 @@ final class WorkoutSession: ObservableObject {
         powerHistory.removeAll()
         heartRateHistory.removeAll()
         speedHistory.removeAll()
+        inclineHistory.removeAll()
         workDoneJoules = 0
         heartRateSamples.removeAll()
         startDate = nil
@@ -1066,12 +1084,12 @@ final class WorkoutSession: ObservableObject {
         return max(0, Int((now.timeIntervalSince(startDate) - pausedSoFar).rounded(.down)))
     }
 
-    /// Merges `powerHistory`/`heartRateHistory`/`speedHistory` – three
-    /// independently-deduped-to-one-per-second arrays, each only as long as
-    /// its own metric was actually being reported – into one row per
-    /// distinct elapsed second, for `WorkoutHistoryStore`/`TCXExporter`.
-    /// Called from `reset()`, before those three get cleared a few lines
-    /// later.
+    /// Merges `powerHistory`/`heartRateHistory`/`speedHistory`/
+    /// `inclineHistory` – four independently-deduped-to-one-per-second
+    /// arrays, each only as long as its own metric was actually being
+    /// reported – into one row per distinct elapsed second, for
+    /// `WorkoutHistoryStore`/`TCXExporter`. Called from `reset()`, before
+    /// those four get cleared a few lines later.
     private func mergedWorkoutSamples() -> [WorkoutSample] {
         // `uniquingKeysWith:` (keep whichever duplicate appears *last*),
         // not `uniqueKeysWithValues:` – the latter fatal-errors outright on
@@ -1088,13 +1106,15 @@ final class WorkoutSession: ObservableObject {
         let powerBySecond = Dictionary(powerHistory.map { ($0.timeSeconds, $0.watts) }, uniquingKeysWith: { _, latest in latest })
         let heartRateBySecond = Dictionary(heartRateHistory.map { ($0.timeSeconds, $0.bpm) }, uniquingKeysWith: { _, latest in latest })
         let speedBySecond = Dictionary(speedHistory.map { ($0.timeSeconds, $0.kmh) }, uniquingKeysWith: { _, latest in latest })
-        let allSeconds = Set(powerBySecond.keys).union(heartRateBySecond.keys).union(speedBySecond.keys)
+        let inclineBySecond = Dictionary(inclineHistory.map { ($0.timeSeconds, $0.percent) }, uniquingKeysWith: { _, latest in latest })
+        let allSeconds = Set(powerBySecond.keys).union(heartRateBySecond.keys).union(speedBySecond.keys).union(inclineBySecond.keys)
         return allSeconds.sorted().map { second in
             WorkoutSample(
                 elapsedSeconds: second,
                 heartRateBPM: heartRateBySecond[second],
                 powerWatts: powerBySecond[second],
-                speedKmh: speedBySecond[second]
+                speedKmh: speedBySecond[second],
+                inclinePercent: inclineBySecond[second]
             )
         }
     }
@@ -1433,6 +1453,14 @@ final class WorkoutSession: ObservableObject {
                inclinePercent > 0 {
                 let distanceMetersThisSample = speedKmh * 1000 / 3600 * sampleDuration
                 estimatedElevationGainMeters += distanceMetersThisSample * inclinePercent / 100
+            }
+            // Same treadmill-only scoping as the elevation-gain estimate
+            // right above, but recorded regardless of sign/zero (a flat or
+            // declining stretch is still a real incline reading for
+            // min/avg/max purposes, just not one that adds climbed meters).
+            if connection.machineKind == .treadmill, let inclinePercent = estimatedPhysicalInclinePercent,
+               inclineHistory.last?.timeSeconds != TimeInterval(elapsedSeconds) {
+                inclineHistory.append(InclineSample(timeSeconds: TimeInterval(elapsedSeconds), percent: inclinePercent))
             }
             // See `estimatedPowerWatts`'s own doc comment. Same treadmill-
             // only scoping as the elevation-gain estimate above, computed

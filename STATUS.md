@@ -1080,7 +1080,6 @@ protocol), but hasn't been verified here.
       `stepSpeed(_:)`/`stepIncline(_:)` always update them *before* writing
       to the device, so a self-echo notification always finds them already
       equal by the time it arrives
-
 - [x] Two more real bugs in the console-echo mirroring above, both reported
       directly right after actual use, both affecting `.treadmillProgram`
       *and* the manual `.speedIncline` mode (the latter suspected directly
@@ -1118,6 +1117,23 @@ protocol), but hasn't been verified here.
       reaches `WorkoutSession`/`ControlView` to be misread as genuine in the
       first place. Both intervals are empirical guesses, flagged for
       confirmation against real hardware
+- [x] A saved treadmill workout's history detail view now shows Elevation
+      Gain plus min/Ø/max Power, Incline, and Speed for the run – requested
+      directly. `WorkoutSession` gained an `inclineHistory` (mirroring the
+      existing `speedHistory`, same treadmill-only scoping as
+      `estimatedElevationGainMeters`) that `mergedWorkoutSamples()` now
+      folds into a new `WorkoutSample.inclinePercent` field, and
+      `WorkoutRecord` gained `elevationGainMeters` (already computed for the
+      post-workout summary, just never persisted into the saved record
+      before). The min/Ø/max rows are recomputed from `record.samples` at
+      display time rather than carrying separately stored stats –
+      `WorkoutSession`'s own live `LiveStat`s aren't `Codable` and don't
+      need to become so just for this – formatted with the same "↓min Øavg
+      ↑max" glyphs `ControlView`'s live tap-to-inspect metric tiles already
+      use. Both new fields decode to `nil` on a record saved before this
+      shipped, same as every other `Optional` field here already does for
+      whatever it predates – old history entries just don't show the new
+      section/row rather than erroring
 
 ## App Store readiness
 

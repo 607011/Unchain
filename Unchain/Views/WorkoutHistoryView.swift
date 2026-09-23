@@ -120,6 +120,38 @@ struct WorkoutHistoryDetailView: View {
                 if let workDoneKilojoules = record.workDoneKilojoules {
                     LabeledContent("Work Done", value: String(format: "%.0f kJ", workDoneKilojoules))
                 }
+                if let elevationGainMeters = record.elevationGainMeters {
+                    LabeledContent("Elevation Gain", value: String(format: "%.0f m", elevationGainMeters))
+                }
+            }
+            // Treadmill only – requested directly, min/avg/max power/incline/
+            // speed for the run, same "↓min Øavg ↑max" glyphs `ControlView`'s
+            // own tap-to-inspect metric tiles already use, so a rider who
+            // knows that convention from a live workout recognizes it here
+            // too. Recomputed from `record.samples` rather than carrying
+            // separate stored stats – `WorkoutSession`'s own `LiveStat`s
+            // aren't `Codable` and don't need to become so just for this;
+            // recomputing at display time is negligible work even for a long
+            // workout's worth of once-a-second samples, and stays correct by
+            // construction rather than needing to be kept in sync with
+            // whatever `samples` itself says. `nil` (row hidden entirely) for
+            // a metric no sample happened to carry – e.g. a treadmill that
+            // doesn't report real power and had no body weight on file yet
+            // for the estimate to fall back to.
+            if record.machineKind == .treadmill {
+                Section {
+                    if let stats = minAvgMax(record.samples.compactMap { $0.powerWatts }.map(Double.init)) {
+                        LabeledContent("Power", value: formattedMinAvgMax(stats, unit: "W", decimals: 0))
+                    }
+                    if let stats = minAvgMax(record.samples.compactMap { $0.inclinePercent }) {
+                        LabeledContent("Incline", value: formattedMinAvgMax(stats, unit: "%", decimals: 1))
+                    }
+                    if let stats = minAvgMax(record.samples.compactMap { $0.speedKmh }) {
+                        LabeledContent("Speed", value: formattedMinAvgMax(stats, unit: "km/h", decimals: 1))
+                    }
+                } header: {
+                    Text("Min/Avg/Max")
+                }
             }
             if !record.heartRateZoneSeconds.isEmpty {
                 Section {
@@ -199,4 +231,21 @@ private func formattedDuration(_ seconds: TimeInterval) -> String {
 
 private func formattedDistance(_ meters: Double) -> String {
     meters >= 1000 ? String(format: "%.2f km", locale: .current, meters / 1000) : String(format: "%.0f m", locale: .current, meters)
+}
+
+/// `nil` for an empty `values` – lets a call site simply skip the row
+/// entirely (`if let`) rather than showing a meaningless "0/0/0".
+private func minAvgMax(_ values: [Double]) -> (min: Double, avg: Double, max: Double)? {
+    guard !values.isEmpty else { return nil }
+    return (values.min()!, values.reduce(0, +) / Double(values.count), values.max()!)
+}
+
+/// "↓min Øavg ↑max unit" – see `WorkoutHistoryDetailView`'s own note on why
+/// this mirrors `ControlView`'s live tap-to-inspect metric tiles.
+private func formattedMinAvgMax(_ stats: (min: Double, avg: Double, max: Double), unit: String, decimals: Int) -> String {
+    let format = "%.\(decimals)f"
+    let minText = String(format: format, locale: .current, stats.min)
+    let avgText = String(format: format, locale: .current, stats.avg)
+    let maxText = String(format: format, locale: .current, stats.max)
+    return "↓\(minText)  Ø\(avgText)  ↑\(maxText) \(unit)"
 }

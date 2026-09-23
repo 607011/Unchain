@@ -13,6 +13,11 @@ struct WorkoutSample: Codable {
     let heartRateBPM: Int?
     let powerWatts: Int?
     let speedKmh: Double?
+    /// Treadmill-only, same scoping as `WorkoutSession.inclineHistory` this
+    /// is built from – always `nil` for a bike. Decodes to `nil` on a
+    /// record saved before this field existed, same as every other
+    /// `Optional` here already does for whatever it predates.
+    let inclinePercent: Double?
 }
 
 /// One completed workout, saved locally regardless of whether it was also
@@ -32,6 +37,12 @@ struct WorkoutRecord: Codable, Identifiable {
     let activeDuration: TimeInterval
     let distanceMeters: Double?
     let workDoneKilojoules: Double?
+    /// Treadmill-only – see `WorkoutSummary.elevationGainMeters`'s own doc
+    /// comment for where this comes from (a real FTMS-reported value where
+    /// available, `WorkoutSession.estimatedElevationGainMeters` otherwise).
+    /// `nil` on a record saved before this field existed, same as every
+    /// other `Optional` here already does for whatever it predates.
+    let elevationGainMeters: Double?
     let programName: String?
     let heartRateZoneSeconds: [HeartRateZone: Int]
     let samples: [WorkoutSample]

@@ -1921,6 +1921,26 @@
         }
       }
     },
+    "Elevation Gain": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Höhenmeter"
+          }
+        }
+      }
+    },
+    "Min/Avg/Max": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Min/Ø/Max"
+          }
+        }
+      }
+    },
     "Export as .tcx": {
       "localizations": {
         "de": {

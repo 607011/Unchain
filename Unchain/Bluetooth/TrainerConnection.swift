@@ -61,7 +61,9 @@ enum DeviceInitiatedStopReason: Equatable {
 /// Represents the active connection to exactly one FTMS trainer:
 /// discovery of characteristics, live metrics, and writing control commands.
 final class TrainerConnection: NSObject, ObservableObject {
-    @Published private(set) var state: ConnectionState = .connecting
+    @Published private(set) var state: ConnectionState = .connecting {
+        didSet { ProtocolLog.log(.ble, "trainer state \(state)") }
+    }
     @Published private(set) var metrics: TrainerMetrics = .empty
     @Published private(set) var powerRange: ClosedRange<Int> = 25...400
     /// Whether `powerRange` has actually been updated from a genuine
@@ -213,6 +215,7 @@ final class TrainerConnection: NSObject, ObservableObject {
         let candidate = Date().addingTimeInterval(interval)
         if let current = consoleEchoGraceUntil, current > candidate { return }
         consoleEchoGraceUntil = candidate
+        ProtocolLog.log(.workout, "console echo grace until \(candidate.timeIntervalSince1970)")
     }
 
     /// Called by `WorkoutSession.adjustTreadmillProgramSpeed(byKmh:)`/
@@ -341,7 +344,7 @@ final class TrainerConnection: NSObject, ObservableObject {
         let clamped = powerRange.clamp(watts)
         var payload = Data([FTMS.OpCode.setTargetPower.rawValue])
         payload.append(contentsOf: withUnsafeBytes(of: Int16(clamped).littleEndian) { Array($0) })
-        peripheral.writeValue(payload, for: cp, type: .withResponse)
+        writeControlPoint(payload, to: cp)
     }
 
     /// `percent` is 0–100 % of the *device's own* supported resistance range —
@@ -356,7 +359,7 @@ final class TrainerConnection: NSObject, ObservableObject {
         let rawValue = rawResistanceLevel(forPercent: percent)
         var payload = Data([FTMS.OpCode.setTargetResistanceLevel.rawValue])
         payload.append(contentsOf: withUnsafeBytes(of: Int16(rawValue).littleEndian) { Array($0) })
-        peripheral.writeValue(payload, for: cp, type: .withResponse)
+        writeControlPoint(payload, to: cp)
     }
 
     /// The raw FTMS resistance-level integer (native 0.1 resolution, e.g. `47`
@@ -387,7 +390,7 @@ final class TrainerConnection: NSObject, ObservableObject {
         payload.append(contentsOf: withUnsafeBytes(of: gradeRaw.littleEndian) { Array($0) })
         payload.append(FTMS.SimulationDefaults.rollingResistanceCoefficientRaw)
         payload.append(FTMS.SimulationDefaults.windResistanceCoefficientRaw)
-        peripheral.writeValue(payload, for: cp, type: .withResponse)
+        writeControlPoint(payload, to: cp)
     }
 
     /// Treadmill-only – see `ControlMode.speedIncline`. Op code 0x02, per
@@ -404,7 +407,7 @@ final class TrainerConnection: NSObject, ObservableObject {
         let raw = UInt16((clamped * 100).rounded())
         var payload = Data([FTMS.OpCode.setTargetSpeed.rawValue])
         payload.append(contentsOf: withUnsafeBytes(of: raw.littleEndian) { Array($0) })
-        peripheral.writeValue(payload, for: cp, type: .withResponse)
+        writeControlPoint(payload, to: cp)
     }
 
     /// Treadmill-only – see `ControlMode.speedIncline`. Op code 0x03, per
@@ -418,13 +421,20 @@ final class TrainerConnection: NSObject, ObservableObject {
         let raw = Int16((clamped * 10).rounded())
         var payload = Data([FTMS.OpCode.setTargetInclination.rawValue])
         payload.append(contentsOf: withUnsafeBytes(of: raw.littleEndian) { Array($0) })
+        writeControlPoint(payload, to: cp)
+    }
+
+    /// Every control-point write goes through here so the protocol log sees
+    /// each outgoing packet, exactly as it leaves.
+    private func writeControlPoint(_ payload: Data, to cp: CBCharacteristic) {
+        ProtocolLog.log(.tx, "control point \(ProtocolLog.hex(payload))")
         peripheral.writeValue(payload, for: cp, type: .withResponse)
     }
 
     private func requestControl() {
         guard let cp = controlPoint else { return }
         let payload = Data([FTMS.OpCode.requestControl.rawValue])
-        peripheral.writeValue(payload, for: cp, type: .withResponse)
+        writeControlPoint(payload, to: cp)
     }
 
     // MARK: - Workout control commands
@@ -440,19 +450,19 @@ final class TrainerConnection: NSObject, ObservableObject {
         let countdown = TrainerDeviceSettingsStore.load(for: peripheral.identifier).effectiveStartCountdownSeconds
         extendConsoleEchoGrace(by: max(Self.startEchoGraceInterval, countdown + Self.startEchoGraceMarginSeconds))
         let payload = Data([FTMS.OpCode.startOrResume.rawValue])
-        peripheral.writeValue(payload, for: cp, type: .withResponse)
+        writeControlPoint(payload, to: cp)
     }
 
     func pauseWorkout() {
         guard hasControl, let cp = controlPoint else { return }
         let payload = Data([FTMS.OpCode.stopOrPause.rawValue, FTMS.StopPauseControlParameter.pause.rawValue])
-        peripheral.writeValue(payload, for: cp, type: .withResponse)
+        writeControlPoint(payload, to: cp)
     }
 
     func stopWorkout() {
         guard hasControl, let cp = controlPoint else { return }
         let payload = Data([FTMS.OpCode.stopOrPause.rawValue, FTMS.StopPauseControlParameter.stop.rawValue])
-        peripheral.writeValue(payload, for: cp, type: .withResponse)
+        writeControlPoint(payload, to: cp)
     }
 }
 
@@ -580,7 +590,11 @@ extension TrainerConnection: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        if let error {
+            ProtocolLog.log(.rx, "\(FTMS.characteristicName(for: characteristic.uuid)) error: \(error.localizedDescription)")
+        }
         guard error == nil, let data = characteristic.value else { return }
+        ProtocolLog.log(.rx, "\(FTMS.characteristicName(for: characteristic.uuid)) \(ProtocolLog.hex(data))")
         switch characteristic.uuid {
         case FTMS.fitnessMachineFeature:
             supportedFeatures = FitnessMachineFeatures(data: data)
@@ -671,7 +685,10 @@ extension TrainerConnection: CBPeripheralDelegate {
             // the same encoding `setTargetSpeed(kmh:)` already uses.
             guard data.count >= 3 else { break }
             // See `consoleEchoGraceUntil`'s own doc comment.
-            if let graceUntil = consoleEchoGraceUntil, Date() < graceUntil { break }
+            if let graceUntil = consoleEchoGraceUntil, Date() < graceUntil {
+                ProtocolLog.log(.workout, "speed echo suppressed by grace")
+                break
+            }
             let bytes = [UInt8](data)
             let raw = UInt16(bytes[1]) | (UInt16(bytes[2]) << 8)
             consoleTargetSpeedKmh = Double(raw) * 0.01
@@ -680,7 +697,10 @@ extension TrainerConnection: CBPeripheralDelegate {
             // empirically the same way, the same encoding
             // `setTargetInclination(percent:)` already uses.
             guard data.count >= 3 else { break }
-            if let graceUntil = consoleEchoGraceUntil, Date() < graceUntil { break }
+            if let graceUntil = consoleEchoGraceUntil, Date() < graceUntil {
+                ProtocolLog.log(.workout, "incline echo suppressed by grace")
+                break
+            }
             let bytes = [UInt8](data)
             let raw = Int16(bitPattern: UInt16(bytes[1]) | (UInt16(bytes[2]) << 8))
             consoleTargetInclinePercent = Double(raw) * 0.1

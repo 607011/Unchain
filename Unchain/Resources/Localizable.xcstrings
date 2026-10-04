@@ -2380,6 +2380,56 @@
           }
         }
       }
+    },
+    "Protocol Log": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokoll"
+          }
+        }
+      }
+    },
+    "Show Protocol Log": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokoll anzeigen"
+          }
+        }
+      }
+    },
+    "No Protocol Log Yet": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch kein Protokoll"
+          }
+        }
+      }
+    },
+    "Development aid: records every Bluetooth packet sent and received, app launches and background/foreground changes, button presses, and changes to workout values, each with a microsecond timestamp. Stored only on this device. Heart rate values are included, so only share a log you're comfortable sharing.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwicklungshilfe: protokolliert jedes gesendete und empfangene Bluetooth-Paket, App-Starts und Wechsel in den Hintergrund bzw. Vordergrund, Tastendrücke und Änderungen von Workout-Werten, jeweils mit Mikrosekunden-Zeitstempel. Wird nur auf diesem Gerät gespeichert. Herzfrequenzwerte sind enthalten, teile also nur ein Protokoll, bei dem du das in Ordnung findest."
+          }
+        }
+      }
+    },
+    "Turn on Protocol Log in Settings, then use the app. What it records shows up here, one file per launch.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schalte das Protokoll in den Einstellungen ein und benutze die App. Was aufgezeichnet wird, erscheint hier, eine Datei pro App-Start."
+          }
+        }
+      }
     }
   },
   "version": "1.1"

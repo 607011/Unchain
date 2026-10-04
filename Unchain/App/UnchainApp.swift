@@ -17,6 +17,7 @@ struct UnchainApp: App {
         // captures (crash/hang diagnostics via MetricKit) and why it works
         // without TestFlight or the App Store.
         DiagnosticsReporter.shared.start()
+        ProtocolLog.startSession()
     }
 
     var body: some Scene {
@@ -34,6 +35,7 @@ struct UnchainApp: App {
                 .id(languageOverride)
         }
         .onChange(of: scenePhase) { newPhase in
+            ProtocolLog.log(.app, "scene phase \(newPhase)")
             // No background operation needed: the screen should only stay awake
             // while the app is active in the foreground.
             UIApplication.shared.isIdleTimerDisabled = (newPhase == .active)

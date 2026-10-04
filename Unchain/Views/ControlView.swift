@@ -369,6 +369,15 @@ struct ControlView: View {
                 warnIfOutOfRange(program)
             }
         }
+        .onChange(of: mode) { newMode in
+            ProtocolLog.log(.ui, "mode \(newMode.rawValue)")
+        }
+        .onChange(of: targetSpeedKmh) { kmh in
+            ProtocolLog.log(.workout, "target speed \(kmh)")
+        }
+        .onChange(of: targetInclinePercent) { percent in
+            ProtocolLog.log(.workout, "target incline \(percent)")
+        }
         .onChange(of: connection.state) { newState in
             // Whenever control is (re-)granted — first connect or reconnect
             // after a drop — the trainer doesn't know what's currently shown
@@ -739,6 +748,7 @@ struct ControlView: View {
                 switch session.state {
                 case .idle, .ended:
                     Button("Start Workout") {
+                        ProtocolLog.log(.ui, "tap Start Workout")
                         // A fresh manual start from the phone screen – not
                         // via the Watch this time, even if the *previous*
                         // workout was (stale state would otherwise wrongly
@@ -750,15 +760,15 @@ struct ControlView: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(connection.state != .ready || (mode == .program && session.activeWorkout == nil))
                 case .running:
-                    Button("Pause") { session.pause() }
+                    Button("Pause") { ProtocolLog.log(.ui, "tap Pause"); session.pause() }
                         .buttonStyle(.bordered)
-                    Button("Stop") { stopWorkout() }
+                    Button("Stop") { ProtocolLog.log(.ui, "tap Stop"); stopWorkout() }
                         .buttonStyle(.borderedProminent)
                         .tint(.red)
                 case .paused:
-                    Button("Resume") { session.resume() }
+                    Button("Resume") { ProtocolLog.log(.ui, "tap Resume"); session.resume() }
                         .buttonStyle(.borderedProminent)
-                    Button("Stop") { stopWorkout() }
+                    Button("Stop") { ProtocolLog.log(.ui, "tap Stop"); stopWorkout() }
                         .buttonStyle(.bordered)
                         .tint(.red)
                 }
@@ -1133,6 +1143,7 @@ struct ControlView: View {
     /// the trainer update right away instead of waiting for the next tick –
     /// a no-op while not running.
     private func adjustProgramIntensity(_ delta: Int) {
+        ProtocolLog.log(.ui, "tap program intensity \(delta > 0 ? "+" : "-")")
         session.adjustIntensity(byPercent: delta)
         session.refreshNow()
     }
@@ -1157,11 +1168,13 @@ struct ControlView: View {
     /// `.onChange(of: connection.consoleTargetSpeedKmh)` et al.), since
     /// those already report an absolute target, not a step count.
     private func adjustTreadmillProgramSpeed(_ direction: Int) {
+        ProtocolLog.log(.ui, "tap program speed offset \(direction > 0 ? "+" : "-")")
         session.adjustTreadmillProgramSpeed(byKmh: Double(direction) * speedStepKmh)
         session.refreshNow()
     }
 
     private func adjustTreadmillProgramIncline(_ direction: Int) {
+        ProtocolLog.log(.ui, "tap program incline offset \(direction > 0 ? "+" : "-")")
         session.adjustTreadmillProgramIncline(byPercent: Double(direction) * inclineStepPercent)
         session.refreshNow()
     }
@@ -1520,6 +1533,7 @@ struct ControlView: View {
     /// Only called from `manualControls`, i.e. never while `mode == .program`
     /// or `.speedIncline` (see `stepSpeed(_:)`/`stepIncline(_:)` instead).
     private func step(_ direction: Int) {
+        ProtocolLog.log(.ui, "tap \(mode.rawValue) \(direction > 0 ? "+" : "-")")
         switch mode {
         case .power:
             targetPower = connection.powerRange.clamp(targetPower + direction * powerStep)
@@ -1542,6 +1556,7 @@ struct ControlView: View {
     /// above, kept separate since this mode drives two independent targets
     /// rather than one.
     private func stepSpeed(_ direction: Int) {
+        ProtocolLog.log(.ui, "tap speed \(direction > 0 ? "+" : "-")")
         targetSpeedKmh = connection.speedRangeKmh.clamp(WorkoutSession.tenth(targetSpeedKmh + Double(direction) * speedStepKmh))
         connection.setTargetSpeed(kmh: targetSpeedKmh)
         // See `TrainerConnection.noteManualTreadmillTargetAdjustment()`'s
@@ -1553,6 +1568,7 @@ struct ControlView: View {
     /// +/- one `inclineStepPercent`, clamp to the device's own reported
     /// range, and send right away – see `stepSpeed(_:)`'s own note.
     private func stepIncline(_ direction: Int) {
+        ProtocolLog.log(.ui, "tap incline \(direction > 0 ? "+" : "-")")
         targetInclinePercent = connection.inclinationRangePercent.clamp(WorkoutSession.tenth(targetInclinePercent + Double(direction) * inclineStepPercent))
         connection.setTargetInclination(percent: targetInclinePercent)
         connection.noteManualTreadmillTargetAdjustment()
@@ -1701,6 +1717,7 @@ struct ControlView: View {
     /// or running?" dialog first (`chooseTreadmillActivity(_:)` is what
     /// actually starts things once answered).
     private func startWorkout() {
+        ProtocolLog.log(.ui, "startWorkout")
         switch connection.machineKind {
         case .bike, .unknown:
             treadmillActivityType = nil

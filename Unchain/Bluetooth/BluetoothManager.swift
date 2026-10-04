@@ -313,6 +313,7 @@ final class BluetoothManager: NSObject, ObservableObject {
 
 extension BluetoothManager: CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        ProtocolLog.log(.ble, "central state \(central.state.rawValue)")
         isBluetoothReady = (central.state == .poweredOn)
         if isBluetoothReady {
             startScan()
@@ -348,6 +349,7 @@ extension BluetoothManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        ProtocolLog.log(.ble, "connected \(peripheral.name ?? "?")")
         if peripheral.identifier == currentConnection?.peripheral.identifier {
             currentConnection?.handleConnected()
         } else if peripheral.identifier == currentHeartRateConnection?.peripheral.identifier {
@@ -390,6 +392,7 @@ extension BluetoothManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        ProtocolLog.log(.ble, "disconnected \(peripheral.name ?? "?") \(error?.localizedDescription ?? "")")
         if peripheral.identifier == currentConnection?.peripheral.identifier {
             currentConnection?.handleDisconnected(error: error)
         } else if let heartRate = currentHeartRateConnection, peripheral.identifier == heartRate.peripheral.identifier {

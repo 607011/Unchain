@@ -72,6 +72,8 @@ struct SettingsView: View {
     @AppStorage(LanguageManager.storageKey) private var languageOverride = AppLanguage.system.rawValue
     @State private var isShowingLogWorkout = false
     @State private var isShowingDiagnostics = false
+    @State private var isShowingProtocolLog = false
+    @AppStorage(ProtocolLog.enabledKey) private var protocolLogEnabled = false
     @State private var isShowingWorkoutHistory = false
     /// Reloaded on every appearance (not just once) – `TrainerDeviceStore`
     /// is plain `UserDefaults`, not something SwiftUI observes on its own,
@@ -288,6 +290,16 @@ struct SettingsView: View {
                 } footer: {
                     Text("Crash and hang reports iOS collected for Unchain, saved locally on this device – nothing is sent anywhere automatically.")
                 }
+                Section {
+                    Toggle("Protocol Log", isOn: $protocolLogEnabled)
+                    Button {
+                        isShowingProtocolLog = true
+                    } label: {
+                        Label("Show Protocol Log", systemImage: "doc.plaintext")
+                    }
+                } footer: {
+                    Text("Development aid: records every Bluetooth packet sent and received, app launches and background/foreground changes, button presses, and changes to workout values, each with a microsecond timestamp. Stored only on this device. Heart rate values are included, so only share a log you're comfortable sharing.")
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -302,6 +314,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $isShowingDiagnostics) {
             DiagnosticsView()
+        }
+        .sheet(isPresented: $isShowingProtocolLog) {
+            ProtocolLogView()
         }
         .sheet(isPresented: $isShowingWorkoutHistory) {
             WorkoutHistoryView()

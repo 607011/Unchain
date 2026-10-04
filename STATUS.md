@@ -1192,6 +1192,23 @@ protocol), but hasn't been verified here.
       setting, already in Trainer Device Settings, is now used by the grace
       window too, so it no longer needs a separate tuning step
 
+- [x] Protocol log (development aid, off by default): Settings → Protocol
+      Log. `ProtocolLog` writes one file per app launch to Application
+      Support, keeping the last 10, each line stamped to the microsecond.
+      It records every Bluetooth packet in both directions as hex, with the
+      characteristic name (trainer notifications and the control-point
+      writes, heart rate measurements), plus connection state changes, app
+      launch and background/foreground transitions, button presses (Start,
+      Pause, Resume, Stop, +/- rows, mode changes), and changes to the
+      workout variables: state, active workout, the speed/incline offsets,
+      the last-sent values, and each console echo's decision (ignored as our
+      own, applied as a delta, or suppressed by the grace window). Off by
+      default. Shared via a share sheet, one file at a time. Heart rate
+      values are in it, so the footer says to share only logs the rider is
+      comfortable sharing. Tested in isolation (disabled writes nothing,
+      enabled writes microsecond-stamped hex lines); the in-app wiring is
+      not yet exercised on the treadmill
+
 ## App Store readiness
 
 Unchain has so far been built purely for personal use – sideloaded to one

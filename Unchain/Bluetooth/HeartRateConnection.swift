@@ -13,7 +13,9 @@ enum HeartRateConnectionState: Equatable {
 /// the heart rate characteristic and live heart rate. Runs independently and in
 /// parallel to any existing `TrainerConnection`.
 final class HeartRateConnection: NSObject, ObservableObject {
-    @Published private(set) var state: HeartRateConnectionState = .connecting
+    @Published private(set) var state: HeartRateConnectionState = .connecting {
+        didSet { ProtocolLog.log(.hr, "strap state \(state)") }
+    }
     @Published private(set) var bpm: Int?
 
     let peripheral: CBPeripheral
@@ -96,7 +98,11 @@ extension HeartRateConnection: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        if let error {
+            ProtocolLog.log(.hr, "measurement error: \(error.localizedDescription)")
+        }
         guard error == nil, characteristic.uuid == HeartRate.measurement, let data = characteristic.value else { return }
+        ProtocolLog.log(.hr, "rx \(ProtocolLog.hex(data))")
         bpm = Self.parseBPM(from: data)
     }
 

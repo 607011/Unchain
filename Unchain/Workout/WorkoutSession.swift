@@ -195,7 +195,9 @@ final class WorkoutSession: ObservableObject {
     /// `vibrationEnabledKey` above.
     static let intervalSoundVolumeKey = "intervalSoundVolumePercent"
 
-    @Published private(set) var state: WorkoutState = .idle
+    @Published private(set) var state: WorkoutState = .idle {
+        didSet { ProtocolLog.log(.workout, "state \(oldValue) → \(state)") }
+    }
     @Published private(set) var elapsedSeconds: Int = 0
     @Published var pendingSummary: WorkoutSummary?
     /// Set by `ControlView.configureWatchCompanion()`'s `onStartRequested`
@@ -355,14 +357,20 @@ final class WorkoutSession: ObservableObject {
     /// console-adjusted incline change wouldn't get paced the same way a
     /// file-authored one already is. Reset alongside
     /// `intensityAdjustmentPercent` in `loadTreadmillProgram(_:)`/`reset()`.
-    @Published private(set) var treadmillProgramSpeedOffsetKmh: Double = 0
-    @Published private(set) var treadmillProgramInclineOffsetPercent: Double = 0
+    @Published private(set) var treadmillProgramSpeedOffsetKmh: Double = 0 {
+        didSet { if oldValue != treadmillProgramSpeedOffsetKmh { ProtocolLog.log(.workout, "speed offset \(oldValue) → \(treadmillProgramSpeedOffsetKmh)") } }
+    }
+    @Published private(set) var treadmillProgramInclineOffsetPercent: Double = 0 {
+        didSet { if oldValue != treadmillProgramInclineOffsetPercent { ProtocolLog.log(.workout, "incline offset \(oldValue) → \(treadmillProgramInclineOffsetPercent)") } }
+    }
 
     /// The last loaded `.erg`/`.mrc`/GPX file, if any. Stays loaded across
     /// `reset()` so the same workout can be re-run without picking the file
     /// again – whether a given session actually *follows* it is decided at
     /// `start(usingProgram:)`, not just by this being non-nil.
-    @Published private(set) var activeWorkout: ActiveWorkout?
+    @Published private(set) var activeWorkout: ActiveWorkout? {
+        didSet { ProtocolLog.log(.workout, "active workout \(activeWorkout?.name ?? "none")") }
+    }
     @Published private(set) var isProgramFinished = false
     /// The `<TextEvent>` marker currently due to be shown, for a
     /// `.treadmillProgram` only (`nil` for `.program`/`.route`, which have
@@ -410,7 +418,9 @@ final class WorkoutSession: ObservableObject {
     /// `start()`, so loading a different file (or none) mid-workout, or
     /// starting a later manual session while a workout is still loaded from a
     /// previous run, can never make `tick()` fight the user's own +/- taps.
-    private var isDrivenByProgram = false
+    private var isDrivenByProgram = false {
+        didSet { if oldValue != isDrivenByProgram { ProtocolLog.log(.workout, "driven by program \(isDrivenByProgram)") } }
+    }
     /// Offset between `elapsedSeconds` (real, wall-clock workout time –
     /// never touched by a jump) and where playback actually is within the
     /// loaded program/route, e.g. after `jump(toElapsedSeconds:)`. Zero for
@@ -443,8 +453,12 @@ final class WorkoutSession: ObservableObject {
     /// ramp (see above) can differ from. Used as the *next* ramp's starting
     /// point, so a transition arriving before the previous one's ramp
     /// finished continues smoothly from wherever the belt actually is.
-    private var lastSentTreadmillSpeedKmh: Double?
-    private var lastSentTreadmillInclinePercent: Double?
+    private var lastSentTreadmillSpeedKmh: Double? {
+        didSet { if oldValue != lastSentTreadmillSpeedKmh { ProtocolLog.log(.workout, "last sent speed \(String(describing: lastSentTreadmillSpeedKmh))") } }
+    }
+    private var lastSentTreadmillInclinePercent: Double? {
+        didSet { if oldValue != lastSentTreadmillInclinePercent { ProtocolLog.log(.workout, "last sent incline \(String(describing: lastSentTreadmillInclinePercent))") } }
+    }
     /// Recently sent speed/incline values still awaiting their echo,
     /// oldest first – what `applyConsoleTargetSpeed(_:)`/`applyConsoleTargetIncline(_:)`
     /// check an echo against *before* treating it as a genuine console
@@ -822,16 +836,24 @@ final class WorkoutSession: ObservableObject {
     /// `activeWorkout` still happens to hold.
     func applyConsoleTargetSpeed(_ kmh: Double) {
         guard isDrivenByProgram, case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillSpeedKmh else { return }
-        if Self.consumeEcho(kmh, from: &recentSentSpeeds) { return }
+        if Self.consumeEcho(kmh, from: &recentSentSpeeds) {
+            ProtocolLog.log(.workout, "speed echo \(kmh) matched own send, ignored")
+            return
+        }
         let delta = Self.tenth(kmh - lastSent)
+        ProtocolLog.log(.workout, "speed echo \(kmh) is a console change, delta \(delta)")
         guard delta != 0 else { return }
         treadmillProgramSpeedOffsetKmh = Self.tenth(treadmillProgramSpeedOffsetKmh + delta)
     }
 
     func applyConsoleTargetIncline(_ percent: Double) {
         guard isDrivenByProgram, case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillInclinePercent else { return }
-        if Self.consumeEcho(percent, from: &recentSentInclines) { return }
+        if Self.consumeEcho(percent, from: &recentSentInclines) {
+            ProtocolLog.log(.workout, "incline echo \(percent) matched own send, ignored")
+            return
+        }
         let delta = Self.tenth(percent - lastSent)
+        ProtocolLog.log(.workout, "incline echo \(percent) is a console change, delta \(delta)")
         guard delta != 0 else { return }
         treadmillProgramInclineOffsetPercent = Self.tenth(treadmillProgramInclineOffsetPercent + delta)
     }

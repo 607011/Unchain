@@ -445,6 +445,24 @@ final class WorkoutSession: ObservableObject {
     /// finished continues smoothly from wherever the belt actually is.
     private var lastSentTreadmillSpeedKmh: Double?
     private var lastSentTreadmillInclinePercent: Double?
+    /// Recently sent speed/incline values still awaiting their echo,
+    /// oldest first – what `applyConsoleTargetSpeed(_:)`/`applyConsoleTargetIncline(_:)`
+    /// check an echo against *before* treating it as a genuine console
+    /// press. Needed because `lastSentTreadmill…` only knows the single
+    /// latest send: while a `.treadmillProgram` ramps (or a rider mashes
+    /// +/-), a fresh value goes out every tick, and the treadmill's echo
+    /// for an *earlier* one arrives after a later one has already replaced
+    /// `lastSent…` – which then read as a console press pulling the target
+    /// back, undone by the next echo, and so on. Reported directly for the
+    /// incline ("wild" swinging between two values while the app itself
+    /// was stepping it up). `TrainerConnection.consoleEchoGraceUntil` only
+    /// covers manual taps and Start, not these program-driven changes –
+    /// suppressing the console during every ramp tick would make the
+    /// console buttons useless exactly while a ramp is running.
+    private var recentSentSpeeds: [(value: Double, date: Date)] = []
+    private var recentSentInclines: [(value: Double, date: Date)] = []
+    private static let recentSentLifetime: TimeInterval = 3
+    private static let echoMatchTolerance = 0.05
     /// Same shape as `treadmillSpeedRampFromKmh`/`ToKmh` above, and driven
     /// by the exact same `treadmillSpeedRampStartSeconds`/
     /// `treadmillSpeedRampDurationSeconds` window – but never sent to the
@@ -804,6 +822,7 @@ final class WorkoutSession: ObservableObject {
     /// `activeWorkout` still happens to hold.
     func applyConsoleTargetSpeed(_ kmh: Double) {
         guard isDrivenByProgram, case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillSpeedKmh else { return }
+        if Self.consumeEcho(kmh, from: &recentSentSpeeds) { return }
         let delta = Self.tenth(kmh - lastSent)
         guard delta != 0 else { return }
         treadmillProgramSpeedOffsetKmh = Self.tenth(treadmillProgramSpeedOffsetKmh + delta)
@@ -811,6 +830,7 @@ final class WorkoutSession: ObservableObject {
 
     func applyConsoleTargetIncline(_ percent: Double) {
         guard isDrivenByProgram, case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillInclinePercent else { return }
+        if Self.consumeEcho(percent, from: &recentSentInclines) { return }
         let delta = Self.tenth(percent - lastSent)
         guard delta != 0 else { return }
         treadmillProgramInclineOffsetPercent = Self.tenth(treadmillProgramInclineOffsetPercent + delta)
@@ -825,6 +845,19 @@ final class WorkoutSession: ObservableObject {
     /// from what was sent; both read as a tiny "genuine" delta. Snapping
     /// every delta/offset/sent value to the grid makes them exactly equal
     /// or exactly one step apart. Also normalizes -0.0 to 0.
+    /// Drops expired entries, then – if `value` matches a recent send –
+    /// removes that entry *and every older one* (notifications arrive in
+    /// send order, so older ones were either already echoed or coalesced
+    /// away) and returns `true`: it's an echo of our own send, not a
+    /// console press.
+    private static func consumeEcho(_ value: Double, from sent: inout [(value: Double, date: Date)]) -> Bool {
+        let cutoff = Date().addingTimeInterval(-recentSentLifetime)
+        sent.removeAll { $0.date < cutoff }
+        guard let index = sent.firstIndex(where: { abs($0.value - value) < echoMatchTolerance }) else { return false }
+        sent.removeSubrange(0...index)
+        return true
+    }
+
     static func tenth(_ value: Double) -> Double {
         let rounded = (value * 10).rounded() / 10
         return rounded == 0 ? 0 : rounded
@@ -1056,6 +1089,8 @@ final class WorkoutSession: ObservableObject {
         treadmillSpeedRampDurationSeconds = 0
         lastSentTreadmillSpeedKmh = nil
         lastSentTreadmillInclinePercent = nil
+        recentSentSpeeds.removeAll()
+        recentSentInclines.removeAll()
         treadmillInclineRampFromPercent = nil
         treadmillInclineRampToPercent = nil
         estimatedPhysicalInclinePercent = nil
@@ -1734,6 +1769,15 @@ final class WorkoutSession: ObservableObject {
                 let wireIncline = Self.tenth(clampedInclinePercent)
                 connection.setTargetSpeed(kmh: wireSpeed)
                 connection.setTargetInclination(percent: wireIncline)
+                // See `recentSentSpeeds`' doc comment – only changes are
+                // recorded, a re-send of the same value isn't re-echoed.
+                let sentAt = Date()
+                if lastSentTreadmillSpeedKmh != wireSpeed {
+                    recentSentSpeeds.append((wireSpeed, sentAt))
+                }
+                if lastSentTreadmillInclinePercent != wireIncline {
+                    recentSentInclines.append((wireIncline, sentAt))
+                }
                 lastSentTreadmillSpeedKmh = wireSpeed
                 lastSentTreadmillInclinePercent = wireIncline
                 estimatedPhysicalInclinePercent = estimatedInclinePercent

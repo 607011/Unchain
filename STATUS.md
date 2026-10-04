@@ -1135,6 +1135,20 @@ protocol), but hasn't been verified here.
       whatever it predates – old history entries just don't show the new
       section/row rather than erroring
 
+- [x] Fixed a rounding bug in the console-echo mirroring: a treadmill
+      echo could produce not just a ±0 offset but a "-0.0 km/h" one, and
+      app and device could end up 0.1 km/h apart. Raw `Double` sums of
+      0.1-ish values carry round-off noise (so "no change" read as a tiny
+      nonzero delta), and a device that quantizes a sent 0.01-resolution
+      value to its own 0.1 grid echoes back something slightly different
+      from what was sent. Now everything on this path snaps to the 0.1 grid
+      (`WorkoutSession.tenth(_:)`, which also normalizes -0.0): speed/
+      incline are quantized and range-clamped *before* sending, and
+      `lastSentTreadmill…` records exactly that wire value (previously the
+      unclamped raw one), so an echo of our own send compares exactly equal;
+      deltas, offsets, the manual-mode steps/comparisons, and the offset
+      labels use the same snapping
+
 ## App Store readiness
 
 Unchain has so far been built purely for personal use – sideloaded to one

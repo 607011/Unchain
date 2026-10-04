@@ -748,12 +748,12 @@ final class WorkoutSession: ObservableObject {
     /// comment for the real bug (mashing this button made the offset
     /// visibly jump up and down) that exists to prevent.
     func adjustTreadmillProgramSpeed(byKmh delta: Double) {
-        treadmillProgramSpeedOffsetKmh += delta
+        treadmillProgramSpeedOffsetKmh = Self.tenth(treadmillProgramSpeedOffsetKmh + delta)
         connection.noteManualTreadmillTargetAdjustment()
     }
 
     func adjustTreadmillProgramIncline(byPercent delta: Double) {
-        treadmillProgramInclineOffsetPercent += delta
+        treadmillProgramInclineOffsetPercent = Self.tenth(treadmillProgramInclineOffsetPercent + delta)
         connection.noteManualTreadmillTargetAdjustment()
     }
 
@@ -804,16 +804,30 @@ final class WorkoutSession: ObservableObject {
     /// `activeWorkout` still happens to hold.
     func applyConsoleTargetSpeed(_ kmh: Double) {
         guard isDrivenByProgram, case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillSpeedKmh else { return }
-        let delta = kmh - lastSent
+        let delta = Self.tenth(kmh - lastSent)
         guard delta != 0 else { return }
-        treadmillProgramSpeedOffsetKmh += delta
+        treadmillProgramSpeedOffsetKmh = Self.tenth(treadmillProgramSpeedOffsetKmh + delta)
     }
 
     func applyConsoleTargetIncline(_ percent: Double) {
         guard isDrivenByProgram, case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillInclinePercent else { return }
-        let delta = percent - lastSent
+        let delta = Self.tenth(percent - lastSent)
         guard delta != 0 else { return }
-        treadmillProgramInclineOffsetPercent += delta
+        treadmillProgramInclineOffsetPercent = Self.tenth(treadmillProgramInclineOffsetPercent + delta)
+    }
+
+    /// Rounds to the 0.1 grid (km/h or %) the treadmill itself works on –
+    /// reported directly: a console echo produced not just a ±0 offset but
+    /// a "-0.0" one, and app and device could end up 0.1 km/h apart. Raw
+    /// `Double` sums/differences of 0.1-ish values carry round-off noise
+    /// (5.1 - 5.1000000000000005 ≠ 0), and a device that quantizes a sent
+    /// 0.01-resolution value to 0.1 echoes back something slightly different
+    /// from what was sent; both read as a tiny "genuine" delta. Snapping
+    /// every delta/offset/sent value to the grid makes them exactly equal
+    /// or exactly one step apart. Also normalizes -0.0 to 0.
+    static func tenth(_ value: Double) -> Double {
+        let rounded = (value * 10).rounded() / 10
+        return rounded == 0 ? 0 : rounded
     }
 
     func pause() {
@@ -1711,10 +1725,17 @@ final class WorkoutSession: ObservableObject {
                 } else {
                     estimatedInclinePercent = clampedInclinePercent
                 }
-                connection.setTargetSpeed(kmh: speedToSend)
-                connection.setTargetInclination(percent: clampedInclinePercent)
-                lastSentTreadmillSpeedKmh = speedToSend
-                lastSentTreadmillInclinePercent = clampedInclinePercent
+                // Quantized to the same 0.1 grid the treadmill itself
+                // reports back on (and clamped to its own range) *before*
+                // sending – see `Self.tenth(_:)`. `lastSent…` records what
+                // the device will actually hold, not the raw `Double` this
+                // computed, so an echo of this very send compares equal.
+                let wireSpeed = connection.speedRangeKmh.clamp(Self.tenth(speedToSend))
+                let wireIncline = Self.tenth(clampedInclinePercent)
+                connection.setTargetSpeed(kmh: wireSpeed)
+                connection.setTargetInclination(percent: wireIncline)
+                lastSentTreadmillSpeedKmh = wireSpeed
+                lastSentTreadmillInclinePercent = wireIncline
                 estimatedPhysicalInclinePercent = estimatedInclinePercent
                 if let index {
                     if didReachNewEntry {

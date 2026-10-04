@@ -1165,13 +1165,13 @@ struct ControlView: View {
     }
 
     private var treadmillProgramSpeedOffsetLabel: String {
-        let kmh = session.treadmillProgramSpeedOffsetKmh
+        let kmh = WorkoutSession.tenth(session.treadmillProgramSpeedOffsetKmh)
         if kmh == 0 { return "±0.0 km/h" }
         return String(format: kmh > 0 ? "+%.1f km/h" : "%.1f km/h", locale: .current, kmh)
     }
 
     private var treadmillProgramInclineOffsetLabel: String {
-        let percent = session.treadmillProgramInclineOffsetPercent
+        let percent = WorkoutSession.tenth(session.treadmillProgramInclineOffsetPercent)
         if percent == 0 { return "±0.0 %" }
         return String(format: percent > 0 ? "+%.1f %%" : "%.1f %%", locale: .current, percent)
     }
@@ -1540,7 +1540,7 @@ struct ControlView: View {
     /// above, kept separate since this mode drives two independent targets
     /// rather than one.
     private func stepSpeed(_ direction: Int) {
-        targetSpeedKmh = connection.speedRangeKmh.clamp(targetSpeedKmh + Double(direction) * speedStepKmh)
+        targetSpeedKmh = connection.speedRangeKmh.clamp(WorkoutSession.tenth(targetSpeedKmh + Double(direction) * speedStepKmh))
         connection.setTargetSpeed(kmh: targetSpeedKmh)
         // See `TrainerConnection.noteManualTreadmillTargetAdjustment()`'s
         // own doc comment.
@@ -1551,7 +1551,7 @@ struct ControlView: View {
     /// +/- one `inclineStepPercent`, clamp to the device's own reported
     /// range, and send right away – see `stepSpeed(_:)`'s own note.
     private func stepIncline(_ direction: Int) {
-        targetInclinePercent = connection.inclinationRangePercent.clamp(targetInclinePercent + Double(direction) * inclineStepPercent)
+        targetInclinePercent = connection.inclinationRangePercent.clamp(WorkoutSession.tenth(targetInclinePercent + Double(direction) * inclineStepPercent))
         connection.setTargetInclination(percent: targetInclinePercent)
         connection.noteManualTreadmillTargetAdjustment()
         session.recordTreadmillTarget(speedKmh: targetSpeedKmh, inclinePercent: targetInclinePercent)
@@ -1579,15 +1579,15 @@ struct ControlView: View {
     /// keeps this notification suppressed at the source for as long as taps
     /// keep coming, so this only ever sees an echo once things have settled.
     private func applyConsoleSpeedToManualTarget(_ kmh: Double) {
-        guard supportsSpeedTarget, kmh != targetSpeedKmh else { return }
-        targetSpeedKmh = connection.speedRangeKmh.clamp(kmh)
+        guard supportsSpeedTarget, WorkoutSession.tenth(kmh - targetSpeedKmh) != 0 else { return }
+        targetSpeedKmh = connection.speedRangeKmh.clamp(WorkoutSession.tenth(kmh))
         session.recordTreadmillTarget(speedKmh: targetSpeedKmh, inclinePercent: targetInclinePercent)
     }
 
     /// See `applyConsoleSpeedToManualTarget(_:)`'s own note.
     private func applyConsoleInclineToManualTarget(_ percent: Double) {
-        guard supportsInclinationTarget, percent != targetInclinePercent else { return }
-        targetInclinePercent = connection.inclinationRangePercent.clamp(percent)
+        guard supportsInclinationTarget, WorkoutSession.tenth(percent - targetInclinePercent) != 0 else { return }
+        targetInclinePercent = connection.inclinationRangePercent.clamp(WorkoutSession.tenth(percent))
         session.recordTreadmillTarget(speedKmh: targetSpeedKmh, inclinePercent: targetInclinePercent)
     }
 

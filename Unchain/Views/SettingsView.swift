@@ -73,7 +73,9 @@ struct SettingsView: View {
     @State private var isShowingLogWorkout = false
     @State private var isShowingDiagnostics = false
     @State private var isShowingProtocolLog = false
-    @AppStorage(ProtocolLog.enabledKey) private var protocolLogEnabled = false
+    @AppStorage(ProtocolLog.enabledKey) private var protocolLogEnabled = false {
+        didSet { if protocolLogEnabled { ProtocolLog.log(.app, "protocol log enabled") } }
+    }
     @State private var isShowingWorkoutHistory = false
     /// Reloaded on every appearance (not just once) – `TrainerDeviceStore`
     /// is plain `UserDefaults`, not something SwiftUI observes on its own,

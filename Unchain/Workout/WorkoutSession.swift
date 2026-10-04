@@ -473,6 +473,11 @@ final class WorkoutSession: ObservableObject {
     /// covers manual taps and Start, not these program-driven changes –
     /// suppressing the console during every ramp tick would make the
     /// console buttons useless exactly while a ramp is running.
+    /// The speed/incline the treadmill itself holds, as far as this app has
+    /// sent it. `nil` after a start/resume, which resets the treadmill to its
+    /// own default, so the next target is always sent.
+    private var deviceTargetSpeedKmh: Double?
+    private var deviceTargetInclinePercent: Double?
     private var recentSentSpeeds: [(value: Double, date: Date)] = []
     private var recentSentInclines: [(value: Double, date: Date)] = []
     private static let recentSentLifetime: TimeInterval = 3
@@ -613,6 +618,8 @@ final class WorkoutSession: ObservableObject {
     ///   session even while a workout happens to be loaded from an earlier run.
     func start(usingProgram: Bool) {
         guard state == .idle else { return }
+        deviceTargetSpeedKmh = nil
+        deviceTargetInclinePercent = nil
         isDrivenByProgram = usingProgram && activeWorkout != nil
         isProgramFinished = false
         programOffsetSeconds = 0
@@ -835,7 +842,9 @@ final class WorkoutSession: ObservableObject {
     /// (`start(usingProgram:)`), so this reflects reality regardless of what
     /// `activeWorkout` still happens to hold.
     func applyConsoleTargetSpeed(_ kmh: Double) {
-        guard isDrivenByProgram, case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillSpeedKmh else { return }
+        // Only while the belt is actually running. Paused/ended means it's
+        // ramping down, and that echo isn't a rider's button press.
+        guard state == .running, isDrivenByProgram, case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillSpeedKmh else { return }
         if Self.consumeEcho(kmh, from: &recentSentSpeeds) {
             ProtocolLog.log(.workout, "speed echo \(kmh) matched own send, ignored")
             return
@@ -847,7 +856,7 @@ final class WorkoutSession: ObservableObject {
     }
 
     func applyConsoleTargetIncline(_ percent: Double) {
-        guard isDrivenByProgram, case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillInclinePercent else { return }
+        guard state == .running, isDrivenByProgram, case .treadmillProgram = activeWorkout, let lastSent = lastSentTreadmillInclinePercent else { return }
         if Self.consumeEcho(percent, from: &recentSentInclines) {
             ProtocolLog.log(.workout, "incline echo \(percent) matched own send, ignored")
             return
@@ -926,6 +935,8 @@ final class WorkoutSession: ObservableObject {
 
     func resume() {
         guard state == .paused else { return }
+        deviceTargetSpeedKmh = nil
+        deviceTargetInclinePercent = nil
         connection.startOrResumeWorkout()
         state = .running
         startTracking()
@@ -958,6 +969,8 @@ final class WorkoutSession: ObservableObject {
     /// this, from observing `connection.deviceInitiatedResumeCount`.
     func resumeDueToDeviceStart() {
         guard state == .paused else { return }
+        deviceTargetSpeedKmh = nil
+        deviceTargetInclinePercent = nil
         state = .running
         startTracking()
     }
@@ -1120,6 +1133,8 @@ final class WorkoutSession: ObservableObject {
         lastSentTreadmillInclinePercent = nil
         recentSentSpeeds.removeAll()
         recentSentInclines.removeAll()
+        deviceTargetSpeedKmh = nil
+        deviceTargetInclinePercent = nil
         treadmillInclineRampFromPercent = nil
         treadmillInclineRampToPercent = nil
         estimatedPhysicalInclinePercent = nil
@@ -1796,16 +1811,21 @@ final class WorkoutSession: ObservableObject {
                 // computed, so an echo of this very send compares equal.
                 let wireSpeed = connection.speedRangeKmh.clamp(Self.tenth(speedToSend))
                 let wireIncline = Self.tenth(clampedInclinePercent)
-                connection.setTargetSpeed(kmh: wireSpeed)
-                connection.setTargetInclination(percent: wireIncline)
-                // See `recentSentSpeeds`' doc comment – only changes are
-                // recorded, a re-send of the same value isn't re-echoed.
+                // Only send what the device doesn't already hold. This used to
+                // go out twice a second (once from the treadmill's own data
+                // notification, once from the timer), identical both times.
+                // `deviceTarget…` is cleared on every start/resume, since the
+                // treadmill restarts at its own default then.
                 let sentAt = Date()
-                if lastSentTreadmillSpeedKmh != wireSpeed {
+                if wireSpeed != deviceTargetSpeedKmh {
+                    connection.setTargetSpeed(kmh: wireSpeed)
                     recentSentSpeeds.append((wireSpeed, sentAt))
+                    deviceTargetSpeedKmh = wireSpeed
                 }
-                if lastSentTreadmillInclinePercent != wireIncline {
+                if wireIncline != deviceTargetInclinePercent {
+                    connection.setTargetInclination(percent: wireIncline)
                     recentSentInclines.append((wireIncline, sentAt))
+                    deviceTargetInclinePercent = wireIncline
                 }
                 lastSentTreadmillSpeedKmh = wireSpeed
                 lastSentTreadmillInclinePercent = wireIncline

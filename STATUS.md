@@ -1209,6 +1209,23 @@ protocol), but hasn't been verified here.
       enabled writes microsecond-stamped hex lines); the in-app wiring is
       not yet exercised on the treadmill
 
+- [x] Three fixes from a real protocol log (`protocol-20261004-162441.log`):
+      - After Stop, the treadmill reported its ramp-down (0.08 km/h), which
+        the app read as a console change of -4.9 km/h. Console echoes are
+        now only applied while the session is `.running` (program mode), and
+        ignored while `.paused`/`.ended` (manual mode). Pause and Stop also
+        extend the echo grace by 6 s, so the ramp-down itself is suppressed
+        at the source.
+      - Speed and incline were sent twice per second with identical values
+        (the treadmill's data notification and the timer both triggered a
+        send). Now only a value the treadmill doesn't already hold is sent,
+        tracked as `deviceTargetSpeedKmh`/`deviceTargetInclinePercent` and
+        cleared on every start/resume (the treadmill restarts at its own
+        default then) and on a console-initiated resume.
+      - A console-initiated start (`startedOrResumedByUser`) now extends the
+        same start grace as an app-initiated one, since it produces the same
+        default-speed report. Turning Protocol Log on writes a marker line.
+
 ## App Store readiness
 
 Unchain has so far been built purely for personal use – sideloaded to one

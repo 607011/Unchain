@@ -1597,14 +1597,18 @@ struct ControlView: View {
     /// keeps this notification suppressed at the source for as long as taps
     /// keep coming, so this only ever sees an echo once things have settled.
     private func applyConsoleSpeedToManualTarget(_ kmh: Double) {
-        guard supportsSpeedTarget, WorkoutSession.tenth(kmh - targetSpeedKmh) != 0 else { return }
+        // Ignored while paused/ended: that's the belt ramping down, not a
+        // rider's button press (see `TrainerConnection.stopEchoGraceInterval`).
+        guard supportsSpeedTarget, session.state != .paused, session.state != .ended else { return }
+        guard WorkoutSession.tenth(kmh - targetSpeedKmh) != 0 else { return }
         targetSpeedKmh = connection.speedRangeKmh.clamp(WorkoutSession.tenth(kmh))
         session.recordTreadmillTarget(speedKmh: targetSpeedKmh, inclinePercent: targetInclinePercent)
     }
 
     /// See `applyConsoleSpeedToManualTarget(_:)`'s own note.
     private func applyConsoleInclineToManualTarget(_ percent: Double) {
-        guard supportsInclinationTarget, WorkoutSession.tenth(percent - targetInclinePercent) != 0 else { return }
+        guard supportsInclinationTarget, session.state != .paused, session.state != .ended else { return }
+        guard WorkoutSession.tenth(percent - targetInclinePercent) != 0 else { return }
         targetInclinePercent = connection.inclinationRangePercent.clamp(WorkoutSession.tenth(percent))
         session.recordTreadmillTarget(speedKmh: targetSpeedKmh, inclinePercent: targetInclinePercent)
     }

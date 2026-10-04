@@ -207,6 +207,8 @@ final class TrainerConnection: NSObject, ObservableObject {
     private static let startEchoGraceInterval: TimeInterval = 4.0
     /// Added on top of a device's own start countdown, see `startOrResumeWorkout()`.
     private static let startEchoGraceMarginSeconds: TimeInterval = 2.0
+    /// Covers the ramp-down after Pause/Stop, see `pauseWorkout()`.
+    private static let stopEchoGraceInterval: TimeInterval = 6.0
     private static let manualAdjustmentEchoGraceInterval: TimeInterval = 1.0
 
     /// Pushes `consoleEchoGraceUntil` forward by `interval` from now, never
@@ -443,24 +445,37 @@ final class TrainerConnection: NSObject, ObservableObject {
     func startOrResumeWorkout() {
         guard hasControl, let cp = controlPoint else { return }
         // See `consoleEchoGraceUntil`'s own doc comment.
-        // Covers the belt's own start countdown too, when this device has one
-        // on record (see `TrainerDeviceSettings.startCountdownSeconds`) –
-        // the treadmill's default-speed report comes out at the moment the
-        // belt actually starts moving, not when Start was sent.
-        let countdown = TrainerDeviceSettingsStore.load(for: peripheral.identifier).effectiveStartCountdownSeconds
-        extendConsoleEchoGrace(by: max(Self.startEchoGraceInterval, countdown + Self.startEchoGraceMarginSeconds))
+        extendStartEchoGrace()
         let payload = Data([FTMS.OpCode.startOrResume.rawValue])
         writeControlPoint(payload, to: cp)
     }
 
+    /// Covers the belt's own start countdown too, when this device has one on
+    /// record (see `TrainerDeviceSettings.startCountdownSeconds`). The
+    /// treadmill's default-speed report comes out when the belt actually
+    /// starts moving, not when Start was sent. Also used when the console
+    /// itself starts the belt (`startedOrResumedByUser`), which produces the
+    /// same report.
+    private func extendStartEchoGrace() {
+        let countdown = TrainerDeviceSettingsStore.load(for: peripheral.identifier).effectiveStartCountdownSeconds
+        extendConsoleEchoGrace(by: max(Self.startEchoGraceInterval, countdown + Self.startEchoGraceMarginSeconds))
+    }
+
     func pauseWorkout() {
         guard hasControl, let cp = controlPoint else { return }
+        // The belt decelerates after this, and the treadmill reports its
+        // ramp-down speed as a target change, same as the startup report.
+        extendConsoleEchoGrace(by: Self.stopEchoGraceInterval)
         let payload = Data([FTMS.OpCode.stopOrPause.rawValue, FTMS.StopPauseControlParameter.pause.rawValue])
         writeControlPoint(payload, to: cp)
     }
 
     func stopWorkout() {
         guard hasControl, let cp = controlPoint else { return }
+        // Same ramp-down report as `pauseWorkout()`. Observed in a real
+        // protocol log: after Stop the treadmill reported 0.08 km/h while
+        // slowing down, which the app read as a console change of -4.9 km/h.
+        extendConsoleEchoGrace(by: Self.stopEchoGraceInterval)
         let payload = Data([FTMS.OpCode.stopOrPause.rawValue, FTMS.StopPauseControlParameter.stop.rawValue])
         writeControlPoint(payload, to: cp)
     }
@@ -678,6 +693,10 @@ extension TrainerConnection: CBPeripheralDelegate {
         case FTMS.StatusOpCode.stoppedBySafetyKey.rawValue:
             deviceInitiatedStopReason = .safetyKey
         case FTMS.StatusOpCode.startedOrResumedByUser.rawValue:
+            // The console started the belt, which reports its own default
+            // speed the same way an app-initiated start does – see
+            // `extendStartEchoGrace()`.
+            extendStartEchoGrace()
             deviceInitiatedResumeCount += 1
         case FTMS.StatusOpCode.targetSpeedChanged.rawValue:
             // UINT16, 0.01 km/h resolution, little-endian – confirmed

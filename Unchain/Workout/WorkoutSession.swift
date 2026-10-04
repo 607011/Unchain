@@ -907,6 +907,13 @@ final class WorkoutSession: ObservableObject {
         connection.startOrResumeWorkout()
         state = .running
         startTracking()
+        // Same as `start(usingProgram:)`: send the program's current target
+        // right away rather than waiting for the next tick. Until a target is
+        // sent, the belt comes back up at the treadmill's own default speed
+        // (~0.8 km/h), and that's what the app then read as a console change.
+        if isDrivenByProgram, let workout = activeWorkout {
+            sendCurrentWorkoutTarget(for: workout)
+        }
     }
 
     /// The `TrainerConnection.deviceInitiatedResumeCount` counterpart to

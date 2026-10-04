@@ -1178,6 +1178,47 @@ protocol), but hasn't been verified here.
       Deliberately not done by suppressing the console during ramp ticks:
       that would make the console buttons dead exactly while a ramp runs
 
+- [x] Fixed a rounding bug in the console-echo mirroring: a treadmill
+      echo could produce not just a ±0 offset but a "-0.0 km/h" one, and
+      app and device could end up 0.1 km/h apart. Raw `Double` sums of
+      0.1-ish values carry round-off noise (so "no change" read as a tiny
+      nonzero delta), and a device that quantizes a sent 0.01-resolution
+      value to its own 0.1 grid echoes back something slightly different
+      from what was sent. Now everything on this path snaps to the 0.1 grid
+      (`WorkoutSession.tenth(_:)`, which also normalizes -0.0): speed/
+      incline are quantized and range-clamped *before* sending, and
+      `lastSentTreadmill…` records exactly that wire value (previously the
+      unclamped raw one), so an echo of our own send compares exactly equal;
+      deltas, offsets, the manual-mode steps/comparisons, and the offset
+      labels use the same snapping
+
+- [x] Fixed the echo-oscillation bug behind both the speed and the incline
+      Program delta: a treadmill echo for an *earlier* send, arriving after
+      a later send had already replaced `lastSentTreadmill…`, was read as a
+      console press pulling the target back – and the next echo pushed it
+      forward again, so the delta (and, for incline, the physical incline)
+      swung between two values. Mashing +/- was already covered by
+      `consoleEchoGraceUntil`, but a `.treadmillProgram` ramp sends a fresh
+      value every tick without any tap, so nothing suppressed those echoes.
+      `WorkoutSession` now keeps the recent sends still awaiting their echo
+      (`recentSentSpeeds`/`recentSentInclines`, 3 s lifetime, only recorded
+      on an actual change) and treats a matching echo as ours – consuming
+      it and every older entry, since notifications arrive in send order.
+      Deliberately not done by suppressing the console during ramp ticks:
+      that would make the console buttons dead exactly while a ramp runs
+
+- [x] A chest strap that dropped out during a workout was not reconnected
+      on returning to the app. Two gaps: the one automatic retry after a
+      drop was one-shot, and a failed retry (`didFailToConnect`) left the
+      strap parked on "failed" with nothing ever trying again. The retry is
+      now a shared `scheduleHeartRateReconnect(_:)`, used both after a drop
+      and after a failed attempt, so it keeps going. Also,
+      `BluetoothManager.ensureHeartRateStrapConnected()` runs whenever
+      `ControlView` returns to the foreground: a dropped/failed current
+      strap is re-connected, and with no current strap at all every
+      remembered one gets the launch-time speculative auto-reconnect.
+      Connected or still-connecting straps are left alone
+
 ## App Store readiness
 
 Unchain has so far been built purely for personal use – sideloaded to one

@@ -233,6 +233,41 @@ final class BluetoothManager: NSObject, ObservableObject {
         currentHeartRateConnection = nil
     }
 
+    /// Re-issues `connect` for the current strap after a short delay – the
+    /// same deferred retry `didDisconnectPeripheral` has always used (see the
+    /// long note there on why it isn't inline), now shared with the
+    /// failed-attempt path above.
+    private func scheduleHeartRateReconnect(_ heartRate: HeartRateConnection) {
+        let peripheral = heartRate.peripheral
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, self.currentHeartRateConnection === heartRate else { return }
+            self.central.connect(peripheral, options: nil)
+        }
+    }
+
+    /// Called whenever the app comes back to the foreground during a workout
+    /// (see `ControlView`). Reported directly: pausing a program, letting the
+    /// chest strap drop out, and returning to the app left the strap
+    /// unreconnected. Retries whatever is still missing: a dropped/failed
+    /// current strap is retried, and if there is no current strap at all,
+    /// every remembered one gets the same speculative auto-reconnect that
+    /// runs at launch. A strap that's already connected or still
+    /// connecting is left alone.
+    func ensureHeartRateStrapConnected() {
+        guard isBluetoothReady else { return }
+        guard let heartRate = currentHeartRateConnection else {
+            attemptAutoReconnectHeartRateStrap()
+            return
+        }
+        switch heartRate.state {
+        case .disconnected, .failed:
+            heartRate.prepareForReconnect()
+            central.connect(heartRate.peripheral, options: nil)
+        case .connecting, .discoveringServices, .ready:
+            break
+        }
+    }
+
     /// Reconnects a previously-used strap purely from its stored identifier
     /// (`knownHeartRateStrapUUIDsKey`) – no scanning needed, and it works
     /// even before the strap is back in range. Once
@@ -334,8 +369,16 @@ extension BluetoothManager: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         if peripheral.identifier == currentConnection?.peripheral.identifier {
             currentConnection?.handleFailedToConnect(error: error)
-        } else if peripheral.identifier == currentHeartRateConnection?.peripheral.identifier {
-            currentHeartRateConnection?.handleFailedToConnect(error: error)
+        } else if let heartRate = currentHeartRateConnection, peripheral.identifier == heartRate.peripheral.identifier {
+            heartRate.handleFailedToConnect(error: error)
+            // Not a terminal state for a strap the rider still wants – it
+            // was dropped (see `didDisconnectPeripheral`) and this is just
+            // one failed attempt at getting it back, e.g. during the one-shot
+            // retry right after a drop. Keep trying, the same way a drop
+            // itself does, instead of leaving it stuck on "failed" until
+            // something else happens to reconnect it by hand.
+            heartRate.prepareForReconnect()
+            scheduleHeartRateReconnect(heartRate)
         } else {
             // A still-pending speculative attempt that failed outright
             // (rather than just staying pending until reachable, the
@@ -382,10 +425,7 @@ extension BluetoothManager: CBCentralManagerDelegate {
             // entry's own doc comment for the honest limits here – but the
             // one concrete change directly motivated by what actually
             // matches "no interaction at all".
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-                guard let self, self.currentHeartRateConnection === heartRate else { return }
-                self.central.connect(peripheral, options: nil)
-            }
+            scheduleHeartRateReconnect(heartRate)
         }
     }
 }

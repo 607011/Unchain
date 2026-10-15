@@ -536,7 +536,7 @@
   <div class="scope-wrap">
     <div id="lanes-bike">
       <div class="lane-label power">Power target — 0–500 W</div>
-      <div class="scope-scroll"><svg class="lane" id="svg-power" height="200"></svg></div>
+      <div class="scope-scroll" id="scroll-power"><svg class="lane" id="svg-power" height="200"></svg></div>
     </div>
     <div id="lanes-treadmill" style="display:none;">
       <div class="lane-label speed">Speed target — 0–20 km/h</div>
@@ -3436,6 +3436,51 @@
     state.name = v;
     this.value = v;
     updatePreview();
+  });
+
+  // Left/Right-arrow horizontal scroll while the pointer hovers any lane's
+  // chart – requested directly, after reaching a chart's own edge with no
+  // scrollbar in sight turned out to be the main way people actually tried
+  // to navigate a long workout. Same `hoverSeconds` gating (and the same
+  // "not while typing, no modifiers" guards) as the Cut/Mark/Delete
+  // listener above, kept separate since this one's concern is purely
+  // navigation, not editing. The step is a third of the (visible) scroll
+  // container's own width – a "page" at a time, same feel as a native
+  // scrollbar track-click, rather than a fixed pixel count that would
+  // cover a wildly different fraction of the chart depending on window
+  // width.
+  //
+  // Scrolls only the one visible lane this keydown actually resolves to
+  // scrolling (Power in Bike mode; Speed in Treadmill mode) – *not* every
+  // `.scope-scroll` at once, and *not* with `behavior: "smooth"` either,
+  // even though that reads as the obvious choice for a keyboard-driven
+  // scroll. Both found live to fight the `syncTreadmillLaneScrolling()`
+  // listener below: it mirrors one side's `scroll` event onto the other
+  // inside a `syncing` guard that's already been reset back to `false` by
+  // the time that mirrored write's *own* resulting `scroll` event fires on
+  // the other element (a separate, later task) – which then bounces an
+  // echo back onto whichever element this handler is actually driving,
+  // and over a multi-frame smooth animation (or two independently-animated
+  // elements), each echo lands mid-flight and yanks it back toward an
+  // already-stale position instead of where the animation has since
+  // moved on to, so two elements scrolling "smoothly" at once visibly
+  // never got anywhere – a handful of pixels after several key presses
+  // instead of a full step each. A single, instant jump sidesteps this
+  // completely: one `scroll` event, one mirrored write, one echo back
+  // that simply reassigns the same value it's already at – harmless,
+  // since there's no longer an in-flight animation for it to interrupt.
+  document.addEventListener("keydown", function (evt) {
+    if (hoverSeconds === null) return;
+    if (evt.key !== "ArrowLeft" && evt.key !== "ArrowRight") return;
+    var tag = document.activeElement ? document.activeElement.tagName : "";
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    if (evt.ctrlKey || evt.metaKey || evt.altKey || evt.shiftKey) return;
+    var target = document.getElementById(state.mode === "bike" ? "scroll-power" : "scroll-speed");
+    if (!target) return;
+    var step = Math.max(40, target.clientWidth * 0.33);
+    var delta = evt.key === "ArrowLeft" ? -step : step;
+    target.scrollBy({ left: delta });
+    evt.preventDefault();
   });
 
   // Keeps the Speed and Incline lanes' own horizontal scroll positions in

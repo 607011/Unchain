@@ -545,7 +545,14 @@
       <div class="scope-scroll" id="scroll-incline"><svg class="lane" id="svg-incline" height="140"></svg></div>
     </div>
     <div class="readout" id="readout"></div>
-    <div class="hint" id="grid-hint">Drag vertically to set a value, sideways to draw across intervals. Hover an interval, then press <kbd>C</kbd> to cut there, <kbd>M</kbd> to add a text marker, <kbd>Del</kbd>/<kbd>Backspace</kbd> to delete it. Drag the ⋮ handle at either shaded edge to resize Warm-up/Cool-down — everything between exports as <code>SteadyState</code>.</div>
+    <!-- The Shift+drag ramp-edge gesture itself (see `segEdgeAt`) shipped
+         in 6495598 and was never actually removed – reported directly as
+         seemingly "gone". Traced to this hint: it never mentioned the
+         gesture at all, not even in the commit that added it, so nothing
+         on screen ever told a rider it existed in the first place –
+         findable only by reading the code (or this history) once it
+         stopped being remembered. -->
+    <div class="hint" id="grid-hint">Drag vertically to set a value, sideways to draw across intervals. Hold <kbd>Shift</kbd> near an interval's start/end to drag a linear ramp there instead of a flat step. Hover an interval, then press <kbd>C</kbd> to cut there, <kbd>M</kbd> to add a text marker, <kbd>Del</kbd>/<kbd>Backspace</kbd> to delete it. Drag the ⋮ handle at either shaded edge to resize Warm-up/Cool-down — everything between exports as <code>SteadyState</code>.</div>
     <!-- Shown instead of `#grid-hint` while `state.layout === "segments"`
          (an imported/parsed workout, shown "as is" – see `state.layout`'s
          own doc comment) – toggled in `renderAll`, matching how every

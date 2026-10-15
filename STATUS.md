@@ -1225,6 +1225,13 @@ protocol), but hasn't been verified here.
       - A console-initiated start (`startedOrResumedByUser`) now extends the
         same start grace as an app-initiated one, since it produces the same
         default-speed report. Turning Protocol Log on writes a marker line.
+- [x] `WorkoutProgram`/`TreadmillWorkoutProgram.suggestedFileName` now
+      replace a "%" in the workout name with "pct" before sanitizing it
+      into a filename, rather than silently dropping it along with the
+      other filesystem-reserved characters – requested directly, since a
+      title like "75% FTP" losing the "%" read as "75 FTP". The web
+      builder's own `docs/builder.html` mirrors the same sanitizing (see
+      its own `suggestedFileName`) and got the identical fix
 
 ## App Store readiness
 

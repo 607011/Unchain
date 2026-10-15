@@ -656,7 +656,10 @@
   // on blank/whitespace-only (`DEFAULT_WORKOUT_NAME`) rather than
   // `state.name` only ever reflecting what's actually committed there.
   function suggestedFileName(fmt) {
-    var sanitized = state.name.replace(/[\/\\:*?"<>|]/g, "").trim();
+    // "%" replaced outright, not just stripped like the rest below – a
+    // title like "75% FTP" losing the "%" silently reads as "75 FTP",
+    // which isn't what it meant; "75pct FTP" at least still says so.
+    var sanitized = state.name.replace(/%/g, "pct").replace(/[\/\\:*?"<>|]/g, "").trim();
     return (sanitized || DEFAULT_WORKOUT_NAME) + "." + fmt;
   }
 

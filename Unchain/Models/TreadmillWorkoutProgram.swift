@@ -300,7 +300,8 @@ struct TreadmillWorkoutProgram: Codable, Equatable {
     /// fixed `.zwo` extension (there's no `targetKind`-style branch here –
     /// every `TreadmillWorkoutProgram` is always speed+incline).
     var suggestedFileName: String {
-        let sanitized = name.components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|")).joined()
+        let percentless = name.replacingOccurrences(of: "%", with: "pct")
+        let sanitized = percentless.components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|")).joined()
         return "\(sanitized.isEmpty ? String(localized: "Workout") : sanitized).zwo"
     }
 

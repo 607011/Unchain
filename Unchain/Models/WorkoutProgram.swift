@@ -190,7 +190,11 @@ struct WorkoutProgram: Codable, Equatable {
     /// power target, `.mrc` for resistance, matching how
     /// `WorkoutProgramParser` would interpret the extension on re-import.
     var suggestedFileName: String {
-        let sanitized = name.components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|")).joined()
+        // "%" replaced outright, not just stripped below – a name like
+        // "75% FTP" losing the "%" silently reads as "75 FTP", which isn't
+        // what it meant; "75pct FTP" at least still says so.
+        let percentless = name.replacingOccurrences(of: "%", with: "pct")
+        let sanitized = percentless.components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|")).joined()
         let fileExtension = targetKind == .power ? "erg" : "mrc"
         return "\(sanitized.isEmpty ? String(localized: "Workout") : sanitized).\(fileExtension)"
     }

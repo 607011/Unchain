@@ -643,6 +643,23 @@
   // instead of an invalid number.
   var DEFAULT_WORKOUT_NAME = "Interval Sketch";
 
+  // The download filename for whichever format is active – requested
+  // directly, after the file always coming out as the fixed
+  // "interval-sketch.<ext>" regardless of the rider's own title turned
+  // out unhelpful once more than one workout had actually been exported.
+  // Strips the same filesystem-reserved characters the app's own Swift
+  // `WorkoutProgram.suggestedFileName` already strips from a title before
+  // using it as a filename (`/\\:*?"<>|` – `/` and `\` because they're
+  // path separators, the rest because Windows reserves them too, even
+  // though this only ever runs on whatever OS the browser itself is on),
+  // falling back to the same default the title field itself falls back to
+  // on blank/whitespace-only (`DEFAULT_WORKOUT_NAME`) rather than
+  // `state.name` only ever reflecting what's actually committed there.
+  function suggestedFileName(fmt) {
+    var sanitized = state.name.replace(/[\/\\:*?"<>|]/g, "").trim();
+    return (sanitized || DEFAULT_WORKOUT_NAME) + "." + fmt;
+  }
+
   // Starting segment count for a from-scratch workout (both `sampleBike`'s
   // old `n` default and `resizeSegments`'s own floor/reference) – `state`
   // no longer tracks a separate `bins` field (see `activeSegments()`'s own
@@ -3235,7 +3252,7 @@
       var url = URL.createObjectURL(blob);
       var a = document.createElement("a");
       a.href = url;
-      a.download = "interval-sketch." + fmt;
+      a.download = suggestedFileName(fmt);
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
